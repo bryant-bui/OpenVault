@@ -29,6 +29,7 @@ android/**/build/
 android/.idea/
 *.apk
 *.aab
+*.zip
 
 # IDE & OS
 .vscode/

@@ -6,21 +6,20 @@ import {
 } from "@openvault/crypto-core";
 import {
   ArrowLeft,
-  CheckCircle2,
   Copy,
   Edit3,
   ExternalLink,
   Eye,
   EyeOff,
   Fingerprint,
-  Lock,
+  Folder,
   Maximize2,
+  MoreVertical,
   RotateCcw,
-  ShieldAlert,
   Star,
   Trash2,
 } from "lucide-react";
-import { useState } from "react";
+import { useId, useRef, useState } from "react";
 import { BrandAvatar } from "../components/BrandAvatar.js";
 import { ColorPassword } from "../components/ColorPassword.js";
 import { ConfirmDialog } from "../components/ConfirmDialog.js";
@@ -32,6 +31,7 @@ interface DetailPaneProps {
   folder: FolderPayload | null;
   showFavicons: boolean;
   canAutofill: boolean;
+  isCurrentSiteMatch: boolean;
   showBackButton: boolean;
   onBack: () => void;
   onEdit: (cipher: CipherPayload) => void;
@@ -42,15 +42,12 @@ interface DetailPaneProps {
   onCopyText: (text: string, label: string) => Promise<void>;
 }
 
-const STRENGTH_META: Record<
-  number,
-  { label: string; color: string; bg: string }
-> = {
-  0: { label: "Yếu", color: "var(--danger)", bg: "var(--danger-soft)" },
-  1: { label: "Trung bình", color: "var(--warning)", bg: "var(--warning-soft)" },
-  2: { label: "Khá tốt", color: "var(--accent)", bg: "var(--accent-soft)" },
-  3: { label: "Mạnh", color: "var(--success)", bg: "var(--success-soft)" },
-  4: { label: "Tuyệt vời", color: "var(--success)", bg: "var(--success-soft)" },
+const STRENGTH_META: Record<number, { label: string; color: string }> = {
+  0: { label: "Yếu", color: "var(--danger)" },
+  1: { label: "Trung bình", color: "var(--warning)" },
+  2: { label: "Khá tốt", color: "var(--accent)" },
+  3: { label: "Mạnh", color: "var(--success)" },
+  4: { label: "Tuyệt vời", color: "var(--success)" },
 };
 
 export function DetailPane({
@@ -59,6 +56,7 @@ export function DetailPane({
   folder,
   showFavicons,
   canAutofill,
+  isCurrentSiteMatch,
   showBackButton,
   onBack,
   onEdit,
@@ -72,12 +70,20 @@ export function DetailPane({
   const [largeType, setLargeType] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
+  const morePopoverId = useId();
+  const morePopoverRef = useRef<HTMLDivElement>(null);
+
   const isTrashed = Boolean(cipher.deletedDate);
   const accountLabel = accountEmail.split("@")[0] || "Cá nhân";
+  const primaryUri = cipher.login?.uris?.find((u) => u.uri)?.uri ?? null;
   const pwStrength = cipher.login?.password
     ? estimatePasswordStrength(cipher.login.password)
     : null;
   const strengthBadge = pwStrength ? STRENGTH_META[pwStrength.score] : null;
+
+  const closeMorePopover = () => {
+    morePopoverRef.current?.hidePopover?.();
+  };
 
   const handleConfirmDelete = async () => {
     setConfirmDeleteOpen(false);
@@ -86,19 +92,29 @@ export function DetailPane({
     }
   };
 
+  const handleOpenAndFill = () => {
+    if (!cipher.id) return;
+    if (isCurrentSiteMatch || !primaryUri) {
+      void onAutofill(cipher.id);
+      return;
+    }
+    const target = /^https?:\/\//i.test(primaryUri) ? primaryUri : `https://${primaryUri}`;
+    void chrome.tabs.create({ url: target });
+  };
+
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-[var(--surface)]">
-      {/* 1Password Detail Context Row (Vault pills left, Autofill + actions right) */}
-      <div className="px-4 py-2.5 border-b border-[var(--border)] flex items-center justify-between gap-2">
+      {/* Authentic 1Password 8 Detail Context Bar (38px aligned with left "All Items" header) */}
+      <div className="h-[38px] shrink-0 px-4 border-b border-[var(--border)] flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           {showBackButton ? (
             <button
               type="button"
               onClick={onBack}
-              className="ov-icon-btn w-7 h-7 shrink-0"
+              className="ov-icon-btn w-6 h-6 shrink-0"
               aria-label="Quay lại danh sách"
             >
-              <ArrowLeft size={15} />
+              <ArrowLeft size={14} />
             </button>
           ) : null}
 
@@ -109,97 +125,144 @@ export function DetailPane({
             >
               {accountLabel[0]?.toUpperCase() ?? "O"}
             </span>
-            <span className="truncate max-w-[92px]">{accountLabel}</span>
+            <span className="truncate max-w-[82px]">{accountLabel}</span>
           </span>
 
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[var(--accent-soft)] text-[var(--accent)] shrink-0">
-            <Lock size={10} />
-            <span>{folder?.name ?? "Cá nhân"}</span>
+          <span className="text-[var(--border-strong)] text-[11px]">|</span>
+
+          <span className="inline-flex items-center gap-1 text-[11.5px] font-medium text-[var(--text-secondary)] truncate">
+            <Folder size={12} className="shrink-0 text-[var(--text-muted)]" />
+            <span className="truncate max-w-[96px]">{folder?.name ?? "Cá nhân"}</span>
           </span>
         </div>
 
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="flex items-center gap-1.5 shrink-0">
           {!isTrashed &&
-          canAutofill &&
+          (canAutofill || primaryUri) &&
           (cipher.type === CipherType.Login ||
             cipher.type === CipherType.Card ||
             cipher.type === CipherType.Identity) &&
           cipher.id ? (
             <button
               type="button"
-              onClick={() => {
-                void onAutofill(cipher.id!);
-              }}
-              className="ov-btn-autofill px-3 py-1 text-[12px]"
+              onClick={handleOpenAndFill}
+              className="ov-btn-autofill h-[26px] px-2.5 text-[11.5px] leading-none"
             >
-              Autofill
+              {isCurrentSiteMatch || !primaryUri ? "Điền ngay" : "Mở & Điền"}
             </button>
           ) : null}
 
-          {!isTrashed ? (
-            <>
-              <button
-                type="button"
-                onClick={() => {
-                  void onToggleFavorite(cipher);
-                }}
-                className="ov-icon-btn w-7 h-7"
-                title={cipher.favorite ? "Bỏ yêu thích" : "Thêm vào yêu thích"}
-                aria-label="Yêu thích"
-              >
-                <Star
-                  size={15}
-                  className={cipher.favorite ? "fill-[var(--warning)] text-[var(--warning)]" : ""}
-                />
-              </button>
-              <button
-                type="button"
-                onClick={() => onEdit(cipher)}
-                className="ov-icon-btn w-7 h-7"
-                title="Chỉnh sửa"
-                aria-label="Chỉnh sửa"
-              >
-                <Edit3 size={14} />
-              </button>
-            </>
-          ) : (
-            <button
-              type="button"
-              onClick={() => {
-                if (cipher.id) void onRestore(cipher.id);
-              }}
-              className="ov-btn-ghost px-2.5 py-1 text-[11.5px] inline-flex items-center gap-1"
-            >
-              <RotateCcw size={12} />
-              <span>Khôi phục</span>
-            </button>
-          )}
-
+          {/* Native Popover More Actions Button (modern-web-guidance: viewport-aware-dropdowns) */}
           <button
             type="button"
-            onClick={() => setConfirmDeleteOpen(true)}
-            className="ov-icon-btn w-7 h-7 hover:text-[var(--danger)]"
-            title={isTrashed ? "Xóa vĩnh viễn" : "Chuyển vào thùng rác"}
-            aria-label="Xóa"
+            popoverTarget={morePopoverId}
+            className="ov-icon-btn w-7 h-7"
+            title="Tùy chọn mục"
+            aria-label="Tùy chọn mục"
           >
-            <Trash2 size={14} />
+            <MoreVertical size={15} />
           </button>
+          <div
+            id={morePopoverId}
+            ref={morePopoverRef}
+            popover="auto"
+            className="ov-popover ov-popover-end"
+          >
+            {!isTrashed ? (
+              <>
+                <button
+                  type="button"
+                  className="ov-popover-item"
+                  onClick={() => {
+                    closeMorePopover();
+                    onEdit(cipher);
+                  }}
+                >
+                  <Edit3 size={13} />
+                  <span>Chỉnh sửa mục</span>
+                </button>
+                <button
+                  type="button"
+                  className="ov-popover-item"
+                  onClick={() => {
+                    closeMorePopover();
+                    void onToggleFavorite(cipher);
+                  }}
+                >
+                  <Star
+                    size={13}
+                    className={cipher.favorite ? "fill-[var(--warning)] text-[var(--warning)]" : ""}
+                  />
+                  <span>{cipher.favorite ? "Bỏ yêu thích" : "Thêm vào yêu thích"}</span>
+                </button>
+                {canAutofill && cipher.id ? (
+                  <button
+                    type="button"
+                    className="ov-popover-item"
+                    onClick={() => {
+                      closeMorePopover();
+                      void onAutofill(cipher.id!);
+                    }}
+                  >
+                    <ExternalLink size={13} />
+                    <span>Điền vào tab hiện tại</span>
+                  </button>
+                ) : null}
+              </>
+            ) : (
+              <button
+                type="button"
+                className="ov-popover-item"
+                onClick={() => {
+                  closeMorePopover();
+                  if (cipher.id) void onRestore(cipher.id);
+                }}
+              >
+                <RotateCcw size={13} />
+                <span>Khôi phục từ thùng rác</span>
+              </button>
+            )}
+
+            <hr className="my-1 border-0 border-t border-[var(--border)]" />
+            <button
+              type="button"
+              data-danger="true"
+              className="ov-popover-item"
+              onClick={() => {
+                closeMorePopover();
+                setConfirmDeleteOpen(true);
+              }}
+            >
+              <Trash2 size={13} />
+              <span>{isTrashed ? "Xóa vĩnh viễn" : "Chuyển vào thùng rác"}</span>
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Scrollable Clean 1Password Detail Body */}
-      <div className="flex-1 overflow-y-auto ov-scroll px-5 py-4 flex flex-col gap-3">
-        {/* Hero */}
-        <div className="flex items-center gap-3.5 pb-1">
-          <BrandAvatar
-            name={cipher.name}
-            type={cipher.type}
-            uri={cipher.login?.uris?.[0]?.uri}
-            showFavicon={showFavicons}
-            size="lg"
-          />
+      {/* Scrollable Clean 1Password 8 Detail Body */}
+      <div className="flex-1 overflow-y-auto ov-scroll px-5 py-4 flex flex-col gap-4">
+        {/* Hero with large rounded-square icon + optional gold star corner badge */}
+        <div className="flex items-center gap-3.5">
+          <div className="relative shrink-0">
+            <BrandAvatar
+              name={cipher.name}
+              type={cipher.type}
+              uri={primaryUri ?? undefined}
+              showFavicon={showFavicons}
+              size="lg"
+            />
+            {cipher.favorite ? (
+              <span
+                className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-[var(--surface)] flex items-center justify-center shadow-sm"
+                title="Yêu thích"
+              >
+                <Star size={11} className="fill-[var(--warning)] text-[var(--warning)]" />
+              </span>
+            ) : null}
+          </div>
           <div className="min-w-0 flex-1">
-            <h2 className="text-[18px] font-bold tracking-tight m-0 truncate text-[var(--text-primary)]">
+            <h2 className="text-[19px] font-bold tracking-tight m-0 truncate text-[var(--text-primary)]">
               {cipher.name}
             </h2>
             {cipher.deletedDate ? (
@@ -210,161 +273,167 @@ export function DetailPane({
           </div>
         </div>
 
-        {/* Clean stacked fields — zero noisy box borders */}
+        {/* Exact Image 1 Grouped Bordered Field Card */}
         {cipher.type === CipherType.Login && cipher.login ? (
-          <div className="flex flex-col divide-y divide-[var(--border)] -mx-2">
-            {cipher.login.username ? (
-              <div className="ov-detail-field group flex items-center justify-between gap-2">
-                <div
-                  className="min-w-0 flex-1 cursor-pointer"
-                  onClick={() => {
-                    void onCopyText(cipher.login!.username!, "Đã sao chép tên đăng nhập");
-                  }}
-                >
-                  <div className="text-[11px] font-medium text-[var(--text-muted)]">username</div>
-                  <div className="text-[13.5px] font-medium mt-0.5 break-all text-[var(--text-primary)]">
-                    {cipher.login.username}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    void onCopyText(cipher.login!.username!, "Đã sao chép tên đăng nhập");
-                  }}
-                  className="ov-icon-btn w-7 h-7 opacity-0 group-hover:opacity-100 focus:opacity-100 shrink-0"
-                  title="Sao chép username"
-                  aria-label="Sao chép username"
-                >
-                  <Copy size={13} />
-                </button>
-              </div>
-            ) : null}
-
-            {cipher.login.password ? (
-              <div className="ov-detail-field group">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="text-[11px] font-medium text-[var(--text-muted)]">password</div>
-                  <div className="flex items-center gap-1">
-                    {strengthBadge ? (
-                      <span
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-semibold mr-1"
-                        style={{ color: strengthBadge.color, background: strengthBadge.bg }}
-                      >
-                        {pwStrength && pwStrength.score >= 3 ? (
-                          <CheckCircle2 size={11} />
-                        ) : (
-                          <ShieldAlert size={11} />
-                        )}
-                        <span>{strengthBadge.label}</span>
-                      </span>
-                    ) : null}
-                    <button
-                      type="button"
+          <>
+            {(cipher.login.username || cipher.login.password || cipher.login.totp) ? (
+              <div className="ov-detail-card divide-y divide-[var(--border)]">
+                {cipher.login.username ? (
+                  <div className="px-3.5 py-2.5 group flex items-center justify-between gap-2 hover:bg-[var(--surface-subtle)] transition-colors">
+                    <div
+                      className="min-w-0 flex-1 cursor-pointer"
                       onClick={() => {
-                        setRevealPassword(true);
-                        setLargeType((v) => !v);
+                        void onCopyText(cipher.login!.username!, "Đã sao chép tên đăng nhập");
                       }}
-                      className="ov-icon-btn w-6 h-6 opacity-70 hover:opacity-100"
-                      title="Phóng to mật khẩu"
-                      aria-label="Phóng to mật khẩu"
                     >
-                      <Maximize2 size={12} />
-                    </button>
+                      <div className="text-[11px] font-medium" style={{ color: "var(--field-label)" }}>
+                        username
+                      </div>
+                      <div className="text-[13.5px] font-medium mt-0.5 break-all text-[var(--text-primary)]">
+                        {cipher.login.username}
+                      </div>
+                    </div>
                     <button
                       type="button"
                       onClick={() => {
-                        setRevealPassword((v) => !v);
-                        if (revealPassword) setLargeType(false);
+                        void onCopyText(cipher.login!.username!, "Đã sao chép tên đăng nhập");
                       }}
-                      className="ov-icon-btn w-6 h-6 opacity-70 hover:opacity-100"
-                      title={revealPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
-                      aria-label={revealPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
-                    >
-                      {revealPassword ? <EyeOff size={13} /> : <Eye size={13} />}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void onCopyText(cipher.login!.password!, "Đã sao chép mật khẩu");
-                      }}
-                      className="ov-icon-btn w-6 h-6 opacity-70 hover:opacity-100"
-                      title="Sao chép mật khẩu"
-                      aria-label="Sao chép mật khẩu"
+                      className="ov-icon-btn w-7 h-7 opacity-0 group-hover:opacity-100 focus:opacity-100 shrink-0"
+                      title="Sao chép username"
+                      aria-label="Sao chép username"
                     >
                       <Copy size={13} />
                     </button>
                   </div>
-                </div>
-                <div
-                  className="mt-1 cursor-pointer"
-                  onClick={() => {
-                    void onCopyText(cipher.login!.password!, "Đã sao chép mật khẩu");
-                  }}
-                >
-                  <ColorPassword
-                    value={cipher.login.password}
-                    revealed={revealPassword}
-                    large={largeType}
-                  />
-                </div>
+                ) : null}
+
+                {cipher.login.password ? (
+                  <div className="px-3.5 py-2.5 group hover:bg-[var(--surface-subtle)] transition-colors">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-[11px] font-medium" style={{ color: "var(--field-label)" }}>
+                        password
+                      </div>
+                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRevealPassword(true);
+                            setLargeType((v) => !v);
+                          }}
+                          className="ov-icon-btn w-6 h-6"
+                          title="Phóng to mật khẩu"
+                          aria-label="Phóng to mật khẩu"
+                        >
+                          <Maximize2 size={12} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRevealPassword((v) => !v);
+                            if (revealPassword) setLargeType(false);
+                          }}
+                          className="ov-icon-btn w-6 h-6"
+                          title={revealPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+                          aria-label={revealPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+                        >
+                          {revealPassword ? <EyeOff size={13} /> : <Eye size={13} />}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void onCopyText(cipher.login!.password!, "Đã sao chép mật khẩu");
+                          }}
+                          className="ov-icon-btn w-6 h-6"
+                          title="Sao chép mật khẩu"
+                          aria-label="Sao chép mật khẩu"
+                        >
+                          <Copy size={13} />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="mt-1 flex items-center justify-between gap-2">
+                      <div
+                        className="min-w-0 flex-1 cursor-pointer"
+                        onClick={() => {
+                          void onCopyText(cipher.login!.password!, "Đã sao chép mật khẩu");
+                        }}
+                      >
+                        <ColorPassword
+                          value={cipher.login.password}
+                          revealed={revealPassword}
+                          large={largeType}
+                        />
+                      </div>
+                      {strengthBadge ? (
+                        <span
+                          className="inline-flex items-center gap-1.5 text-[11.5px] font-medium shrink-0"
+                          style={{ color: "var(--text-secondary)" }}
+                        >
+                          <span>{strengthBadge.label}</span>
+                          <span className="ov-strength-ring" style={{ color: strengthBadge.color }} />
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+
+                {cipher.login.totp ? (
+                  <div className="px-3.5 py-2.5 hover:bg-[var(--surface-subtle)] transition-colors">
+                    <div className="text-[11px] font-medium mb-0.5" style={{ color: "var(--field-label)" }}>
+                      one-time password
+                    </div>
+                    <TotpRing
+                      secretOrUri={cipher.login.totp}
+                      onCopy={(code) => {
+                        void onCopyText(code, "Đã sao chép mã 2FA");
+                      }}
+                    />
+                  </div>
+                ) : null}
               </div>
             ) : null}
 
-            {cipher.login.totp ? (
-              <div className="ov-detail-field">
-                <div className="text-[11px] font-medium text-[var(--text-muted)] mb-0.5">
-                  one-time password
-                </div>
-                <TotpRing
-                  secretOrUri={cipher.login.totp}
-                  onCopy={(code) => {
-                    void onCopyText(code, "Đã sao chép mã 2FA");
-                  }}
-                />
-              </div>
-            ) : null}
-
+            {/* Passkeys */}
             {cipher.login.fido2Credentials && cipher.login.fido2Credentials.length > 0 ? (
-              <div className="ov-detail-field">
-                <div className="text-[11px] font-medium text-[var(--text-muted)] mb-1.5">
+              <div className="flex flex-col gap-1.5">
+                <div className="text-[11px] font-medium" style={{ color: "var(--field-label)" }}>
                   passkey
                 </div>
-                <div className="flex flex-col gap-1.5">
-                  {cipher.login.fido2Credentials.map((cred) => (
-                    <div
-                      key={cred.credentialId}
-                      className="flex items-center justify-between px-3 py-2 rounded-[9px]"
-                      style={{ background: "var(--passkey-soft)" }}
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <Fingerprint size={15} style={{ color: "var(--passkey)" }} />
-                        <div className="min-w-0">
-                          <div className="text-[12.5px] font-semibold truncate">{cred.rpId}</div>
-                          <div className="text-[11px] text-[var(--text-secondary)] truncate">
-                            {cred.userName || cred.userDisplayName || "ECDSA P-256"}
-                          </div>
+                {cipher.login.fido2Credentials.map((cred) => (
+                  <div
+                    key={cred.credentialId}
+                    className="flex items-center justify-between px-3 py-2 rounded-[9px]"
+                    style={{ background: "var(--passkey-soft)" }}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Fingerprint size={15} style={{ color: "var(--passkey)" }} />
+                      <div className="min-w-0">
+                        <div className="text-[12.5px] font-semibold truncate">{cred.rpId}</div>
+                        <div className="text-[11px] text-[var(--text-secondary)] truncate">
+                          {cred.userName || cred.userDisplayName || "ECDSA P-256"}
                         </div>
                       </div>
-                      <span
-                        className="text-[10.5px] font-bold px-2 py-0.5 rounded-full text-white shrink-0"
-                        style={{ background: "var(--passkey)" }}
-                      >
-                        Passkey
-                      </span>
                     </div>
-                  ))}
-                </div>
+                    <span
+                      className="text-[10.5px] font-bold px-2 py-0.5 rounded-full text-white shrink-0"
+                      style={{ background: "var(--passkey)" }}
+                    >
+                      Passkey
+                    </span>
+                  </div>
+                ))}
               </div>
             ) : null}
 
+            {/* Clean unboxed Website links below the card (exact Image 1!) */}
             {cipher.login.uris && cipher.login.uris.some((u) => u.uri) ? (
-              <div className="ov-detail-field flex flex-col gap-2">
+              <div className="flex flex-col gap-2 px-1">
                 {cipher.login.uris
                   .filter((u) => u.uri)
                   .map((u, idx) => (
                     <div key={idx} className="flex items-center justify-between gap-2">
                       <div className="min-w-0 flex-1">
-                        <div className="text-[11px] font-medium text-[var(--text-muted)]">
+                        <div className="text-[11px] font-medium" style={{ color: "var(--field-label)" }}>
                           website{idx > 0 ? ` ${idx + 1}` : ""}
                         </div>
                         <button
@@ -398,12 +467,12 @@ export function DetailPane({
                   ))}
               </div>
             ) : null}
-          </div>
+          </>
         ) : null}
 
         {/* Card fields */}
         {cipher.type === CipherType.Card && cipher.card ? (
-          <div className="flex flex-col divide-y divide-[var(--border)] -mx-2">
+          <div className="ov-detail-card divide-y divide-[var(--border)]">
             {[
               { label: "cardholder", value: cipher.card.cardholderName },
               { label: "brand", value: cipher.card.brand },
@@ -421,10 +490,15 @@ export function DetailPane({
               .map((field) => (
                 <div
                   key={field.label}
-                  className="ov-detail-field group flex items-center justify-between gap-2"
+                  className="px-3.5 py-2.5 group flex items-center justify-between gap-2 hover:bg-[var(--surface-subtle)]"
                 >
-                  <div>
-                    <div className="text-[11px] font-medium text-[var(--text-muted)]">
+                  <div
+                    className="min-w-0 flex-1 cursor-pointer"
+                    onClick={() => {
+                      void onCopyText(field.value!, `Đã sao chép ${field.label}`);
+                    }}
+                  >
+                    <div className="text-[11px] font-medium" style={{ color: "var(--field-label)" }}>
                       {field.label}
                     </div>
                     <div className={`text-[13.5px] font-medium mt-0.5 ${field.mono ? "font-mono-code" : ""}`}>
@@ -448,7 +522,7 @@ export function DetailPane({
 
         {/* Identity fields */}
         {cipher.type === CipherType.Identity && cipher.identity ? (
-          <div className="flex flex-col divide-y divide-[var(--border)] -mx-2">
+          <div className="ov-detail-card divide-y divide-[var(--border)]">
             {[
               {
                 label: "họ và tên",
@@ -481,7 +555,7 @@ export function DetailPane({
               .map((field) => (
                 <div
                   key={field.label}
-                  className="ov-detail-field group flex items-center justify-between gap-2"
+                  className="px-3.5 py-2.5 group flex items-center justify-between gap-2 hover:bg-[var(--surface-subtle)]"
                 >
                   <div
                     className="min-w-0 flex-1 cursor-pointer"
@@ -489,7 +563,7 @@ export function DetailPane({
                       void onCopyText(field.value!, `Đã sao chép ${field.label}`);
                     }}
                   >
-                    <div className="text-[11px] font-medium text-[var(--text-muted)]">
+                    <div className="text-[11px] font-medium" style={{ color: "var(--field-label)" }}>
                       {field.label}
                     </div>
                     <div className="text-[13.5px] font-medium mt-0.5 break-words text-[var(--text-primary)]">
@@ -513,9 +587,11 @@ export function DetailPane({
 
         {/* Notes */}
         {cipher.notes ? (
-          <div className="ov-detail-field -mx-2 border-t border-[var(--border)]">
+          <div className="px-1">
             <div className="flex items-center justify-between mb-1">
-              <span className="text-[11px] font-medium text-[var(--text-muted)]">notes</span>
+              <span className="text-[11px] font-medium" style={{ color: "var(--field-label)" }}>
+                notes
+              </span>
               <button
                 type="button"
                 onClick={() => {
@@ -534,7 +610,7 @@ export function DetailPane({
         ) : null}
 
         {cipher.revisionDate ? (
-          <div className="text-[11px] text-[var(--text-muted)] pt-2">
+          <div className="text-[11px] text-[var(--text-muted)] px-1 pt-1">
             Cập nhật: {new Date(cipher.revisionDate).toLocaleString("vi-VN")}
           </div>
         ) : null}

@@ -1137,11 +1137,12 @@ async function handleMessage(
     }
 
     case "GET_AUTOFILL_CONTEXT": {
-      const [account, secrets, settings, cache] = await Promise.all([
+      const [account, secrets, settings, cache, pinInfo] = await Promise.all([
         getAccount(),
         getSessionSecrets(),
         getSettings(),
         getVaultCache(),
+        getPinState(),
       ]);
 
       const kind = request.fieldKind;
@@ -1156,9 +1157,26 @@ async function handleMessage(
                 ? settings.autofillCard
                 : settings.autofillIdentity;
 
+      const pinLocal = pinInfo.localState;
+      const pinAvailableNow = Boolean(
+        account &&
+          pinLocal &&
+          (pinLocal.requireMasterOnRestart ? pinInfo.sessionRecord : pinLocal.record),
+      );
+      const pinMaxAttempts = pinLocal?.maxAttempts ?? settings.pinMaxAttempts;
+      const pinRemainingAttempts = pinLocal
+        ? Math.max(0, pinMaxAttempts - pinLocal.failedAttempts)
+        : settings.pinMaxAttempts;
+
       const baseEmpty: AutofillContextResponse = {
+        hasAccount: Boolean(account),
+        email: account?.email ?? null,
         unlocked: Boolean(account && secrets && cache),
         disabled: !featureEnabled,
+        pinAvailableNow,
+        pinLength: pinLocal?.pinLength ?? 6,
+        pinRemainingAttempts,
+        pinMaxAttempts,
         fieldKind: kind,
         matches: [],
         totpMatches: [],

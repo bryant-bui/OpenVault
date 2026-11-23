@@ -129,8 +129,14 @@ export interface IdentityAutofillCandidate {
 }
 
 export interface AutofillContextResponse {
+  hasAccount: boolean;
+  email: string | null;
   unlocked: boolean;
   disabled: boolean;
+  pinAvailableNow: boolean;
+  pinLength: number;
+  pinRemainingAttempts: number;
+  pinMaxAttempts: number;
   fieldKind: InlineFieldKind;
   matches: AutofillCandidate[];
   totpMatches: TotpAutofillCandidate[];

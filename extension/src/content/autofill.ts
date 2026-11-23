@@ -42,6 +42,7 @@ interface ShadowOverlay {
 let overlayRef: ShadowOverlay | null = null;
 let activeInput: HTMLInputElement | null = null;
 let dropdownOpen = false;
+let interactingWithOverlay = false;
 let scanQueued = false;
 
 function isVisibleElement(el: HTMLElement): boolean {
@@ -587,6 +588,216 @@ function ensureOverlay(): ShadowOverlay {
     .ov-divider { height: 1px; background: #e2e8f0; margin: 4px 8px; }
     .ov-empty { padding: 12px 14px; font-size: 12px; color: #5b687c; text-align: center; line-height: 1.45; }
 
+    /* Inline Unlock Popup (PIN 3+3 auto-unlock & Master Password directly next to form field) */
+    .ov-unlock-box {
+      padding: 12px 13px 11px;
+      display: flex;
+      flex-direction: column;
+      gap: 9px;
+    }
+    .ov-unlock-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .ov-unlock-brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+    .ov-unlock-logo {
+      width: 24px;
+      height: 24px;
+      border-radius: 7px;
+      background: linear-gradient(135deg, #0A84FF, #0455BF);
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .ov-unlock-title {
+      font-size: 12.5px;
+      font-weight: 700;
+      line-height: 1.2;
+      color: inherit;
+    }
+    .ov-unlock-email {
+      font-size: 11px;
+      color: #64748b;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 195px;
+    }
+    .ov-unlock-close {
+      width: 22px;
+      height: 22px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: #64748b;
+      cursor: pointer;
+      font-size: 14px;
+      line-height: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .ov-unlock-close:hover { background: #f1f5f9; color: #0a1a33; }
+
+    .ov-unlock-pin-label {
+      font-size: 11.5px;
+      color: #5b687c;
+      text-align: center;
+      font-weight: 500;
+    }
+    .ov-unlock-pin-wrap {
+      position: relative;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      cursor: text;
+      padding: 2px 0;
+    }
+    .ov-unlock-pin-native {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+      cursor: text;
+      z-index: 2;
+      font-size: 16px;
+    }
+    .ov-unlock-pin-slots {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      pointer-events: none;
+    }
+    .ov-unlock-pin-gap { width: 8px; }
+    .ov-unlock-pin-slot {
+      width: 34px;
+      height: 40px;
+      border-radius: 9px;
+      border: 1.5px solid #cbd5e1;
+      background: #f8fafc;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
+    }
+    .ov-unlock-pin-slot[data-active="true"] {
+      border-color: #0572EC;
+      background: #ffffff;
+      box-shadow: 0 0 0 2.5px rgba(5, 114, 236, 0.22);
+    }
+    .ov-unlock-pin-slot[data-filled="true"] {
+      border-color: #93c5fd;
+    }
+    .ov-unlock-pin-slot[data-error="true"] {
+      border-color: #e11d48;
+      box-shadow: 0 0 0 2px rgba(225, 29, 72, 0.2);
+    }
+    .ov-unlock-pin-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: #0a1a33;
+    }
+    .ov-unlock-pin-caret {
+      width: 1.5px;
+      height: 16px;
+      border-radius: 999px;
+      background: #0572EC;
+    }
+    .ov-unlock-shake {
+      animation: ovShake 320ms cubic-bezier(0.36, 0.07, 0.19, 0.97);
+    }
+
+    .ov-unlock-form {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .ov-unlock-input-wrap {
+      position: relative;
+      flex: 1;
+      min-width: 0;
+    }
+    .ov-unlock-input {
+      width: 100%;
+      height: 34px;
+      padding: 0 30px 0 10px;
+      border-radius: 8px;
+      border: 1.5px solid #cbd5e1;
+      background: #f8fafc;
+      color: #0a1a33;
+      font-size: 12.5px;
+      outline: none;
+    }
+    .ov-unlock-input:focus {
+      border-color: #0572EC;
+      background: #ffffff;
+      box-shadow: 0 0 0 2.5px rgba(5, 114, 236, 0.18);
+    }
+    .ov-unlock-eye {
+      position: absolute;
+      right: 4px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 24px;
+      height: 24px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: #64748b;
+      cursor: pointer;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .ov-unlock-submit {
+      height: 34px;
+      padding: 0 12px;
+      border: 0;
+      border-radius: 8px;
+      background: #0572EC;
+      color: #ffffff;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .ov-unlock-submit:hover:not(:disabled) { background: #045DC2; }
+    .ov-unlock-submit:disabled { opacity: 0.55; cursor: not-allowed; }
+    .ov-unlock-err {
+      font-size: 11.5px;
+      color: #e11d48;
+      text-align: center;
+      line-height: 1.35;
+    }
+    .ov-unlock-footer {
+      display: flex;
+      justify-content: center;
+    }
+    .ov-unlock-link {
+      border: 0;
+      background: transparent;
+      color: #0572EC;
+      font-size: 11.5px;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 6px;
+    }
+    .ov-unlock-link:hover { text-decoration: underline; }
+
     /* Save Password Banner */
     .ov-banner {
       position: fixed;
@@ -653,11 +864,28 @@ function ensureOverlay(): ShadowOverlay {
       }
       .ov-banner-sub { color: #94a3b8; }
       .ov-btn-ghost { background: #222a3a; color: #e2e8f0; }
+      .ov-unlock-email, .ov-unlock-pin-label, .ov-unlock-close { color: #94a3b8; }
+      .ov-unlock-close:hover { background: #222a3a; color: #f1f5f9; }
+      .ov-unlock-pin-slot { border-color: #334155; background: #1e2534; }
+      .ov-unlock-pin-slot[data-active="true"] { border-color: #60a5fa; background: #232c3e; box-shadow: 0 0 0 2.5px rgba(96, 165, 250, 0.25); }
+      .ov-unlock-pin-dot { background: #f8fafc; }
+      .ov-unlock-pin-caret { background: #60a5fa; }
+      .ov-unlock-input { border-color: #334155; background: #1e2534; color: #f1f5f9; }
+      .ov-unlock-input:focus { border-color: #60a5fa; background: #161b24; }
+      .ov-unlock-link { color: #60a5fa; }
+      .ov-unlock-err { color: #fb7185; }
     }
 
     @keyframes ovPop {
       from { opacity: 0; transform: translateY(-3px) scale(0.985); }
       to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    @keyframes ovShake {
+      0%, 100% { transform: translateX(0); }
+      20% { transform: translateX(-6px); }
+      40% { transform: translateX(6px); }
+      60% { transform: translateX(-4px); }
+      80% { transform: translateX(3px); }
     }
   `;
 
@@ -672,8 +900,387 @@ function ensureOverlay(): ShadowOverlay {
 
 function hideDropdown(): void {
   dropdownOpen = false;
+  interactingWithOverlay = false;
   if (!overlayRef) return;
   overlayRef.container.querySelector(".ov-dropdown")?.remove();
+}
+
+function stopPageKeyLeak(el: HTMLElement): void {
+  for (const evtName of ["keydown", "keyup", "keypress", "input", "beforeinput"]) {
+    el.addEventListener(evtName, (e) => {
+      if (evtName === "keydown" && (e as KeyboardEvent).key === "Escape") {
+        e.stopPropagation();
+        hideDropdown();
+        return;
+      }
+      e.stopPropagation();
+    });
+  }
+}
+
+function createKeyholeSvg(size = 13): SVGSVGElement {
+  const svgNS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNS, "svg");
+  svg.setAttribute("width", String(size));
+  svg.setAttribute("height", String(size));
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  const circle = document.createElementNS(svgNS, "circle");
+  circle.setAttribute("cx", "12");
+  circle.setAttribute("cy", "10");
+  circle.setAttribute("r", "4");
+  circle.setAttribute("fill", "#ffffff");
+  const stem = document.createElementNS(svgNS, "path");
+  stem.setAttribute("d", "M10 13h4l1 7H9l1-7z");
+  stem.setAttribute("fill", "#ffffff");
+  svg.appendChild(circle);
+  svg.appendChild(stem);
+  return svg;
+}
+
+function buildInlineUnlockPanel(
+  input: HTMLInputElement,
+  ctx: AutofillContextResponse,
+  autoFocusField: boolean,
+): HTMLDivElement {
+  const box = document.createElement("div");
+  box.className = "ov-unlock-box";
+  box.addEventListener("pointerdown", () => {
+    interactingWithOverlay = true;
+  });
+
+  if (!ctx.hasAccount) {
+    const empty = document.createElement("div");
+    empty.className = "ov-empty";
+    empty.textContent =
+      "Chưa đăng nhập OpenVault — nhấn biểu tượng OpenVault trên thanh công cụ để đăng nhập.";
+    box.appendChild(empty);
+    return box;
+  }
+
+  let mode: "pin" | "master" = ctx.pinAvailableNow ? "pin" : "master";
+  let pinAvailable = ctx.pinAvailableNow;
+  const pinLen = Math.min(12, Math.max(4, ctx.pinLength || 6));
+  let busy = false;
+  let errorText = "";
+
+  const head = document.createElement("div");
+  head.className = "ov-unlock-head";
+
+  const brand = document.createElement("div");
+  brand.className = "ov-unlock-brand";
+  const logo = document.createElement("div");
+  logo.className = "ov-unlock-logo";
+  logo.appendChild(createKeyholeSvg(13));
+  const titleWrap = document.createElement("div");
+  const titleEl = document.createElement("div");
+  titleEl.className = "ov-unlock-title";
+  titleEl.textContent = "Mở khóa OpenVault";
+  const emailEl = document.createElement("div");
+  emailEl.className = "ov-unlock-email";
+  emailEl.textContent = ctx.email ?? "";
+  titleWrap.appendChild(titleEl);
+  if (ctx.email) titleWrap.appendChild(emailEl);
+  brand.appendChild(logo);
+  brand.appendChild(titleWrap);
+
+  const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
+  closeBtn.className = "ov-unlock-close";
+  closeBtn.setAttribute("aria-label", "Đóng");
+  closeBtn.textContent = "×";
+  closeBtn.addEventListener("click", () => hideDropdown());
+
+  head.appendChild(brand);
+  head.appendChild(closeBtn);
+  box.appendChild(head);
+
+  const bodySlot = document.createElement("div");
+  bodySlot.style.cssText = "display:flex;flex-direction:column;gap:8px;";
+  box.appendChild(bodySlot);
+
+  async function onUnlockSucceeded(): Promise<void> {
+    showToast("Đã mở khóa OpenVault");
+    try {
+      const refreshed = (await chrome.runtime.sendMessage({
+        type: "GET_AUTOFILL_CONTEXT",
+        url: window.location.href,
+        fieldKind: ctx.fieldKind,
+      })) as BgResponse<AutofillContextResponse>;
+      if (refreshed?.ok && !refreshed.data.disabled) {
+        if (input.maxLength !== 1) {
+          showInlineTriggerForContext(input, refreshed.data);
+        }
+        showDropdownForContext(input, refreshed.data, false);
+        return;
+      }
+    } catch {
+      // Fallback
+    }
+    hideDropdown();
+  }
+
+  function renderBody(shouldFocus: boolean): void {
+    bodySlot.textContent = "";
+
+    if (mode === "pin" && pinAvailable) {
+      let pinValue = "";
+      let isFocused = false;
+
+      const label = document.createElement("div");
+      label.className = "ov-unlock-pin-label";
+      label.textContent = `Nhập mã PIN (${pinLen} số) để mở khóa ngay`;
+      bodySlot.appendChild(label);
+
+      const wrap = document.createElement("div");
+      wrap.className = "ov-unlock-pin-wrap";
+
+      const nativeInput = document.createElement("input");
+      nativeInput.type = "password";
+      nativeInput.inputMode = "numeric";
+      nativeInput.autocomplete = "one-time-code";
+      nativeInput.maxLength = pinLen;
+      nativeInput.className = "ov-unlock-pin-native";
+      nativeInput.setAttribute("aria-label", `Nhập mã PIN ${pinLen} số`);
+      stopPageKeyLeak(nativeInput);
+
+      const slotsRow = document.createElement("div");
+      slotsRow.className = "ov-unlock-pin-slots";
+      const splitAt = pinLen === 6 ? 3 : -1;
+      const slotEls: HTMLDivElement[] = [];
+
+      for (let i = 0; i < pinLen; i++) {
+        if (i === splitAt) {
+          const gap = document.createElement("span");
+          gap.className = "ov-unlock-pin-gap";
+          slotsRow.appendChild(gap);
+        }
+        const slot = document.createElement("div");
+        slot.className = "ov-unlock-pin-slot";
+        slotsRow.appendChild(slot);
+        slotEls.push(slot);
+      }
+
+      const errEl = document.createElement("div");
+      errEl.className = "ov-unlock-err";
+      errEl.style.display = errorText ? "block" : "none";
+      errEl.textContent = errorText;
+
+      const syncSlots = () => {
+        for (let i = 0; i < slotEls.length; i++) {
+          const slot = slotEls[i]!;
+          const filled = i < pinValue.length;
+          const active = isFocused && !busy && i === Math.min(pinValue.length, pinLen - 1) && !filled;
+          slot.dataset.filled = String(filled);
+          slot.dataset.active = String(active);
+          slot.dataset.error = String(Boolean(errorText));
+          slot.textContent = "";
+          if (filled) {
+            const dot = document.createElement("span");
+            dot.className = "ov-unlock-pin-dot";
+            slot.appendChild(dot);
+          } else if (active) {
+            const caret = document.createElement("span");
+            caret.className = "ov-unlock-pin-caret";
+            slot.appendChild(caret);
+          }
+        }
+      };
+
+      const submitPin = async (code: string) => {
+        if (busy) return;
+        busy = true;
+        errorText = "";
+        errEl.style.display = "none";
+        label.textContent = "Đang giải mã kho...";
+        nativeInput.disabled = true;
+        syncSlots();
+
+        try {
+          const res = (await chrome.runtime.sendMessage({
+            type: "UNLOCK_WITH_PIN",
+            pin: code,
+          })) as BgResponse;
+          if (res?.ok) {
+            await onUnlockSucceeded();
+            return;
+          }
+          errorText = res?.error || "Mã PIN không chính xác.";
+          if (errorText.includes("hủy mã PIN") || errorText.includes("chưa sẵn sàng")) {
+            pinAvailable = false;
+            mode = "master";
+            busy = false;
+            renderBody(true);
+            return;
+          }
+        } catch {
+          errorText = "Không thể kết nối OpenVault.";
+        }
+
+        busy = false;
+        pinValue = "";
+        nativeInput.disabled = false;
+        nativeInput.value = "";
+        label.textContent = `Nhập mã PIN (${pinLen} số) để mở khóa ngay`;
+        errEl.textContent = errorText;
+        errEl.style.display = "block";
+        slotsRow.classList.remove("ov-unlock-shake");
+        void slotsRow.offsetWidth;
+        slotsRow.classList.add("ov-unlock-shake");
+        syncSlots();
+        window.requestAnimationFrame(() => nativeInput.focus());
+      };
+
+      nativeInput.addEventListener("focus", () => {
+        isFocused = true;
+        interactingWithOverlay = true;
+        syncSlots();
+      });
+      nativeInput.addEventListener("blur", () => {
+        isFocused = false;
+        syncSlots();
+      });
+      nativeInput.addEventListener("input", () => {
+        const cleaned = nativeInput.value.replace(/\D/g, "").slice(0, pinLen);
+        nativeInput.value = cleaned;
+        pinValue = cleaned;
+        if (errorText) {
+          errorText = "";
+          errEl.style.display = "none";
+        }
+        syncSlots();
+        if (cleaned.length === pinLen) {
+          void submitPin(cleaned);
+        }
+      });
+
+      wrap.addEventListener("click", () => nativeInput.focus());
+      wrap.appendChild(nativeInput);
+      wrap.appendChild(slotsRow);
+      bodySlot.appendChild(wrap);
+      bodySlot.appendChild(errEl);
+
+      const footer = document.createElement("div");
+      footer.className = "ov-unlock-footer";
+      const switchBtn = document.createElement("button");
+      switchBtn.type = "button";
+      switchBtn.className = "ov-unlock-link";
+      switchBtn.textContent = "Dùng mật khẩu chính";
+      switchBtn.addEventListener("click", () => {
+        mode = "master";
+        errorText = "";
+        renderBody(true);
+      });
+      footer.appendChild(switchBtn);
+      bodySlot.appendChild(footer);
+
+      syncSlots();
+      if (shouldFocus) {
+        window.requestAnimationFrame(() => nativeInput.focus());
+      }
+    } else {
+      const form = document.createElement("form");
+      form.className = "ov-unlock-form";
+
+      const inputWrap = document.createElement("div");
+      inputWrap.className = "ov-unlock-input-wrap";
+
+      const pwInput = document.createElement("input");
+      pwInput.type = "password";
+      pwInput.placeholder = "Nhập mật khẩu chính...";
+      pwInput.className = "ov-unlock-input";
+      pwInput.autocomplete = "current-password";
+      stopPageKeyLeak(pwInput);
+      pwInput.addEventListener("focus", () => {
+        interactingWithOverlay = true;
+      });
+
+      const eyeBtn = document.createElement("button");
+      eyeBtn.type = "button";
+      eyeBtn.className = "ov-unlock-eye";
+      eyeBtn.title = "Hiện/Ẩn mật khẩu";
+      eyeBtn.textContent = "👁";
+      eyeBtn.addEventListener("click", () => {
+        pwInput.type = pwInput.type === "password" ? "text" : "password";
+        pwInput.focus();
+      });
+
+      inputWrap.appendChild(pwInput);
+      inputWrap.appendChild(eyeBtn);
+
+      const submitBtn = document.createElement("button");
+      submitBtn.type = "submit";
+      submitBtn.className = "ov-unlock-submit";
+      submitBtn.textContent = "Mở khóa";
+
+      const errEl = document.createElement("div");
+      errEl.className = "ov-unlock-err";
+      errEl.style.display = errorText ? "block" : "none";
+      errEl.textContent = errorText;
+
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const pw = pwInput.value;
+        if (!pw || busy) return;
+        busy = true;
+        errorText = "";
+        errEl.style.display = "none";
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Đang mở...";
+
+        void (async () => {
+          try {
+            const res = (await chrome.runtime.sendMessage({
+              type: "UNLOCK",
+              masterPassword: pw,
+            })) as BgResponse;
+            if (res?.ok) {
+              pwInput.value = "";
+              await onUnlockSucceeded();
+              return;
+            }
+            errorText = res?.error || "Mật khẩu chính không đúng.";
+          } catch {
+            errorText = "Không thể kết nối OpenVault.";
+          }
+          busy = false;
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Mở khóa";
+          errEl.textContent = errorText;
+          errEl.style.display = "block";
+          pwInput.select();
+        })();
+      });
+
+      form.appendChild(inputWrap);
+      form.appendChild(submitBtn);
+      bodySlot.appendChild(form);
+      bodySlot.appendChild(errEl);
+
+      if (pinAvailable) {
+        const footer = document.createElement("div");
+        footer.className = "ov-unlock-footer";
+        const switchBtn = document.createElement("button");
+        switchBtn.type = "button";
+        switchBtn.className = "ov-unlock-link";
+        switchBtn.textContent = "Dùng mã PIN";
+        switchBtn.addEventListener("click", () => {
+          mode = "pin";
+          errorText = "";
+          renderBody(true);
+        });
+        footer.appendChild(switchBtn);
+        bodySlot.appendChild(footer);
+      }
+
+      if (shouldFocus) {
+        window.requestAnimationFrame(() => pwInput.focus());
+      }
+    }
+  }
+
+  renderBody(autoFocusField);
+  return box;
 }
 
 function hideTrigger(): void {
@@ -793,7 +1400,11 @@ function appendLoginItems(
   }
 }
 
-function showDropdownForContext(input: HTMLInputElement, ctx: AutofillContextResponse): void {
+function showDropdownForContext(
+  input: HTMLInputElement,
+  ctx: AutofillContextResponse,
+  focusUnlockField = false,
+): void {
   const rect = input.getBoundingClientRect();
   if (rect.width === 0 || rect.height === 0) return;
 
@@ -803,11 +1414,16 @@ function showDropdownForContext(input: HTMLInputElement, ctx: AutofillContextRes
 
   const dropdown = document.createElement("div");
   dropdown.className = "ov-dropdown";
-  const top = Math.min(window.innerHeight - 260, rect.bottom + 5);
-  const left = Math.min(window.innerWidth - 356, Math.max(8, rect.left));
-  dropdown.style.top = `${Math.max(8, top)}px`;
-  dropdown.style.left = `${left}px`;
-  dropdown.style.width = `${Math.max(278, Math.min(350, rect.width))}px`;
+  const estimatedHeight = ctx.unlocked ? 250 : 185;
+  const fitsBelow = rect.bottom + 6 + estimatedHeight <= window.innerHeight;
+  const top = fitsBelow
+    ? rect.bottom + 5
+    : Math.max(8, rect.top - estimatedHeight - 5);
+  const dropWidth = Math.max(292, Math.min(350, rect.width));
+  const left = Math.min(window.innerWidth - dropWidth - 8, Math.max(8, rect.left));
+  dropdown.style.top = `${Math.round(top)}px`;
+  dropdown.style.left = `${Math.round(left)}px`;
+  dropdown.style.width = `${Math.round(dropWidth)}px`;
 
   const list = document.createElement("div");
   list.className = "ov-list";
@@ -867,7 +1483,7 @@ function showDropdownForContext(input: HTMLInputElement, ctx: AutofillContextRes
     list.appendChild(row);
     itemCount++;
 
-    if (ctx.unlocked && ctx.matches.length > 0) {
+    if (!ctx.unlocked || ctx.matches.length > 0) {
       const divider = document.createElement("div");
       divider.className = "ov-divider";
       list.appendChild(divider);
@@ -875,15 +1491,12 @@ function showDropdownForContext(input: HTMLInputElement, ctx: AutofillContextRes
   }
 
   if (!ctx.unlocked) {
-    if (itemCount === 0) {
-      const empty = document.createElement("div");
-      empty.className = "ov-empty";
-      empty.textContent =
-        "OpenVault đang khóa — nhấn biểu tượng OpenVault trên thanh công cụ để mở khóa.";
-      dropdown.appendChild(empty);
-      container.appendChild(dropdown);
-      return;
+    if (itemCount > 0) {
+      dropdown.appendChild(list);
     }
+    dropdown.appendChild(buildInlineUnlockPanel(input, ctx, focusUnlockField));
+    container.appendChild(dropdown);
+    return;
   } else {
     // 2. Login matches (for login or change-password forms)
     if ((ctx.fieldKind === "login" || ctx.fieldKind === "new-password") && ctx.matches.length > 0) {
@@ -1042,10 +1655,11 @@ function showInlineTriggerForContext(
 
   trigger.addEventListener("mousedown", (e) => {
     e.preventDefault();
+    interactingWithOverlay = true;
     if (dropdownOpen) {
       hideDropdown();
     } else {
-      showDropdownForContext(input, ctx);
+      showDropdownForContext(input, ctx, !ctx.unlocked);
     }
   });
 
@@ -1139,8 +1753,8 @@ async function handleInputFocus(input: HTMLInputElement): Promise<void> {
       ctx.identities.length > 0 ||
       Boolean(ctx.suggestedPassword);
 
-    if (hasSuggestions) {
-      showDropdownForContext(input, ctx);
+    if (hasSuggestions || (!ctx.unlocked && ctx.hasAccount)) {
+      showDropdownForContext(input, ctx, false);
     }
   } catch {
     // Extension reloaded
@@ -1163,7 +1777,9 @@ function bindCandidateInputs(): void {
       });
       input.addEventListener("blur", () => {
         window.setTimeout(() => {
-          if (document.activeElement !== input) {
+          const active = document.activeElement;
+          const insideOverlay = interactingWithOverlay || (overlayRef !== null && active === overlayRef.host);
+          if (active !== input && !insideOverlay) {
             hideDropdown();
             hideTrigger();
           }
@@ -1233,6 +1849,25 @@ document.addEventListener(
   (event) => {
     if (event.target instanceof HTMLFormElement) {
       captureFormSubmission(event.target);
+    }
+  },
+  true,
+);
+
+document.addEventListener(
+  "pointerdown",
+  (event) => {
+    if (!dropdownOpen) return;
+    const target = event.target as Node | null;
+    if (overlayRef && target === overlayRef.host) {
+      interactingWithOverlay = true;
+      return;
+    }
+    if (activeInput && target === activeInput) return;
+    interactingWithOverlay = false;
+    hideDropdown();
+    if (document.activeElement !== activeInput) {
+      hideTrigger();
     }
   },
   true,
