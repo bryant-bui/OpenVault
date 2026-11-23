@@ -7,3 +7,4 @@ export * from "./password-generator.js";
 export * from "./passkey-crypto.js";
 export * from "./vault.js";
 export * from "./importers.js";
+export * from "./pin.js";

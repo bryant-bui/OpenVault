@@ -1,4 +1,22 @@
-import type { CipherPayload, FolderPayload, KdfConfig } from "@openvault/crypto-core";
+import type {
+  CipherPayload,
+  FolderPayload,
+  KdfConfig,
+  PinProtectedRecord,
+} from "@openvault/crypto-core";
+
+export interface StoredPinState {
+  /** Persisted record when requireMasterOnRestart === false; null when restart requires Master Password */
+  record: PinProtectedRecord | null;
+  /**
+   * When requireMasterOnRestart === true, the PinProtectedRecord is encrypted with the 512-bit UserKey
+   * so it cannot be brute-forced offline on disk, yet automatically restores into RAM after Master Password unlock.
+   */
+  encryptedSessionRecord?: string | null;
+  requireMasterOnRestart: boolean;
+  failedAttempts: number;
+  maxAttempts: number;
+}
 
 export interface ExtensionSettings {
   autoLockMinutes: number; // 0 = never until browser closes
@@ -76,6 +94,10 @@ export interface VaultStatusResponse {
   lastSyncAt: string | null;
   settings: ExtensionSettings;
   pendingSave: PendingSaveCredential | null;
+  pinEnabled: boolean;
+  pinAvailableNow: boolean;
+  pinRequireMasterOnRestart: boolean;
+  pinRemainingAttempts: number;
 }
 
 export type BgRequest =
@@ -98,6 +120,16 @@ export type BgRequest =
       type: "UNLOCK";
       masterPassword: string;
     }
+  | {
+      type: "UNLOCK_WITH_PIN";
+      pin: string;
+    }
+  | {
+      type: "SET_PIN";
+      pin: string;
+      requireMasterOnRestart: boolean;
+    }
+  | { type: "DISABLE_PIN" }
   | { type: "LOCK" }
   | { type: "LOGOUT"; allDevices?: boolean }
   | { type: "GET_VAULT"; forceSync?: boolean }

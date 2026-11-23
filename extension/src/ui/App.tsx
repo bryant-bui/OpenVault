@@ -69,6 +69,10 @@ export function App() {
     lastSyncAt: null,
     settings: { ...DEFAULT_SETTINGS },
     pendingSave: null,
+    pinEnabled: false,
+    pinAvailableNow: false,
+    pinRequireMasterOnRestart: true,
+    pinRemainingAttempts: 5,
   });
 
   const [ciphers, setCiphers] = useState<CipherPayload[]>([]);
@@ -395,6 +399,9 @@ export function App() {
           <UnlockScreen
             email={status.email ?? ""}
             serverUrl={status.serverUrl}
+            pinEnabled={status.pinEnabled}
+            pinAvailableNow={status.pinAvailableNow}
+            pinRemainingAttempts={status.pinRemainingAttempts}
             onUnlocked={loadStatus}
             onLoggedOut={loadStatus}
           />
@@ -909,8 +916,11 @@ export function App() {
                 serverUrl={status.serverUrl}
                 lastSyncAt={status.lastSyncAt}
                 settings={status.settings}
+                pinEnabled={status.pinEnabled}
+                pinRequireMasterOnRestart={status.pinRequireMasterOnRestart}
                 isPopup={isPopup}
                 onUpdateSettings={handleUpdateSettings}
+                onPinUpdated={loadStatus}
                 onImported={async () => {
                   await loadVault(true);
                   setRightMode("detail");

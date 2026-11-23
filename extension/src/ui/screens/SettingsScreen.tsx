@@ -28,8 +28,11 @@ interface SettingsScreenProps {
   serverUrl: string;
   lastSyncAt: string | null;
   settings: ExtensionSettings;
+  pinEnabled: boolean;
+  pinRequireMasterOnRestart: boolean;
   isPopup: boolean;
   onUpdateSettings: (partial: Partial<ExtensionSettings>) => Promise<void>;
+  onPinUpdated: () => Promise<void>;
   onImported: () => Promise<void>;
   onLock: () => Promise<void>;
   onLogout: (allDevices: boolean) => Promise<void>;
@@ -43,8 +46,11 @@ export function SettingsScreen({
   serverUrl,
   lastSyncAt,
   settings,
+  pinEnabled,
+  pinRequireMasterOnRestart,
   isPopup,
   onUpdateSettings,
+  onPinUpdated,
   onImported,
   onLock,
   onLogout,
@@ -60,7 +66,47 @@ export function SettingsScreen({
   const [backingUp, setBackingUp] = useState(false);
   const [importing, setImporting] = useState(false);
   const [confirmLogoutOpen, setConfirmLogoutOpen] = useState(false);
+  const [showPinSetup, setShowPinSetup] = useState(false);
+  const [pinValue, setPinValue] = useState("");
+  const [pinConfirm, setPinConfirm] = useState("");
+  const [requireMasterOnRestart, setRequireMasterOnRestart] = useState(pinRequireMasterOnRestart);
+  const [savingPin, setSavingPin] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleSavePin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (pinValue.length < 4) {
+      onToast("Mã PIN phải dài ít nhất 4 ký tự.", "error");
+      return;
+    }
+    if (pinValue !== pinConfirm) {
+      onToast("Mã PIN xác nhận không khớp.", "error");
+      return;
+    }
+    setSavingPin(true);
+    try {
+      await sendBg({ type: "SET_PIN", pin: pinValue, requireMasterOnRestart });
+      setPinValue("");
+      setPinConfirm("");
+      setShowPinSetup(false);
+      await onPinUpdated();
+      onToast("Đã bật mở khóa bằng mã PIN (PBKDF2 600.000 vòng)!", "success");
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : "Không thể lưu mã PIN", "error");
+    } finally {
+      setSavingPin(false);
+    }
+  };
+
+  const handleDisablePin = async () => {
+    try {
+      await sendBg({ type: "DISABLE_PIN" });
+      await onPinUpdated();
+      onToast("Đã tắt mở khóa bằng mã PIN", "info");
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : "Không thể tắt mã PIN", "error");
+    }
+  };
 
   useEffect(() => {
     return subscribeColorSchemeSync((next) => setSchemePref(next));
@@ -313,6 +359,96 @@ export function SettingsScreen({
               />
               <span className="ov-switch-track" />
             </label>
+          </div>
+
+          {/* Zero-Knowledge PIN Unlock */}
+          <div className="pt-2.5 border-t border-[var(--border)] flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <div className="text-[12.5px] font-semibold">Mở khóa nhanh bằng mã PIN</div>
+                <div className="text-[11px] text-[var(--text-muted)]">
+                  {pinEnabled
+                    ? pinRequireMasterOnRestart
+                      ? "Đang bật · Hỏi Master Password khi mở lại Chrome"
+                      : "Đang bật · Dùng được cả khi mở lại Chrome"
+                    : "Bọc khóa bằng PBKDF2 600k · Tự hủy sau 5 lần nhập sai"}
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setShowPinSetup((v) => !v)}
+                  className="ov-btn-ghost px-2.5 py-1 text-[11.5px]"
+                >
+                  {pinEnabled ? "Đổi PIN" : "Thiết lập"}
+                </button>
+                {pinEnabled ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void handleDisablePin();
+                    }}
+                    className="px-2.5 py-1 rounded-[8px] border border-[var(--danger)] text-[var(--danger)] bg-transparent text-[11.5px] font-semibold cursor-pointer"
+                  >
+                    Tắt
+                  </button>
+                ) : null}
+              </div>
+            </div>
+
+            {showPinSetup ? (
+              <form
+                onSubmit={(e) => {
+                  void handleSavePin(e);
+                }}
+                className="p-2.5 rounded-[10px] bg-[var(--surface-subtle)] flex flex-col gap-2"
+              >
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    className="ov-input font-mono-code text-[12.5px]"
+                    placeholder="Mã PIN (≥ 4 số)"
+                    value={pinValue}
+                    onChange={(e) => setPinValue(e.target.value)}
+                    required
+                  />
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    className="ov-input font-mono-code text-[12.5px]"
+                    placeholder="Nhập lại PIN"
+                    value={pinConfirm}
+                    onChange={(e) => setPinConfirm(e.target.value)}
+                    required
+                  />
+                </div>
+                <label className="flex items-center justify-between text-[11.5px] text-[var(--text-secondary)] cursor-pointer">
+                  <span>Yêu cầu Master Password khi khởi động lại Chrome</span>
+                  <input
+                    type="checkbox"
+                    checked={requireMasterOnRestart}
+                    onChange={(e) => setRequireMasterOnRestart(e.target.checked)}
+                  />
+                </label>
+                <div className="flex justify-end gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowPinSetup(false)}
+                    className="ov-btn-ghost px-2.5 py-1 text-[11.5px]"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingPin}
+                    className="ov-btn-primary px-3 py-1 text-[11.5px]"
+                  >
+                    {savingPin ? "Đang bọc khóa..." : "Lưu mã PIN"}
+                  </button>
+                </div>
+              </form>
+            ) : null}
           </div>
         </div>
 

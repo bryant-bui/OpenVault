@@ -1,10 +1,12 @@
 import {
   CipherType,
   DEFAULT_ARGON2ID_CONFIG,
+  MAX_PIN_ATTEMPTS,
   base64ToBytes,
   bytesToBase64,
   decryptCipher,
   decryptFolder,
+  decryptString,
   deriveMasterKey,
   deriveMasterPasswordHash,
   encryptCipher,
@@ -14,10 +16,13 @@ import {
   generateUserSymmetricKey,
   prepareUniversalVaultImport,
   protectSymmetricKey,
+  protectUserKeyWithPin,
   splitSymmetricKey,
   stretchMasterKey,
   unprotectSymmetricKey,
+  unprotectUserKeyWithPin,
   type CipherPayload,
+  type PinProtectedRecord,
   type SymmetricKey,
 } from "@openvault/crypto-core";
 import {
@@ -59,6 +64,7 @@ import type {
   PendingSaveCredential,
   SessionSecrets,
   StoredAccount,
+  StoredPinState,
   StoredVaultCache,
   VaultStatusResponse,
 } from "../shared/types.js";
@@ -129,6 +135,27 @@ async function getDeviceId(): Promise<string> {
 async function getPendingSave(): Promise<PendingSaveCredential | null> {
   const res = await chrome.storage.session.get(SESSION_KEYS.PENDING_SAVE);
   return (res[SESSION_KEYS.PENDING_SAVE] as PendingSaveCredential | undefined) ?? null;
+}
+
+async function getPinState(): Promise<{
+  localState: StoredPinState | null;
+  sessionRecord: PinProtectedRecord | null;
+}> {
+  const [localRes, sessionRes] = await Promise.all([
+    chrome.storage.local.get(LOCAL_KEYS.PIN_LOCAL),
+    chrome.storage.session.get(SESSION_KEYS.PIN_SESSION),
+  ]);
+  return {
+    localState: (localRes[LOCAL_KEYS.PIN_LOCAL] as StoredPinState | undefined) ?? null,
+    sessionRecord: (sessionRes[SESSION_KEYS.PIN_SESSION] as PinProtectedRecord | undefined) ?? null,
+  };
+}
+
+async function clearAllPinData(): Promise<void> {
+  await Promise.all([
+    chrome.storage.local.remove(LOCAL_KEYS.PIN_LOCAL),
+    chrome.storage.session.remove(SESSION_KEYS.PIN_SESSION),
+  ]);
 }
 
 async function scheduleAutoLock(): Promise<void> {
@@ -357,12 +384,23 @@ async function handleMessage(
 ): Promise<BgResponse> {
   switch (request.type) {
     case "GET_STATUS": {
-      const [account, secrets, settings, pendingSave] = await Promise.all([
+      const [account, secrets, settings, pendingSave, pinInfo] = await Promise.all([
         getAccount(),
         getSessionSecrets(),
         getSettings(),
         getPendingSave(),
+        getPinState(),
       ]);
+      const pinState = pinInfo.localState;
+      const activeRecord = pinState
+        ? pinState.requireMasterOnRestart
+          ? pinInfo.sessionRecord
+          : pinState.record
+        : null;
+      const remainingAttempts = pinState
+        ? Math.max(0, pinState.maxAttempts - pinState.failedAttempts)
+        : MAX_PIN_ATTEMPTS;
+
       const data: VaultStatusResponse = {
         hasAccount: account !== null,
         unlocked: account !== null && secrets !== null,
@@ -371,6 +409,10 @@ async function handleMessage(
         lastSyncAt: account?.lastSyncAt ?? null,
         settings,
         pendingSave,
+        pinEnabled: pinState !== null,
+        pinAvailableNow: activeRecord !== null && remainingAttempts > 0,
+        pinRequireMasterOnRestart: pinState?.requireMasterOnRestart ?? true,
+        pinRemainingAttempts: remainingAttempts,
       };
       return { ok: true, data };
     }
@@ -421,6 +463,7 @@ async function handleMessage(
         unlockedAtMs: Date.now(),
       });
 
+      await clearAllPinData();
       await syncEncryptedVaultFromServer(true);
       await scheduleAutoLock();
       await chrome.alarms.create(ALARMS.SYNC_POLL, { periodInMinutes: 5 });
@@ -465,6 +508,7 @@ async function handleMessage(
         unlockedAtMs: Date.now(),
       });
 
+      await clearAllPinData();
       await syncEncryptedVaultFromServer(true);
       await scheduleAutoLock();
       await chrome.alarms.create(ALARMS.SYNC_POLL, { periodInMinutes: 5 });
@@ -525,6 +569,137 @@ async function handleMessage(
         unlockedAtMs: Date.now(),
       });
 
+      // Reset PIN failure counter & restore RAM-only PIN record after browser restart
+      const { localState, sessionRecord } = await getPinState();
+      if (localState) {
+        if (localState.failedAttempts > 0) {
+          await chrome.storage.local.set({
+            [LOCAL_KEYS.PIN_LOCAL]: { ...localState, failedAttempts: 0 },
+          });
+        }
+        if (
+          localState.requireMasterOnRestart &&
+          !sessionRecord &&
+          localState.encryptedSessionRecord
+        ) {
+          try {
+            const json = await decryptString(localState.encryptedSessionRecord, userKey);
+            const restored = JSON.parse(json) as PinProtectedRecord;
+            if (restored.saltB64 && restored.protectedKey && restored.iterations > 0) {
+              await chrome.storage.session.set({ [SESSION_KEYS.PIN_SESSION]: restored });
+            }
+          } catch {
+            // Ignore corrupted record; user can re-configure PIN in Settings
+          }
+        }
+      }
+
+      if (accessToken) {
+        await syncEncryptedVaultFromServer(false).catch(() => undefined);
+      }
+      await scheduleAutoLock();
+      await refreshActiveTabBadge();
+
+      return { ok: true, data: { unlocked: true } };
+    }
+
+    case "SET_PIN": {
+      const { key } = await getUnlockedKey();
+      const record = await protectUserKeyWithPin(key, request.pin);
+      const encryptedSessionRecord = request.requireMasterOnRestart
+        ? await encryptString(JSON.stringify(record), key)
+        : null;
+      const nextLocalState: StoredPinState = {
+        record: request.requireMasterOnRestart ? null : record,
+        encryptedSessionRecord,
+        requireMasterOnRestart: request.requireMasterOnRestart,
+        failedAttempts: 0,
+        maxAttempts: MAX_PIN_ATTEMPTS,
+      };
+      await chrome.storage.local.set({ [LOCAL_KEYS.PIN_LOCAL]: nextLocalState });
+      if (request.requireMasterOnRestart) {
+        await chrome.storage.session.set({ [SESSION_KEYS.PIN_SESSION]: record });
+      } else {
+        await chrome.storage.session.remove(SESSION_KEYS.PIN_SESSION);
+      }
+      return { ok: true, data: { pinEnabled: true } };
+    }
+
+    case "DISABLE_PIN": {
+      await getUnlockedKey();
+      await clearAllPinData();
+      return { ok: true, data: { pinEnabled: false } };
+    }
+
+    case "UNLOCK_WITH_PIN": {
+      const [account, pinInfo] = await Promise.all([getAccount(), getPinState()]);
+      if (!account) {
+        return { ok: false, error: "Chưa có tài khoản. Vui lòng đăng nhập." };
+      }
+
+      const localState = pinInfo.localState;
+      const activeRecord = localState
+        ? localState.requireMasterOnRestart
+          ? pinInfo.sessionRecord
+          : localState.record
+        : null;
+
+      if (!localState || !activeRecord) {
+        return {
+          ok: false,
+          error: "Mã PIN chưa sẵn sàng (cần mở bằng Master Password sau khi khởi động lại Chrome).",
+        };
+      }
+
+      let userKey: SymmetricKey;
+      try {
+        userKey = await unprotectUserKeyWithPin(activeRecord, request.pin);
+      } catch {
+        const nextFailed = localState.failedAttempts + 1;
+        if (nextFailed >= localState.maxAttempts) {
+          await clearAllPinData();
+          return {
+            ok: false,
+            error: `Sai mã PIN ${localState.maxAttempts} lần liên tiếp — đã tự động hủy mã PIN vì bảo mật. Vui lòng mở khóa bằng Master Password.`,
+          };
+        }
+        await chrome.storage.local.set({
+          [LOCAL_KEYS.PIN_LOCAL]: { ...localState, failedAttempts: nextFailed },
+        });
+        const remaining = localState.maxAttempts - nextFailed;
+        return {
+          ok: false,
+          error: `Mã PIN không chính xác (còn ${remaining}/${localState.maxAttempts} lần thử).`,
+        };
+      }
+
+      // Reset failure counter on success
+      if (localState.failedAttempts > 0) {
+        await chrome.storage.local.set({
+          [LOCAL_KEYS.PIN_LOCAL]: { ...localState, failedAttempts: 0 },
+        });
+      }
+
+      let accessToken = "";
+      let expiresAtMs = 0;
+      try {
+        if (account.refreshToken) {
+          const refreshed = await apiRefreshToken(account.serverUrl, account.refreshToken);
+          accessToken = refreshed.access_token;
+          expiresAtMs = Date.now() + refreshed.expires_in * 1000;
+          await setAccount({ ...account, refreshToken: refreshed.refresh_token });
+        }
+      } catch {
+        // Offline unlock still works against locally cached encrypted vault
+      }
+
+      await setSessionSecrets({
+        userKeyB64: bytesToBase64(userKey.raw),
+        accessToken,
+        accessTokenExpiresAtMs: expiresAtMs,
+        unlockedAtMs: Date.now(),
+      });
+
       if (accessToken) {
         await syncEncryptedVaultFromServer(false).catch(() => undefined);
       }
@@ -555,6 +730,7 @@ async function handleMessage(
         setSessionSecrets(null),
         setAccount(null),
         setVaultCache(null),
+        clearAllPinData(),
         chrome.storage.session.remove(SESSION_KEYS.PENDING_SAVE),
         chrome.alarms.clearAll(),
       ]);

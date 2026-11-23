@@ -5,11 +5,13 @@ export const LOCAL_KEYS = {
   VAULT_CACHE: "ov_vault_cache",
   SETTINGS: "ov_settings",
   DEVICE_ID: "ov_device_id",
+  PIN_LOCAL: "ov_pin_local",
 } as const;
 
 export const SESSION_KEYS = {
   SECRETS: "ov_session_secrets",
   PENDING_SAVE: "ov_pending_save",
+  PIN_SESSION: "ov_pin_session",
 } as const;
 
 export const ALARMS = {

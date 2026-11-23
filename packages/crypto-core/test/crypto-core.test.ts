@@ -40,10 +40,12 @@ import {
   prepareBitwardenImport,
   prepareUniversalVaultImport,
   protectSymmetricKey,
+  protectUserKeyWithPin,
   signPasskeyAssertion,
   splitSymmetricKey,
   stretchMasterKey,
   unprotectSymmetricKey,
+  unprotectUserKeyWithPin,
   utf8ToBytes,
 } from "../src/index.js";
 
@@ -487,5 +489,16 @@ describe("@openvault/crypto-core — Vault, RSA, Generator, Passkey", () => {
     const extracted = await extractVaultTextFromZip(new Uint8Array(zipBytes));
     expect(extracted.filename).toBe("Proton Pass/data.json");
     expect(JSON.parse(extracted.text).version).toBe("1.43.0");
+  });
+
+  it("wraps and unwraps UserSymmetricKey with Zero-Knowledge PIN and rejects wrong PIN", async () => {
+    const userKey = generateUserSymmetricKey();
+    const record = await protectUserKeyWithPin(userKey, "246810", 100_000);
+    expect(record.protectedKey.startsWith("2.")).toBe(true);
+
+    const recovered = await unprotectUserKeyWithPin(record, "246810");
+    expect(bytesToHex(recovered.raw)).toBe(bytesToHex(userKey.raw));
+
+    await expect(unprotectUserKeyWithPin(record, "999999")).rejects.toThrow(MacVerificationError);
   });
 });
