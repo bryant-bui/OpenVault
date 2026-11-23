@@ -1,5 +1,6 @@
 package io.openvault.app.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -7,10 +8,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -19,20 +18,19 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.CreditCard
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.Inventory2
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.QrCode2
-import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
@@ -48,17 +46,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.openvault.app.core.crypto.CipherType
 import io.openvault.app.core.crypto.VaultFolder
 import io.openvault.app.core.crypto.VaultItem
 import io.openvault.app.ui.components.CategoryIconBadge
-import io.openvault.app.ui.components.OnePassAccountAvatar
-import io.openvault.app.ui.components.OnePassAddButton
 import io.openvault.app.ui.components.OnePassCard
 import io.openvault.app.ui.components.OnePassItemRow
-import io.openvault.app.ui.components.OnePassSearchBar
+import io.openvault.app.ui.components.OnePassTopSearchBar
+import io.openvault.app.ui.theme.LocalFoldableLayout
 import io.openvault.app.ui.theme.LocalOpenVaultColors
 
 sealed interface ItemsScope {
@@ -71,9 +69,11 @@ sealed interface ItemsScope {
 }
 
 /**
- * 1Password 8 Mobile-inspired "Items" Tab (matching Image 5-middle):
- * - Root directory: Vaults/Folders card (+ New Folder), Categories card, Favorites & Recently Deleted card
- * - Tapping any Vault/Category drills into a crisp grouped list of items
+ * Authentic 1Password 8 Android "Items" Tab (matching real Android capture):
+ * - Single-row Midnight-Navy Search Pill + Account Dropdown
+ * - Standalone "Tất cả các mục" card at top
+ * - Collapsible outside-card section headers ("Danh mục", "Kho & Thư mục") with sky-blue chevrons
+ * - Clean matte cards without trailing chevrons; supports selectedItemId highlight on unfolded Z Fold 3
  */
 @Composable
 fun ItemsScreen(
@@ -81,16 +81,22 @@ fun ItemsScreen(
     items: List<VaultItem>,
     folders: List<VaultFolder>,
     isSyncing: Boolean,
+    selectedItemId: String? = null,
     onOpenSettings: () -> Unit,
-    onOpenNewItem: () -> Unit,
+    onOpenGenerator: () -> Unit,
+    onOpenQrScanner: () -> Unit,
     onOpenTotpHub: () -> Unit,
     onSync: () -> Unit,
+    onLock: () -> Unit,
     onSelectItem: (VaultItem) -> Unit,
     onCreateFolder: (String) -> Unit,
 ) {
     val c = LocalOpenVaultColors.current
+    val fold = LocalFoldableLayout.current
     var scope by remember { mutableStateOf<ItemsScope>(ItemsScope.Root) }
     var query by remember { mutableStateOf("") }
+    var categoriesExpanded by remember { mutableStateOf(true) }
+    var vaultsExpanded by remember { mutableStateOf(true) }
     var showNewFolderDialog by remember { mutableStateOf(false) }
     var newFolderName by remember { mutableStateOf("") }
 
@@ -124,121 +130,126 @@ fun ItemsScreen(
         }
     }
 
+    val bottomInset = if (fold.isTwoPane) 28.dp else 156.dp
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(c.background)
             .statusBarsPadding(),
     ) {
-        // Header Row (1Password 8 style: Avatar or Back | Centered Title | Sync + '+')
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            if (scope == ItemsScope.Root) {
-                OnePassAccountAvatar(email = email, onClick = onOpenSettings)
-            } else {
-                IconButton(
-                    onClick = {
-                        scope = ItemsScope.Root
-                        query = ""
-                    },
-                    modifier = Modifier.size(34.dp),
-                ) {
-                    Icon(
-                        Icons.AutoMirrored.Rounded.ArrowBack,
-                        contentDescription = "Quay lại",
-                        tint = c.accent,
-                    )
-                }
-            }
-
-            Text(
-                text = listTitle,
-                color = c.textPrimary,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                IconButton(onClick = onSync, enabled = !isSyncing, modifier = Modifier.size(34.dp)) {
-                    if (isSyncing) {
-                        CircularProgressIndicator(
-                            color = c.accent,
-                            strokeWidth = 2.dp,
-                            modifier = Modifier.size(18.dp),
-                        )
-                    } else {
-                        Icon(Icons.Rounded.Refresh, contentDescription = "Đồng bộ", tint = c.textSecondary, modifier = Modifier.size(20.dp))
-                    }
-                }
-                OnePassAddButton(onClick = onOpenNewItem)
-            }
-        }
-
-        OnePassSearchBar(
+        OnePassTopSearchBar(
+            email = email,
             query = query,
             onQueryChange = { query = it },
-            placeholder = if (scope == ItemsScope.Root) "Tìm tất cả các mục" else "Tìm trong $listTitle",
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            placeholder = if (scope == ItemsScope.Root) {
+                if (fold.isNarrowCover) "Tìm trong kho..." else "Tìm tất cả các mục"
+            } else {
+                "Tìm trong $listTitle"
+            },
+            isSyncing = isSyncing,
+            onSync = onSync,
+            onOpenGenerator = onOpenGenerator,
+            onOpenQrScanner = onOpenQrScanner,
+            onOpenSettings = onOpenSettings,
+            onLock = onLock,
+            leadingAction = if (scope != ItemsScope.Root) {
+                {
+                    IconButton(
+                        onClick = {
+                            scope = ItemsScope.Root
+                            query = ""
+                        },
+                        modifier = Modifier.size(36.dp),
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Rounded.ArrowBack,
+                            contentDescription = "Quay lại",
+                            tint = c.textPrimary,
+                        )
+                    }
+                }
+            } else null,
         )
-
-        Spacer(modifier = Modifier.height(6.dp))
 
         if (scope == ItemsScope.Root && query.isBlank()) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 96.dp),
-                verticalArrangement = Arrangement.spacedBy(18.dp),
+                contentPadding = PaddingValues(
+                    start = fold.horizontalPadding,
+                    end = fold.horizontalPadding,
+                    top = 4.dp,
+                    bottom = bottomInset,
+                ),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                // SECTION 1: Vaults & Folders
+                // Top Standalone "All Items" Card (exact 1Password Android!)
                 item {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SectionHeading("Kho & Thư mục")
-                        OnePassCard(modifier = Modifier.fillMaxWidth(), padding = PaddingValues(0.dp)) {
-                            Column {
-                                DirectoryRow(
-                                    icon = Icons.Rounded.Shield,
-                                    iconTint = Color.White,
-                                    iconBg = Color(0xFF0572EC),
-                                    title = "Tất cả các mục",
-                                    count = activeItems.size,
-                                    onClick = { scope = ItemsScope.AllItems },
-                                )
-                                folders.forEach { folder ->
-                                    HorizontalDivider(color = c.divider, thickness = 0.7.dp, modifier = Modifier.padding(start = 58.dp))
+                    OnePassCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        padding = PaddingValues(vertical = 4.dp),
+                    ) {
+                        DirectoryRow(
+                            icon = Icons.Rounded.Inventory2,
+                            iconTint = Color(0xFF1A1C20),
+                            iconBg = Color(0xFFA7B1C2),
+                            title = "Tất cả các mục",
+                            count = activeItems.size,
+                            onClick = { scope = ItemsScope.AllItems },
+                        )
+                    }
+                }
+
+                // SECTION 1: Categories (collapsible outside-card header + matte card!)
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        CollapsibleSectionHeader(
+                            title = "Danh mục",
+                            expanded = categoriesExpanded,
+                            onToggle = { categoriesExpanded = !categoriesExpanded },
+                        )
+                        AnimatedVisibility(visible = categoriesExpanded) {
+                            OnePassCard(modifier = Modifier.fillMaxWidth(), padding = PaddingValues(vertical = 6.dp)) {
+                                Column {
                                     DirectoryRow(
-                                        icon = Icons.Rounded.Folder,
-                                        iconTint = Color.White,
-                                        iconBg = Color(0xFF475569),
-                                        title = folder.name,
-                                        count = activeItems.count { it.folderId == folder.id },
-                                        onClick = { scope = ItemsScope.Folder(folder) },
+                                        icon = Icons.Rounded.Key,
+                                        iconTint = Color(0xFF042F2E),
+                                        iconBg = Color(0xFF5EEAD4),
+                                        title = "Đăng nhập",
+                                        count = activeItems.count { it.type == CipherType.LOGIN },
+                                        onClick = { scope = ItemsScope.Category(CipherType.LOGIN) },
                                     )
-                                }
-                                HorizontalDivider(color = c.divider, thickness = 0.7.dp, modifier = Modifier.padding(start = 58.dp))
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable { showNewFolderDialog = true }
-                                        .padding(horizontal = 14.dp, vertical = 13.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                ) {
-                                    Box(modifier = Modifier.size(32.dp), contentAlignment = Alignment.Center) {
-                                        Icon(Icons.Rounded.Add, contentDescription = null, tint = c.accent, modifier = Modifier.size(20.dp))
-                                    }
-                                    Text(
-                                        text = "Thư mục mới",
-                                        color = c.accent,
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Medium,
+                                    DirectoryRow(
+                                        icon = Icons.Rounded.QrCode2,
+                                        iconTint = Color.White,
+                                        iconBg = Color(0xFF6366F1),
+                                        title = "Mã xác thực 2FA",
+                                        count = activeItems.count { it.hasTotp },
+                                        onClick = onOpenTotpHub,
+                                    )
+                                    DirectoryRow(
+                                        icon = Icons.Rounded.CreditCard,
+                                        iconTint = Color.White,
+                                        iconBg = Color(0xFF0284C7),
+                                        title = "Thẻ tín dụng",
+                                        count = activeItems.count { it.type == CipherType.CARD },
+                                        onClick = { scope = ItemsScope.Category(CipherType.CARD) },
+                                    )
+                                    DirectoryRow(
+                                        icon = Icons.Rounded.Description,
+                                        iconTint = Color(0xFF2E1E04),
+                                        iconBg = Color(0xFFFBBF24),
+                                        title = "Ghi chú bảo mật",
+                                        count = activeItems.count { it.type == CipherType.SECURE_NOTE },
+                                        onClick = { scope = ItemsScope.Category(CipherType.SECURE_NOTE) },
+                                    )
+                                    DirectoryRow(
+                                        icon = Icons.Rounded.Person,
+                                        iconTint = Color(0xFF042F1A),
+                                        iconBg = Color(0xFF4ADE80),
+                                        title = "Danh tính",
+                                        count = activeItems.count { it.type == CipherType.IDENTITY },
+                                        onClick = { scope = ItemsScope.Category(CipherType.IDENTITY) },
                                     )
                                 }
                             }
@@ -246,56 +257,55 @@ fun ItemsScreen(
                     }
                 }
 
-                // SECTION 2: Categories (exact 1Password 8 colorful square icons)
+                // SECTION 2: Vaults & Folders
                 item {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SectionHeading("Danh mục")
-                        OnePassCard(modifier = Modifier.fillMaxWidth(), padding = PaddingValues(0.dp)) {
-                            Column {
-                                DirectoryRow(
-                                    icon = Icons.Rounded.Key,
-                                    iconTint = Color.White,
-                                    iconBg = Color(0xFF0D9488),
-                                    title = "Đăng nhập",
-                                    count = activeItems.count { it.type == CipherType.LOGIN },
-                                    onClick = { scope = ItemsScope.Category(CipherType.LOGIN) },
-                                )
-                                HorizontalDivider(color = c.divider, thickness = 0.7.dp, modifier = Modifier.padding(start = 58.dp))
-                                DirectoryRow(
-                                    icon = Icons.Rounded.QrCode2,
-                                    iconTint = Color.White,
-                                    iconBg = Color(0xFF6366F1),
-                                    title = "Mã xác thực 2FA",
-                                    count = activeItems.count { it.hasTotp },
-                                    onClick = onOpenTotpHub,
-                                )
-                                HorizontalDivider(color = c.divider, thickness = 0.7.dp, modifier = Modifier.padding(start = 58.dp))
-                                DirectoryRow(
-                                    icon = Icons.Rounded.CreditCard,
-                                    iconTint = Color.White,
-                                    iconBg = Color(0xFF0284C7),
-                                    title = "Thẻ tín dụng",
-                                    count = activeItems.count { it.type == CipherType.CARD },
-                                    onClick = { scope = ItemsScope.Category(CipherType.CARD) },
-                                )
-                                HorizontalDivider(color = c.divider, thickness = 0.7.dp, modifier = Modifier.padding(start = 58.dp))
-                                DirectoryRow(
-                                    icon = Icons.Rounded.Description,
-                                    iconTint = Color.White,
-                                    iconBg = Color(0xFFD97706),
-                                    title = "Ghi chú bảo mật",
-                                    count = activeItems.count { it.type == CipherType.SECURE_NOTE },
-                                    onClick = { scope = ItemsScope.Category(CipherType.SECURE_NOTE) },
-                                )
-                                HorizontalDivider(color = c.divider, thickness = 0.7.dp, modifier = Modifier.padding(start = 58.dp))
-                                DirectoryRow(
-                                    icon = Icons.Rounded.Person,
-                                    iconTint = Color.White,
-                                    iconBg = Color(0xFF059669),
-                                    title = "Danh tính",
-                                    count = activeItems.count { it.type == CipherType.IDENTITY },
-                                    onClick = { scope = ItemsScope.Category(CipherType.IDENTITY) },
-                                )
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        CollapsibleSectionHeader(
+                            title = "Kho & Thư mục",
+                            expanded = vaultsExpanded,
+                            onToggle = { vaultsExpanded = !vaultsExpanded },
+                        )
+                        AnimatedVisibility(visible = vaultsExpanded) {
+                            OnePassCard(modifier = Modifier.fillMaxWidth(), padding = PaddingValues(vertical = 6.dp)) {
+                                Column {
+                                    DirectoryRow(
+                                        icon = Icons.Rounded.Shield,
+                                        iconTint = Color(0xFF0D1E36),
+                                        iconBg = Color(0xFF93C5FD),
+                                        title = "Cá nhân (Personal)",
+                                        count = activeItems.size,
+                                        circular = true,
+                                        onClick = { scope = ItemsScope.AllItems },
+                                    )
+                                    folders.forEach { folder ->
+                                        DirectoryRow(
+                                            icon = Icons.Rounded.Folder,
+                                            iconTint = Color.White,
+                                            iconBg = Color(0xFF475569),
+                                            title = folder.name,
+                                            count = activeItems.count { it.folderId == folder.id },
+                                            onClick = { scope = ItemsScope.Folder(folder) },
+                                        )
+                                    }
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { showNewFolderDialog = true }
+                                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                    ) {
+                                        Box(modifier = Modifier.size(34.dp), contentAlignment = Alignment.Center) {
+                                            Icon(Icons.Rounded.Add, contentDescription = null, tint = c.navActiveContent, modifier = Modifier.size(22.dp))
+                                        }
+                                        Text(
+                                            text = "Thư mục mới",
+                                            color = c.navActiveContent,
+                                            fontSize = 15.5.sp,
+                                            fontWeight = FontWeight.Medium,
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -303,21 +313,21 @@ fun ItemsScreen(
 
                 // SECTION 3: Favorites & Recently Deleted
                 item {
-                    OnePassCard(modifier = Modifier.fillMaxWidth(), padding = PaddingValues(0.dp)) {
+                    OnePassCard(modifier = Modifier.fillMaxWidth(), padding = PaddingValues(vertical = 6.dp)) {
                         Column {
                             DirectoryRow(
                                 icon = Icons.Rounded.Star,
-                                iconTint = Color.White,
-                                iconBg = Color(0xFFF59E0B),
+                                iconTint = Color(0xFF1F1604),
+                                iconBg = Color(0xFFFBBF24),
                                 title = "Yêu thích",
                                 count = activeItems.count { it.favorite },
+                                circular = true,
                                 onClick = { scope = ItemsScope.Favorites },
                             )
-                            HorizontalDivider(color = c.divider, thickness = 0.7.dp, modifier = Modifier.padding(start = 58.dp))
                             DirectoryRow(
                                 icon = Icons.Rounded.DeleteOutline,
-                                iconTint = Color.White,
-                                iconBg = Color(0xFF6B7280),
+                                iconTint = Color(0xFF1A1C20),
+                                iconBg = Color(0xFF9CA3AF),
                                 title = "Đã xóa gần đây",
                                 count = trashItems.size,
                                 onClick = { scope = ItemsScope.Trash },
@@ -327,34 +337,46 @@ fun ItemsScreen(
                 }
             }
         } else {
-            // Filtered Item List View
+            // Drilled-In / Search Results List View
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
+                contentPadding = PaddingValues(
+                    start = fold.horizontalPadding,
+                    end = fold.horizontalPadding,
+                    top = 4.dp,
+                    bottom = bottomInset,
+                ),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                if (scope != ItemsScope.Root) {
+                    item {
+                        Text(
+                            text = "$listTitle (${filteredList.size})",
+                            color = c.textPrimary,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                        )
+                    }
+                }
+
                 item {
                     if (filteredList.isEmpty()) {
                         OnePassCard(modifier = Modifier.fillMaxWidth()) {
                             Text(
                                 text = "Chưa có mục nào trong \"$listTitle\".",
                                 color = c.textSecondary,
-                                fontSize = 14.sp,
+                                fontSize = 14.5.sp,
                             )
                         }
                     } else {
-                        OnePassCard(modifier = Modifier.fillMaxWidth(), padding = PaddingValues(0.dp)) {
+                        OnePassCard(modifier = Modifier.fillMaxWidth(), padding = PaddingValues(vertical = 6.dp)) {
                             Column {
-                                filteredList.forEachIndexed { idx, item ->
-                                    if (idx > 0) {
-                                        HorizontalDivider(
-                                            color = c.divider,
-                                            thickness = 0.7.dp,
-                                            modifier = Modifier.padding(start = 62.dp),
-                                        )
-                                    }
+                                filteredList.forEach { item ->
                                     OnePassItemRow(
                                         item = item,
                                         showFavoriteBadge = true,
+                                        selected = fold.isTwoPane && item.id == selectedItemId,
                                         onClick = { onSelectItem(item) },
                                     )
                                 }
@@ -369,7 +391,7 @@ fun ItemsScreen(
     if (showNewFolderDialog) {
         AlertDialog(
             onDismissRequest = { showNewFolderDialog = false },
-            containerColor = c.surface,
+            containerColor = c.surfaceElevated,
             title = { Text("Tạo thư mục mới", color = c.textPrimary, fontWeight = FontWeight.Bold) },
             text = {
                 OutlinedTextField(
@@ -404,15 +426,33 @@ fun ItemsScreen(
 }
 
 @Composable
-private fun SectionHeading(text: String) {
+private fun CollapsibleSectionHeader(
+    title: String,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+) {
     val c = LocalOpenVaultColors.current
-    Text(
-        text = text,
-        color = c.textPrimary,
-        fontSize = 15.5.sp,
-        fontWeight = FontWeight.SemiBold,
-        modifier = Modifier.padding(horizontal = 4.dp),
-    )
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggle)
+            .padding(horizontal = 4.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            text = title,
+            color = c.textPrimary,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Bold,
+        )
+        Icon(
+            imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+            contentDescription = null,
+            tint = c.accent,
+            modifier = Modifier.size(22.dp),
+        )
+    }
 }
 
 @Composable
@@ -422,6 +462,7 @@ private fun DirectoryRow(
     iconBg: Color,
     title: String,
     count: Int,
+    circular: Boolean = false,
     onClick: () -> Unit,
 ) {
     val c = LocalOpenVaultColors.current
@@ -429,16 +470,24 @@ private fun DirectoryRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 11.dp),
+            .padding(horizontal = 16.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        CategoryIconBadge(icon = icon, tint = iconTint, background = iconBg, size = 32.dp)
+        CategoryIconBadge(
+            icon = icon,
+            tint = iconTint,
+            background = iconBg,
+            size = 34.dp,
+            circular = circular,
+        )
         Text(
             text = title,
             color = c.textPrimary,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Medium,
+            fontSize = 15.5.sp,
+            fontWeight = FontWeight.Normal,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
         if (count > 0) {
@@ -446,13 +495,8 @@ private fun DirectoryRow(
                 text = count.toString(),
                 color = c.textSecondary,
                 fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
             )
         }
-        Icon(
-            Icons.Rounded.ChevronRight,
-            contentDescription = null,
-            tint = c.textMuted,
-            modifier = Modifier.size(19.dp),
-        )
     }
 }

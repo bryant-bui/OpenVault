@@ -63,6 +63,7 @@ import io.openvault.app.ui.components.OnePassCard
 import io.openvault.app.ui.screens.UnlockScreen
 import io.openvault.app.ui.theme.LocalOpenVaultColors
 import io.openvault.app.ui.theme.OpenVaultTheme
+import io.openvault.app.ui.theme.ProvideFoldableLayout
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -171,47 +172,49 @@ class PasskeyAuthActivity : FragmentActivity() {
             var showSlowProgressPill by remember { mutableStateOf(false) }
 
             OpenVaultTheme(themeMode = settings.themeMode) {
-                if (lockState != VaultLockState.UNLOCKED) {
-                    UnlockScreen(
-                        repository = container.repository,
-                        activity = this@PasskeyAuthActivity,
-                        autoTriggerBiometric = true,
-                        allowLogout = false,
-                        onUnlocked = { },
-                    )
-                } else if (errorMessage != null) {
-                    PasskeyErrorDialog(
-                        message = errorMessage!!,
-                        onRetry = {
-                            errorMessage = null
-                            retryNonce++
-                        },
-                        onCancel = { cancelAndFinish(action) },
-                    )
-                } else {
-                    LaunchedEffect(action, retryNonce) {
-                        val pillJob = launch {
-                            // Only reveal a subtle pill if saving to Cloudflare D1 takes > 180ms
-                            delay(180)
-                            showSlowProgressPill = true
-                        }
-                        val outcome = executeAction(action)
-                        pillJob.cancel()
-                        showSlowProgressPill = false
-                        if (outcome is ActionOutcome.RecoverableError) {
-                            errorMessage = outcome.message
-                        }
-                    }
-
-                    if (showSlowProgressPill) {
-                        val label = when (action) {
-                            ACTION_CREATE_PASSKEY -> "Đang lưu mã khóa vào OpenVault..."
-                            ACTION_UNLOCK_FOR_GET -> "Đang tải mã khóa..."
-                            else -> "Đang xác thực mã khóa..."
-                        }
-                        FloatingProgressPill(label)
+                ProvideFoldableLayout(activity = this@PasskeyAuthActivity) {
+                    if (lockState != VaultLockState.UNLOCKED) {
+                        UnlockScreen(
+                            repository = container.repository,
+                            activity = this@PasskeyAuthActivity,
+                            autoTriggerBiometric = true,
+                            allowLogout = false,
+                            onUnlocked = { },
+                        )
+                    } else if (errorMessage != null) {
+                        PasskeyErrorDialog(
+                            message = errorMessage!!,
+                            onRetry = {
+                                errorMessage = null
+                                retryNonce++
+                            },
+                            onCancel = { cancelAndFinish(action) },
+                        )
                     } else {
-                        Box(modifier = Modifier.fillMaxSize())
+                        LaunchedEffect(action, retryNonce) {
+                            val pillJob = launch {
+                                // Only reveal a subtle pill if saving to Cloudflare D1 takes > 180ms
+                                delay(180)
+                                showSlowProgressPill = true
+                            }
+                            val outcome = executeAction(action)
+                            pillJob.cancel()
+                            showSlowProgressPill = false
+                            if (outcome is ActionOutcome.RecoverableError) {
+                                errorMessage = outcome.message
+                            }
+                        }
+
+                        if (showSlowProgressPill) {
+                            val label = when (action) {
+                                ACTION_CREATE_PASSKEY -> "Đang lưu mã khóa vào OpenVault..."
+                                ACTION_UNLOCK_FOR_GET -> "Đang tải mã khóa..."
+                                else -> "Đang xác thực mã khóa..."
+                            }
+                            FloatingProgressPill(label)
+                        } else {
+                            Box(modifier = Modifier.fillMaxSize())
+                        }
                     }
                 }
             }

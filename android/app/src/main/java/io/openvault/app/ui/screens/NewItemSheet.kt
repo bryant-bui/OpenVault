@@ -1,8 +1,8 @@
 package io.openvault.app.ui.screens
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -14,10 +14,12 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CreditCard
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Key
@@ -25,8 +27,8 @@ import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,20 +45,21 @@ import io.openvault.app.core.crypto.CipherType
 import io.openvault.app.ui.components.CategoryIconBadge
 import io.openvault.app.ui.components.OnePassCard
 import io.openvault.app.ui.components.OnePassSearchBar
+import io.openvault.app.ui.theme.LocalFoldableLayout
 import io.openvault.app.ui.theme.LocalOpenVaultColors
 
 private data class NewItemTileSpec(
     val title: String,
     val icon: ImageVector,
+    val iconTint: Color,
     val bgColor: Color,
     val onClick: () -> Unit,
 )
 
 /**
- * Authentic 1Password 8 "New Item" modal sheet (matching Image 1-right!):
- * - Centered "Mục mới" + right blue "Xong"
- * - Search bar "Bạn muốn thêm gì?"
- * - Clean 2-column Bento grid with colored square icons + top-right '+'
+ * Authentic 1Password 8 Android "Add items" modal sheet:
+ * - Elevated #1C1D1F canvas, ✕ Close + bold "Thêm mục mới"
+ * - Adaptive 2-column Bento grid on Cover/Phone, 3-column Bento grid on unfolded Galaxy Z Fold 3
  */
 @Composable
 fun NewItemSheet(
@@ -66,16 +69,17 @@ fun NewItemSheet(
     onDismiss: () -> Unit,
 ) {
     val c = LocalOpenVaultColors.current
+    val fold = LocalFoldableLayout.current
     var query by remember { mutableStateOf("") }
 
     val tiles = remember {
         listOf(
-            NewItemTileSpec("Đăng nhập", Icons.Rounded.Lock, Color(0xFF0D9488)) { onCreateType(CipherType.LOGIN) },
-            NewItemTileSpec("Ghi chú bảo mật", Icons.Rounded.Description, Color(0xFFD97706)) { onCreateType(CipherType.SECURE_NOTE) },
-            NewItemTileSpec("Thẻ tín dụng", Icons.Rounded.CreditCard, Color(0xFF0284C7)) { onCreateType(CipherType.CARD) },
-            NewItemTileSpec("Danh tính", Icons.Rounded.Person, Color(0xFF059669)) { onCreateType(CipherType.IDENTITY) },
-            NewItemTileSpec("Tạo mật khẩu", Icons.Rounded.Key, Color(0xFF16A34A)) { onOpenGenerator() },
-            NewItemTileSpec("Quét mã QR 2FA", Icons.Rounded.QrCodeScanner, Color(0xFF6366F1)) { onOpenQrScanner() },
+            NewItemTileSpec("Đăng nhập", Icons.Rounded.Lock, Color(0xFF042F2E), Color(0xFF5EEAD4)) { onCreateType(CipherType.LOGIN) },
+            NewItemTileSpec("Ghi chú bảo mật", Icons.Rounded.Description, Color(0xFF2E1E04), Color(0xFFFBBF24)) { onCreateType(CipherType.SECURE_NOTE) },
+            NewItemTileSpec("Thẻ tín dụng", Icons.Rounded.CreditCard, Color.White, Color(0xFF0284C7)) { onCreateType(CipherType.CARD) },
+            NewItemTileSpec("Danh tính", Icons.Rounded.Person, Color(0xFF042F1A), Color(0xFF4ADE80)) { onCreateType(CipherType.IDENTITY) },
+            NewItemTileSpec("Tạo mật khẩu", Icons.Rounded.Key, Color.White, Color(0xFF16A34A)) { onOpenGenerator() },
+            NewItemTileSpec("Quét mã QR 2FA", Icons.Rounded.QrCodeScanner, Color.White, Color(0xFF6366F1)) { onOpenQrScanner() },
         )
     }
 
@@ -84,96 +88,105 @@ fun NewItemSheet(
         if (q.isEmpty()) tiles else tiles.filter { it.title.lowercase().contains(q) }
     }
 
+    val columns = if (fold.isTwoPane) 3 else 2
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(c.background)
+            .background(c.sheetBackground)
             .statusBarsPadding()
             .navigationBarsPadding(),
     ) {
-        // Header: Centered title + Right "Xong"
+        // Header: ✕  Thêm mục mới
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
+                .padding(horizontal = 8.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Spacer(modifier = Modifier.size(48.dp))
-            Text(
-                text = "Mục mới",
-                color = c.textPrimary,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
-            TextButton(onClick = onDismiss) {
-                Text("Xong", color = c.accent, fontSize = 15.5.sp, fontWeight = FontWeight.SemiBold)
+            IconButton(onClick = onDismiss) {
+                Icon(Icons.Rounded.Close, contentDescription = "Đóng", tint = c.textPrimary)
             }
+            Text(
+                text = "Thêm mục mới",
+                color = c.textPrimary,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+            )
         }
 
-        OnePassSearchBar(
-            query = query,
-            onQueryChange = { query = it },
-            placeholder = "Bạn muốn thêm gì?",
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-        )
-
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+                .verticalScroll(rememberScrollState()),
+            contentAlignment = Alignment.TopCenter,
         ) {
-            visibleTiles.chunked(2).forEach { pair ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    pair.forEach { tile ->
-                        OnePassCard(
-                            modifier = Modifier.weight(1f),
-                            cornerRadius = 14.dp,
-                            padding = PaddingValues(14.dp),
-                            onClick = tile.onClick,
-                        ) {
-                            Column(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalArrangement = Arrangement.spacedBy(18.dp),
+            Column(
+                modifier = Modifier
+                    .widthIn(max = 680.dp)
+                    .fillMaxWidth()
+                    .padding(horizontal = fold.horizontalPadding, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                OnePassSearchBar(
+                    query = query,
+                    onQueryChange = { query = it },
+                    placeholder = "Bạn muốn thêm gì?",
+                )
+
+                visibleTiles.chunked(columns).forEach { rowItems ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        rowItems.forEach { tile ->
+                            OnePassCard(
+                                modifier = Modifier.weight(1f),
+                                cornerRadius = 16.dp,
+                                backgroundColor = c.surface,
+                                padding = PaddingValues(15.dp),
+                                onClick = tile.onClick,
                             ) {
-                                Row(
+                                Column(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.Top,
+                                    verticalArrangement = Arrangement.spacedBy(18.dp),
                                 ) {
-                                    CategoryIconBadge(
-                                        icon = tile.icon,
-                                        tint = Color.White,
-                                        background = tile.bgColor,
-                                        size = 34.dp,
-                                    )
-                                    Icon(
-                                        Icons.Rounded.Add,
-                                        contentDescription = null,
-                                        tint = c.textSecondary,
-                                        modifier = Modifier.size(18.dp),
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.Top,
+                                    ) {
+                                        CategoryIconBadge(
+                                            icon = tile.icon,
+                                            tint = tile.iconTint,
+                                            background = tile.bgColor,
+                                            size = 36.dp,
+                                        )
+                                        Icon(
+                                            Icons.Rounded.Add,
+                                            contentDescription = null,
+                                            tint = c.textSecondary,
+                                            modifier = Modifier.size(19.dp),
+                                        )
+                                    }
+                                    Text(
+                                        text = tile.title,
+                                        color = c.textPrimary,
+                                        fontSize = if (fold.isNarrowCover) 14.sp else 15.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 2,
                                     )
                                 }
-                                Text(
-                                    text = tile.title,
-                                    color = c.textPrimary,
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Medium,
-                                )
                             }
                         }
-                    }
-                    if (pair.size == 1) {
-                        Spacer(modifier = Modifier.weight(1f))
+                        repeat(columns - rowItems.size) {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
                     }
                 }
+                Spacer(modifier = Modifier.height(16.dp))
             }
-            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }

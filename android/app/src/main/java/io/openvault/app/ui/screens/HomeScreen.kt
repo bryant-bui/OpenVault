@@ -1,15 +1,14 @@
 package io.openvault.app.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -19,23 +18,17 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoFixHigh
-import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Key
-import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Person
-import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Star
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -46,7 +39,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -57,29 +49,30 @@ import io.openvault.app.core.crypto.TotpEngine
 import io.openvault.app.core.crypto.VaultItem
 import io.openvault.app.ui.components.CategoryIconBadge
 import io.openvault.app.ui.components.ItemIconTile
-import io.openvault.app.ui.components.OnePassAccountAvatar
-import io.openvault.app.ui.components.OnePassAddButton
 import io.openvault.app.ui.components.OnePassCard
 import io.openvault.app.ui.components.OnePassItemRow
-import io.openvault.app.ui.components.OnePassSearchBar
+import io.openvault.app.ui.components.OnePassTopSearchBar
 import io.openvault.app.ui.components.TotpInlineCountdown
+import io.openvault.app.ui.theme.LocalFoldableLayout
 import io.openvault.app.ui.theme.LocalOpenVaultColors
 import kotlinx.coroutines.delay
 
 /**
- * 1Password 8 Mobile-inspired Home Screen:
- * - Clean matte canvas, Top-Left Account Avatar, Top-Right Generator/Lock/'+' circle
- * - Large "Trang chủ" headline + flat search bar
- * - Horizontal Pinned 2FA OTP cards (tap to copy code immediately)
- * - Profile / Autofill card, Collapsible Favorites card, Collapsible Recently Updated card
+ * Authentic 1Password 8 Android Home Screen:
+ * - Single-row Midnight-Navy Search Pill + Account Avatar Dropdown (zero clutter on 320dp Z Fold 3 cover screen)
+ * - Horizontal Pinned 2FA OTP cards (tap to copy immediately)
+ * - Profile card, collapsible Favorites & Recently Created cards on pure OLED black (#000000)
+ * - Subtle blue-outlined quick action button ("Tạo mật khẩu mạnh") matching 1Password Android's Customize button
  */
 @Composable
 fun HomeScreen(
     email: String,
     items: List<VaultItem>,
     isSyncing: Boolean,
+    selectedItemId: String? = null,
     onOpenSettings: () -> Unit,
     onOpenGenerator: () -> Unit,
+    onOpenQrScanner: () -> Unit,
     onOpenNewItem: () -> Unit,
     onSync: () -> Unit,
     onLock: () -> Unit,
@@ -87,6 +80,7 @@ fun HomeScreen(
     onCopyTotp: (title: String, code: String) -> Unit,
 ) {
     val c = LocalOpenVaultColors.current
+    val fold = LocalFoldableLayout.current
     var query by remember { mutableStateOf("") }
     var favoritesExpanded by remember { mutableStateOf(true) }
     var recentExpanded by remember { mutableStateOf(true) }
@@ -105,7 +99,7 @@ fun HomeScreen(
     val pinnedTotpItems = remember(activeItems) { activeItems.filter { it.hasTotp }.take(8) }
     val favoriteItems = remember(activeItems) { activeItems.filter { it.favorite } }
     val recentItems = remember(activeItems) {
-        activeItems.sortedByDescending { it.revisionDate ?: it.creationDate ?: "" }.take(12)
+        activeItems.sortedByDescending { it.revisionDate ?: it.creationDate ?: "" }.take(14)
     }
 
     val searchResults = remember(activeItems, query) {
@@ -121,85 +115,37 @@ fun HomeScreen(
         }
     }
 
+    val bottomInset = if (fold.isTwoPane) 28.dp else 156.dp
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(c.background)
             .statusBarsPadding(),
     ) {
-        // Top Utility Row: Left Avatar | Right Sync + Generator + Lock + '+'
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            OnePassAccountAvatar(email = email, onClick = onOpenSettings)
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                IconButton(onClick = onSync, enabled = !isSyncing, modifier = Modifier.size(36.dp)) {
-                    if (isSyncing) {
-                        CircularProgressIndicator(
-                            color = c.accent,
-                            strokeWidth = 2.dp,
-                            modifier = Modifier.size(18.dp),
-                        )
-                    } else {
-                        Icon(
-                            Icons.Rounded.Refresh,
-                            contentDescription = "Đồng bộ",
-                            tint = c.textSecondary,
-                            modifier = Modifier.size(20.dp),
-                        )
-                    }
-                }
-                IconButton(onClick = onOpenGenerator, modifier = Modifier.size(36.dp)) {
-                    Icon(
-                        Icons.Rounded.Key,
-                        contentDescription = "Tạo mật khẩu",
-                        tint = c.textSecondary,
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-                IconButton(onClick = onLock, modifier = Modifier.size(36.dp)) {
-                    Icon(
-                        Icons.Rounded.Lock,
-                        contentDescription = "Khóa kho",
-                        tint = c.textSecondary,
-                        modifier = Modifier.size(19.dp),
-                    )
-                }
-                Spacer(modifier = Modifier.width(4.dp))
-                OnePassAddButton(onClick = onOpenNewItem)
-            }
-        }
+        OnePassTopSearchBar(
+            email = email,
+            query = query,
+            onQueryChange = { query = it },
+            placeholder = if (fold.isNarrowCover) "Tìm trong kho..." else "Tìm trong OpenVault",
+            isSyncing = isSyncing,
+            onSync = onSync,
+            onOpenGenerator = onOpenGenerator,
+            onOpenQrScanner = onOpenQrScanner,
+            onOpenSettings = onOpenSettings,
+            onLock = onLock,
+        )
 
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 96.dp),
+            contentPadding = PaddingValues(
+                start = fold.horizontalPadding,
+                end = fold.horizontalPadding,
+                top = 4.dp,
+                bottom = bottomInset,
+            ),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        text = "Trang chủ",
-                        color = c.textPrimary,
-                        fontSize = 31.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = (-0.7).sp,
-                    )
-                    OnePassSearchBar(
-                        query = query,
-                        onQueryChange = { query = it },
-                        placeholder = "Tìm trong OpenVault",
-                    )
-                }
-            }
-
             if (query.isNotBlank()) {
                 item {
                     if (searchResults.isEmpty()) {
@@ -207,26 +153,20 @@ fun HomeScreen(
                             Text(
                                 text = "Không tìm thấy mục nào khớp \"$query\"",
                                 color = c.textSecondary,
-                                fontSize = 14.sp,
+                                fontSize = 14.5.sp,
                             )
                         }
                     } else {
                         OnePassCard(
                             modifier = Modifier.fillMaxWidth(),
-                            padding = PaddingValues(0.dp),
+                            padding = PaddingValues(vertical = 6.dp),
                         ) {
                             Column {
-                                searchResults.forEachIndexed { idx, item ->
-                                    if (idx > 0) {
-                                        HorizontalDivider(
-                                            color = c.divider,
-                                            thickness = 0.7.dp,
-                                            modifier = Modifier.padding(start = 62.dp),
-                                        )
-                                    }
+                                searchResults.forEach { item ->
                                     OnePassItemRow(
                                         item = item,
                                         showFavoriteBadge = true,
+                                        selected = fold.isTwoPane && item.id == selectedItemId,
                                         onClick = { onSelectItem(item) },
                                     )
                                 }
@@ -235,9 +175,10 @@ fun HomeScreen(
                     }
                 }
             } else {
-                // Pinned 2FA Horizontal Strip (exact 1Password 8 Home widget style!)
+                // Pinned 2FA Horizontal Strip
                 if (pinnedTotpItems.isNotEmpty()) {
                     item {
+                        val cardWidth = if (fold.isNarrowCover) 182.dp else 204.dp
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -255,9 +196,9 @@ fun HomeScreen(
                                         totp.formattedCode
                                     }
                                     OnePassCard(
-                                        modifier = Modifier.width(196.dp),
-                                        cornerRadius = 14.dp,
-                                        padding = PaddingValues(13.dp),
+                                        modifier = Modifier.width(cardWidth),
+                                        cornerRadius = 16.dp,
+                                        padding = PaddingValues(14.dp),
                                         onClick = { onCopyTotp(item.name, totp.code) },
                                     ) {
                                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -265,7 +206,7 @@ fun HomeScreen(
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                             ) {
-                                                ItemIconTile(title = item.name, type = item.type, size = 22.dp)
+                                                ItemIconTile(title = item.name, type = item.type, size = 24.dp)
                                                 Text(
                                                     text = item.name,
                                                     color = c.textPrimary,
@@ -277,7 +218,7 @@ fun HomeScreen(
                                             }
                                             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                                 Text(
-                                                    text = "mã xác thực một lần",
+                                                    text = "mã xác thực 2FA",
                                                     color = c.fieldLabel,
                                                     fontSize = 12.sp,
                                                     fontWeight = FontWeight.Medium,
@@ -305,78 +246,72 @@ fun HomeScreen(
                     }
                 }
 
-                // Profile & Quick Settings Card (matches 1Password 8 Home "Profile" card!)
+                // Profile Card (exact 1Password Android Home "Profile" card!)
                 item {
                     OnePassCard(
                         modifier = Modifier.fillMaxWidth(),
-                        padding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                        padding = PaddingValues(horizontal = 16.dp, vertical = 15.dp),
                         onClick = onOpenSettings,
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
                         ) {
                             CategoryIconBadge(
                                 icon = Icons.Rounded.Person,
-                                tint = Color.White,
-                                background = c.accent,
+                                tint = Color(0xFF0C74F2),
+                                background = Color.White,
                                 size = 34.dp,
                                 circular = true,
                             )
-                            Column(modifier = Modifier.weight(1f)) {
+                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 Text(
                                     text = "Hồ sơ & Cài đặt",
                                     color = c.textPrimary,
-                                    fontSize = 15.sp,
+                                    fontSize = 16.sp,
                                     fontWeight = FontWeight.SemiBold,
                                 )
                                 Text(
-                                    text = email.ifBlank { "Quản lý sinh trắc học, PIN & tự động điền" },
+                                    text = email.ifBlank { "Thiết lập vân tay, mã PIN, Autofill & Passkey" },
                                     color = c.textSecondary,
-                                    fontSize = 13.sp,
-                                    maxLines = 1,
+                                    fontSize = 13.5.sp,
+                                    maxLines = 2,
                                     overflow = TextOverflow.Ellipsis,
                                 )
                             }
-                            Icon(
-                                Icons.Rounded.ChevronRight,
-                                contentDescription = null,
-                                tint = c.textMuted,
-                                modifier = Modifier.size(19.dp),
-                            )
                         }
                     }
                 }
 
-                // Favorites Collapsible Card (matches Image 1-left exactly!)
+                // Favorites Collapsible Card
                 if (favoriteItems.isNotEmpty()) {
                     item {
                         OnePassCard(
                             modifier = Modifier.fillMaxWidth(),
-                            padding = PaddingValues(0.dp),
+                            padding = PaddingValues(vertical = 6.dp),
                         ) {
                             Column {
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clickable { favoritesExpanded = !favoritesExpanded }
-                                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                                        .padding(horizontal = 16.dp, vertical = 12.dp),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(14.dp),
                                 ) {
                                     CategoryIconBadge(
                                         icon = Icons.Rounded.Star,
-                                        tint = Color.White,
-                                        background = Color(0xFFF59E0B),
-                                        size = 30.dp,
+                                        tint = Color(0xFF1F1604),
+                                        background = Color(0xFFFBBF24),
+                                        size = 34.dp,
                                         circular = true,
                                     )
                                     Text(
                                         text = "Yêu thích",
                                         color = c.textPrimary,
-                                        fontSize = 15.5.sp,
-                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold,
                                         modifier = Modifier.weight(1f),
                                     )
                                     Icon(
@@ -388,16 +323,12 @@ fun HomeScreen(
                                 }
 
                                 AnimatedVisibility(visible = favoritesExpanded) {
-                                    Column {
+                                    Column(modifier = Modifier.padding(bottom = 4.dp)) {
                                         favoriteItems.forEach { item ->
-                                            HorizontalDivider(
-                                                color = c.divider,
-                                                thickness = 0.7.dp,
-                                                modifier = Modifier.padding(start = 62.dp),
-                                            )
                                             OnePassItemRow(
                                                 item = item,
                                                 showFavoriteBadge = true,
+                                                selected = fold.isTwoPane && item.id == selectedItemId,
                                                 onClick = { onSelectItem(item) },
                                             )
                                         }
@@ -408,33 +339,33 @@ fun HomeScreen(
                     }
                 }
 
-                // Recently Created / Updated Collapsible Card (matches Image 1-left & Image 5-left!)
+                // Recently Created / Updated Collapsible Card (exact 1Password Android card!)
                 item {
                     OnePassCard(
                         modifier = Modifier.fillMaxWidth(),
-                        padding = PaddingValues(0.dp),
+                        padding = PaddingValues(vertical = 6.dp),
                     ) {
                         Column {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable { recentExpanded = !recentExpanded }
-                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
                             ) {
                                 CategoryIconBadge(
                                     icon = Icons.Rounded.History,
-                                    tint = Color.White,
-                                    background = Color(0xFF0EA5E9),
-                                    size = 30.dp,
+                                    tint = Color(0xFF07233B),
+                                    background = Color(0xFF60B8FF),
+                                    size = 34.dp,
                                     circular = true,
                                 )
                                 Text(
-                                    text = "Mới cập nhật",
+                                    text = "Mới tạo & cập nhật",
                                     color = c.textPrimary,
-                                    fontSize = 15.5.sp,
-                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
                                     modifier = Modifier.weight(1f),
                                 )
                                 Icon(
@@ -447,41 +378,66 @@ fun HomeScreen(
 
                             AnimatedVisibility(visible = recentExpanded) {
                                 if (recentItems.isEmpty()) {
-                                    Column {
-                                        HorizontalDivider(color = c.divider, thickness = 0.7.dp)
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clickable(onClick = onOpenNewItem)
-                                                .padding(16.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                        ) {
-                                            Icon(Icons.Rounded.AutoFixHigh, contentDescription = null, tint = c.accent)
-                                            Text(
-                                                text = "Chưa có mục nào. Nhấn nút + góc trên để thêm tài khoản đầu tiên.",
-                                                color = c.textSecondary,
-                                                fontSize = 13.5.sp,
-                                            )
-                                        }
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable(onClick = onOpenNewItem)
+                                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    ) {
+                                        Icon(Icons.Rounded.AutoFixHigh, contentDescription = null, tint = c.accent)
+                                        Text(
+                                            text = "Chưa có mục nào. Nhấn \"+ Mục mới\" để thêm tài khoản đầu tiên.",
+                                            color = c.textSecondary,
+                                            fontSize = 13.5.sp,
+                                        )
                                     }
                                 } else {
-                                    Column {
+                                    Column(modifier = Modifier.padding(bottom = 4.dp)) {
                                         recentItems.forEach { item ->
-                                            HorizontalDivider(
-                                                color = c.divider,
-                                                thickness = 0.7.dp,
-                                                modifier = Modifier.padding(start = 62.dp),
-                                            )
                                             OnePassItemRow(
                                                 item = item,
                                                 showFavoriteBadge = true,
+                                                selected = fold.isTwoPane && item.id == selectedItemId,
                                                 onClick = { onSelectItem(item) },
                                             )
                                         }
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+
+                // Subtle Blue-Outlined Quick Action Button (exact 1Password Android "Customize" button style!)
+                item {
+                    Surface(
+                        onClick = onOpenGenerator,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (c.isDark) Color(0xFF10131A) else c.surface,
+                        border = BorderStroke(1.dp, c.accent.copy(alpha = 0.72f)),
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Key,
+                                contentDescription = null,
+                                tint = c.navActiveContent,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Text(
+                                text = "  Tạo mật khẩu mạnh",
+                                color = c.navActiveContent,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium,
+                            )
                         }
                     }
                 }

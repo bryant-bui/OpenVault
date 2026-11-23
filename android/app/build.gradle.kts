@@ -14,8 +14,8 @@ android {
         applicationId = "io.openvault.app"
         minSdk = 28
         targetSdk = 36
-        versionCode = 5
-        versionName = "0.5.0"
+        versionCode = 6
+        versionName = "0.6.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -84,6 +84,7 @@ dependencies {
     implementation(libs.androidx.biometric)
     implementation(libs.androidx.autofill)
     implementation(libs.androidx.credentials)
+    implementation(libs.androidx.window)
 
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)

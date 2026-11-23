@@ -52,6 +52,7 @@ import io.openvault.app.ui.components.OnePassSearchBar
 import io.openvault.app.ui.screens.UnlockScreen
 import io.openvault.app.ui.theme.LocalOpenVaultColors
 import io.openvault.app.ui.theme.OpenVaultTheme
+import io.openvault.app.ui.theme.ProvideFoldableLayout
 
 class AutofillAuthActivity : FragmentActivity() {
 
@@ -139,25 +140,27 @@ class AutofillAuthActivity : FragmentActivity() {
             val allItems by container.repository.items.collectAsState()
 
             OpenVaultTheme(themeMode = settings.themeMode) {
-                if (lockState != VaultLockState.UNLOCKED) {
-                    UnlockScreen(
-                        repository = container.repository,
-                        activity = this@AutofillAuthActivity,
-                        autoTriggerBiometric = true,
-                        allowLogout = false,
-                        onUnlocked = { },
-                    )
-                } else {
-                    AutofillPickerContent(
-                        allItems = allItems,
-                        webDomain = webDomain,
-                        targetPackage = targetPackage,
-                        onSelect = ::completeWithItem,
-                        onCancel = {
-                            setResult(Activity.RESULT_CANCELED)
-                            finish()
-                        },
-                    )
+                ProvideFoldableLayout(activity = this@AutofillAuthActivity) {
+                    if (lockState != VaultLockState.UNLOCKED) {
+                        UnlockScreen(
+                            repository = container.repository,
+                            activity = this@AutofillAuthActivity,
+                            autoTriggerBiometric = true,
+                            allowLogout = false,
+                            onUnlocked = { },
+                        )
+                    } else {
+                        AutofillPickerContent(
+                            allItems = allItems,
+                            webDomain = webDomain,
+                            targetPackage = targetPackage,
+                            onSelect = ::completeWithItem,
+                            onCancel = {
+                                setResult(Activity.RESULT_CANCELED)
+                                finish()
+                            },
+                        )
+                    }
                 }
             }
         }

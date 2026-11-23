@@ -17,15 +17,18 @@ import androidx.compose.ui.unit.sp
 import io.openvault.app.core.security.AppThemeMode
 
 /**
- * Clean, flat native design tokens inspired by 1Password 8 Mobile:
- * - Pure OLED Black (#000000) + matte charcoal (#1C1C1E) cards in Dark Mode
- * - Clean neutral light gray (#F3F4F6) + pure white (#FFFFFF) cards in Light Mode
- * - Hairline dividers, crisp typography, ZERO glass/blur/aurora noise
+ * Authentic 1Password 8 Android (Material 3) flat design tokens:
+ * - Pure OLED Black (#000000) canvas + matte charcoal (#161719) cards on Home/Items/Watchtower
+ * - Elevated matte charcoal (#1C1D1F) on Item Detail, Item Editor, and Settings
+ * - Signature Midnight Navy rounded search pill (#1B2336), Cobalt FAB (#0C74F2),
+ *   Periwinkle Lavender field labels (#A9A2F8), and Purple Diagonal-Striped Edit Banner
+ * - ZERO glass/blur/aurora effects
  */
 @Immutable
 data class OpenVaultColors(
     val isDark: Boolean,
     val background: Color,
+    val sheetBackground: Color,
     val surface: Color,
     val surfaceElevated: Color,
     val searchBackground: Color,
@@ -36,6 +39,9 @@ data class OpenVaultColors(
     val accentButtonBg: Color,
     val accentButtonFg: Color,
     val fieldLabel: Color,
+    val editBannerBg: Color,
+    val editBannerStripe: Color,
+    val editBannerText: Color,
     val textPrimary: Color,
     val textSecondary: Color,
     val textMuted: Color,
@@ -49,51 +55,63 @@ data class OpenVaultColors(
     val passwordSymbol: Color,
     val navBarBg: Color,
     val navActivePill: Color,
+    val navActiveContent: Color,
+    val navInactiveContent: Color,
 )
 
 private val DarkOnePassColors = OpenVaultColors(
     isDark = true,
     background = Color(0xFF000000),
-    surface = Color(0xFF1C1C1E),
-    surfaceElevated = Color(0xFF252528),
-    searchBackground = Color(0xFF242426),
-    divider = Color(0xFF2C2C2E),
-    cardBorder = Color(0xFF2A2A2D),
-    accent = Color(0xFF5BA8FF),
-    accentSoft = Color(0x245BA8FF),
-    accentButtonBg = Color(0xFF7CB9FF),
-    accentButtonFg = Color(0xFF071A33),
-    fieldLabel = Color(0xFF9E94E6),
-    textPrimary = Color(0xFFF5F5F7),
-    textSecondary = Color(0xFF9A9AA0),
-    textMuted = Color(0xFF6E6E73),
-    success = Color(0xFF34D399),
-    successSoft = Color(0x2034D399),
+    sheetBackground = Color(0xFF1C1D1F),
+    surface = Color(0xFF161719),
+    surfaceElevated = Color(0xFF222428),
+    searchBackground = Color(0xFF1B2336),
+    divider = Color(0xFF2C2E33),
+    cardBorder = Color(0xFF33363C),
+    accent = Color(0xFF60A8FF),
+    accentSoft = Color(0xFF1D314B),
+    accentButtonBg = Color(0xFF0C74F2),
+    accentButtonFg = Color(0xFFFFFFFF),
+    fieldLabel = Color(0xFFA9A2F8),
+    editBannerBg = Color(0xFF271B4A),
+    editBannerStripe = Color(0xFF3A296B),
+    editBannerText = Color(0xFFC4B5FD),
+    textPrimary = Color(0xFFF3F4F6),
+    textSecondary = Color(0xFF9EA4AE),
+    textMuted = Color(0xFF6B7280),
+    success = Color(0xFF4ADE80),
+    successSoft = Color(0x204ADE80),
     warning = Color(0xFFFBBF24),
     warningSoft = Color(0x24FBBF24),
     danger = Color(0xFFF87171),
-    dangerSoft = Color(0x243D1B1E),
+    dangerSoft = Color(0x263D1B1E),
     passwordDigit = Color(0xFF60A5FA),
     passwordSymbol = Color(0xFFFB7185),
-    navBarBg = Color(0xFF141416),
-    navActivePill = Color(0xFF232B3A),
+    navBarBg = Color(0xFF141517),
+    navActivePill = Color(0xFF1E334D),
+    navActiveContent = Color(0xFF9DC7FB),
+    navInactiveContent = Color(0xFFB3BAC4),
 )
 
 private val LightOnePassColors = OpenVaultColors(
     isDark = false,
-    background = Color(0xFFF3F4F7),
+    background = Color(0xFFF3F5F8),
+    sheetBackground = Color(0xFFFFFFFF),
     surface = Color(0xFFFFFFFF),
-    surfaceElevated = Color(0xFFFFFFFF),
-    searchBackground = Color(0xFFE7E9EE),
-    divider = Color(0xFFE8EAEF),
-    cardBorder = Color(0xFFE3E6EC),
+    surfaceElevated = Color(0xFFF8FAFC),
+    searchBackground = Color(0xFFE6ECF7),
+    divider = Color(0xFFE5E7EB),
+    cardBorder = Color(0xFFD4DAE4),
     accent = Color(0xFF0572EC),
-    accentSoft = Color(0x180572EC),
+    accentSoft = Color(0xFFE0ECFF),
     accentButtonBg = Color(0xFF0572EC),
     accentButtonFg = Color(0xFFFFFFFF),
     fieldLabel = Color(0xFF6958C7),
+    editBannerBg = Color(0xFFEDE9FE),
+    editBannerStripe = Color(0xFFDDD6FE),
+    editBannerText = Color(0xFF5B21B6),
     textPrimary = Color(0xFF111827),
-    textSecondary = Color(0xFF6B7280),
+    textSecondary = Color(0xFF5F6672),
     textMuted = Color(0xFF9CA3AF),
     success = Color(0xFF16A34A),
     successSoft = Color(0x1A16A34A),
@@ -104,7 +122,9 @@ private val LightOnePassColors = OpenVaultColors(
     passwordDigit = Color(0xFF0572EC),
     passwordSymbol = Color(0xFFE11D48),
     navBarBg = Color(0xFFFFFFFF),
-    navActivePill = Color(0xFFEAF2FF),
+    navActivePill = Color(0xFFDBEAFE),
+    navActiveContent = Color(0xFF0572EC),
+    navInactiveContent = Color(0xFF5F6672),
 )
 
 val LocalOpenVaultColors = staticCompositionLocalOf { DarkOnePassColors }
@@ -113,15 +133,15 @@ private val OnePassTypography = Typography(
     headlineLarge = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.Bold,
-        fontSize = 31.sp,
+        fontSize = 30.sp,
         lineHeight = 36.sp,
-        letterSpacing = (-0.7).sp,
+        letterSpacing = (-0.6).sp,
     ),
     headlineMedium = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.Bold,
-        fontSize = 24.sp,
-        lineHeight = 30.sp,
+        fontSize = 23.sp,
+        lineHeight = 29.sp,
         letterSpacing = (-0.4).sp,
     ),
     titleLarge = TextStyle(

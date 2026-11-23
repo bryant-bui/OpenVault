@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -24,6 +25,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -60,6 +62,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -68,15 +71,15 @@ import io.openvault.app.core.security.BiometricKeyManager
 import io.openvault.app.data.VaultRepository
 import io.openvault.app.ui.components.OnePassCard
 import io.openvault.app.ui.components.OpenVaultBrandCrest
+import io.openvault.app.ui.theme.LocalFoldableLayout
 import io.openvault.app.ui.theme.LocalOpenVaultColors
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 /**
- * Clean flat OLED Dark / Light Unlock Screen:
- * - Instant BiometricPrompt auto-trigger
- * - 3 + 3 rounded PIN slots with instant auto-unlock on the last digit + crisp matte keypad
- * - Seamless toggle to Master Password
+ * Clean flat OLED Dark / Light Unlock Screen optimized for Galaxy Z Fold 3:
+ * - Cover screen (320dp): scaled 3+3 PIN slots (38dp) & 62dp keypad circles with zero overflow
+ * - Unfolded inner display (>=580dp): spacious split 2-column PIN unlock or centered 440dp Master Password card
  */
 @Composable
 fun UnlockScreen(
@@ -87,6 +90,7 @@ fun UnlockScreen(
     onUnlocked: () -> Unit,
 ) {
     val c = LocalOpenVaultColors.current
+    val fold = LocalFoldableLayout.current
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
@@ -176,249 +180,40 @@ fun UnlockScreen(
         if (updated.length == targetLen) submitPin(updated)
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(c.background)
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .imePadding()
-            .padding(horizontal = 22.dp, vertical = 20.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.SpaceBetween,
-    ) {
+    val pinSlotWidth = if (fold.isNarrowCover) 38.dp else 44.dp
+    val pinSlotHeight = if (fold.isNarrowCover) 48.dp else 54.dp
+    val pinGap = if (fold.isNarrowCover) 6.dp else 8.dp
+    val pinSplitGap = if (fold.isNarrowCover) 12.dp else 16.dp
+    val keySize = if (fold.isNarrowCover) 62.dp else 72.dp
+    val keyHSpacing = if (fold.isNarrowCover) 16.dp else 22.dp
+
+    @Composable
+    fun BrandHeader(modifier: Modifier = Modifier) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(top = 18.dp),
+            modifier = modifier,
         ) {
-            OpenVaultBrandCrest(size = 58.dp)
+            OpenVaultBrandCrest(size = if (fold.isNarrowCover) 52.dp else 62.dp)
             Text(
                 text = "Mở khóa OpenVault",
                 color = c.textPrimary,
-                fontSize = 23.sp,
+                fontSize = if (fold.isNarrowCover) 21.sp else 24.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = (-0.4).sp,
+                textAlign = TextAlign.Center,
             )
-            Text(text = account.email, color = c.textSecondary, fontSize = 13.5.sp)
+            Text(
+                text = account.email,
+                color = c.textSecondary,
+                fontSize = 13.5.sp,
+                textAlign = TextAlign.Center,
+            )
         }
+    }
 
-        if (!useMasterMode && settings.pinEnabled) {
-            val targetLen = settings.pinLength.coerceIn(4, 12)
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(18.dp),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(
-                    text = if (busy) "Đang mở khóa…" else "Nhập mã PIN ($targetLen số)",
-                    color = c.textSecondary,
-                    fontSize = 14.sp,
-                )
-
-                // Clean 3 + 3 PIN Boxes
-                Row(
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .offset { IntOffset(shakeOffset.value.roundToInt(), 0) },
-                ) {
-                    val splitAt = if (targetLen == 6) 3 else -1
-                    for (i in 0 until targetLen) {
-                        if (i == splitAt) Spacer(modifier = Modifier.width(16.dp))
-                        else if (i > 0) Spacer(modifier = Modifier.width(8.dp))
-
-                        val filled = i < pinDigits.length
-                        val active = i == pinDigits.length && !busy
-                        val dotScale by animateFloatAsState(
-                            targetValue = if (filled) 1f else 0f,
-                            animationSpec = spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessMedium),
-                            label = "pin_dot_$i",
-                        )
-                        val boxShape = RoundedCornerShape(12.dp)
-                        Box(
-                            modifier = Modifier
-                                .size(width = 44.dp, height = 52.dp)
-                                .clip(boxShape)
-                                .background(c.surface)
-                                .border(
-                                    width = if (active || errorMessage != null) 1.6.dp else 1.dp,
-                                    color = when {
-                                        errorMessage != null -> c.danger
-                                        active -> c.accent
-                                        else -> c.divider
-                                    },
-                                    shape = boxShape,
-                                ),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            if (filled) {
-                                Box(
-                                    modifier = Modifier
-                                        .scale(dotScale)
-                                        .size(11.dp)
-                                        .clip(CircleShape)
-                                        .background(c.textPrimary),
-                                )
-                            } else if (active) {
-                                Box(
-                                    modifier = Modifier
-                                        .width(2.dp)
-                                        .height(20.dp)
-                                        .clip(CircleShape)
-                                        .background(c.accent),
-                                )
-                            }
-                        }
-                    }
-                }
-
-                if (errorMessage != null) {
-                    Text(
-                        text = errorMessage!!,
-                        color = c.danger,
-                        fontSize = 13.sp,
-                        textAlign = TextAlign.Center,
-                    )
-                } else {
-                    Spacer(modifier = Modifier.height(16.dp))
-                }
-
-                // Clean Matte Numeric Keypad
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    listOf(
-                        listOf("1", "2", "3"),
-                        listOf("4", "5", "6"),
-                        listOf("7", "8", "9"),
-                    ).forEach { row ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(22.dp)) {
-                            row.forEach { digit ->
-                                FlatKeypadButton(digit, enabled = !busy) { appendPinDigit(digit) }
-                            }
-                        }
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(22.dp)) {
-                        if (canUseBiometric) {
-                            Box(
-                                modifier = Modifier
-                                    .size(70.dp)
-                                    .clip(CircleShape)
-                                    .background(c.accentSoft)
-                                    .clickable { launchBiometricPrompt() },
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Icon(Icons.Rounded.Fingerprint, contentDescription = "Vân tay", tint = c.accent, modifier = Modifier.size(28.dp))
-                            }
-                        } else {
-                            Spacer(modifier = Modifier.size(70.dp))
-                        }
-
-                        FlatKeypadButton("0", enabled = !busy) { appendPinDigit("0") }
-
-                        Box(
-                            modifier = Modifier
-                                .size(70.dp)
-                                .clip(CircleShape)
-                                .clickable {
-                                    if (!busy && pinDigits.isNotEmpty()) pinDigits = pinDigits.dropLast(1)
-                                },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(Icons.AutoMirrored.Rounded.Backspace, contentDescription = "Xóa", tint = c.textSecondary, modifier = Modifier.size(23.dp))
-                        }
-                    }
-                }
-            }
-        } else {
-            OnePassCard(
-                modifier = Modifier.fillMaxWidth(),
-                cornerRadius = 16.dp,
-                padding = PaddingValues(18.dp),
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    OutlinedTextField(
-                        value = masterPassword,
-                        onValueChange = { masterPassword = it; errorMessage = null },
-                        label = { Text("Mật khẩu chính") },
-                        singleLine = true,
-                        visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
-                        trailingIcon = {
-                            IconButton(onClick = { showPassword = !showPassword }) {
-                                Icon(
-                                    if (showPassword) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
-                                    contentDescription = "Hiện/Ẩn",
-                                    tint = c.textSecondary,
-                                )
-                            }
-                        },
-                        shape = RoundedCornerShape(10.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = c.accent,
-                            unfocusedBorderColor = c.divider,
-                            focusedTextColor = c.textPrimary,
-                            unfocusedTextColor = c.textPrimary,
-                            focusedLabelColor = c.accent,
-                            unfocusedLabelColor = c.textSecondary,
-                        ),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-
-                    if (errorMessage != null) {
-                        Text(errorMessage!!, color = c.danger, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                    }
-
-                    Button(
-                        onClick = {
-                            if (masterPassword.isEmpty() || busy) return@Button
-                            busy = true
-                            errorMessage = null
-                            scope.launch {
-                                val ok = repository.unlockWithMasterPassword(masterPassword)
-                                busy = false
-                                if (ok) {
-                                    masterPassword = ""
-                                    onUnlocked()
-                                } else {
-                                    errorMessage = "Mật khẩu chính không đúng."
-                                }
-                            }
-                        },
-                        enabled = !busy && masterPassword.isNotEmpty(),
-                        shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = c.accent, contentColor = Color.White),
-                        modifier = Modifier.fillMaxWidth().height(48.dp),
-                    ) {
-                        if (busy) {
-                            CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(19.dp))
-                        } else {
-                            Text("Mở khóa", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-                        }
-                    }
-
-                    if (canUseBiometric) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(c.accentSoft)
-                                .clickable { launchBiometricPrompt() }
-                                .padding(vertical = 12.dp),
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(Icons.Rounded.Fingerprint, contentDescription = null, tint = c.accent, modifier = Modifier.size(21.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Mở nhanh bằng sinh trắc học", color = c.accent, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                        }
-                    }
-                }
-            }
-        }
-
+    @Composable
+    fun FooterActions() {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
             if (settings.pinEnabled) {
                 TextButton(onClick = {
@@ -426,7 +221,11 @@ fun UnlockScreen(
                     errorMessage = null
                     pinDigits = ""
                 }) {
-                    Text(if (useMasterMode) "Dùng mã PIN" else "Dùng mật khẩu chính", color = c.accent, fontWeight = FontWeight.Medium)
+                    Text(
+                        if (useMasterMode) "Dùng mã PIN" else "Dùng mật khẩu chính",
+                        color = c.accent,
+                        fontWeight = FontWeight.Medium,
+                    )
                 }
             }
             if (allowLogout) {
@@ -436,20 +235,307 @@ fun UnlockScreen(
             }
         }
     }
+
+    @Composable
+    fun PinPadBlock(modifier: Modifier = Modifier) {
+        val targetLen = settings.pinLength.coerceIn(4, 12)
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(if (fold.isNarrowCover) 14.dp else 18.dp),
+            modifier = modifier,
+        ) {
+            Text(
+                text = if (busy) "Đang mở khóa…" else "Nhập mã PIN ($targetLen số)",
+                color = c.textSecondary,
+                fontSize = 14.sp,
+            )
+
+            // Responsive 3 + 3 PIN Boxes
+            Row(
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .offset { IntOffset(shakeOffset.value.roundToInt(), 0) },
+            ) {
+                val splitAt = if (targetLen == 6) 3 else -1
+                for (i in 0 until targetLen) {
+                    if (i == splitAt) Spacer(modifier = Modifier.width(pinSplitGap))
+                    else if (i > 0) Spacer(modifier = Modifier.width(pinGap))
+
+                    val filled = i < pinDigits.length
+                    val active = i == pinDigits.length && !busy
+                    val dotScale by animateFloatAsState(
+                        targetValue = if (filled) 1f else 0f,
+                        animationSpec = spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessMedium),
+                        label = "pin_dot_$i",
+                    )
+                    val boxShape = RoundedCornerShape(12.dp)
+                    Box(
+                        modifier = Modifier
+                            .size(width = pinSlotWidth, height = pinSlotHeight)
+                            .clip(boxShape)
+                            .background(c.surface)
+                            .border(
+                                width = if (active || errorMessage != null) 1.6.dp else 1.dp,
+                                color = when {
+                                    errorMessage != null -> c.danger
+                                    active -> c.accent
+                                    else -> c.cardBorder
+                                },
+                                shape = boxShape,
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (filled) {
+                            Box(
+                                modifier = Modifier
+                                    .scale(dotScale)
+                                    .size(11.dp)
+                                    .clip(CircleShape)
+                                    .background(c.textPrimary),
+                            )
+                        } else if (active) {
+                            Box(
+                                modifier = Modifier
+                                    .width(2.dp)
+                                    .height(20.dp)
+                                    .clip(CircleShape)
+                                    .background(c.accent),
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (errorMessage != null) {
+                Text(
+                    text = errorMessage!!,
+                    color = c.danger,
+                    fontSize = 13.sp,
+                    textAlign = TextAlign.Center,
+                )
+            } else {
+                Spacer(modifier = Modifier.height(14.dp))
+            }
+
+            // Responsive Numeric Keypad
+            Column(
+                verticalArrangement = Arrangement.spacedBy(if (fold.isNarrowCover) 10.dp else 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                listOf(
+                    listOf("1", "2", "3"),
+                    listOf("4", "5", "6"),
+                    listOf("7", "8", "9"),
+                ).forEach { row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(keyHSpacing)) {
+                        row.forEach { digit ->
+                            FlatKeypadButton(digit, size = keySize, enabled = !busy) { appendPinDigit(digit) }
+                        }
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(keyHSpacing)) {
+                    if (canUseBiometric) {
+                        Box(
+                            modifier = Modifier
+                                .size(keySize)
+                                .clip(CircleShape)
+                                .background(c.accentSoft)
+                                .clickable { launchBiometricPrompt() },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(Icons.Rounded.Fingerprint, contentDescription = "Vân tay", tint = c.navActiveContent, modifier = Modifier.size(28.dp))
+                        }
+                    } else {
+                        Spacer(modifier = Modifier.size(keySize))
+                    }
+
+                    FlatKeypadButton("0", size = keySize, enabled = !busy) { appendPinDigit("0") }
+
+                    Box(
+                        modifier = Modifier
+                            .size(keySize)
+                            .clip(CircleShape)
+                            .clickable {
+                                if (!busy && pinDigits.isNotEmpty()) pinDigits = pinDigits.dropLast(1)
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(Icons.AutoMirrored.Rounded.Backspace, contentDescription = "Xóa", tint = c.textSecondary, modifier = Modifier.size(23.dp))
+                    }
+                }
+            }
+        }
+    }
+
+    @Composable
+    fun MasterPasswordCard() {
+        OnePassCard(
+            modifier = Modifier
+                .widthIn(max = 440.dp)
+                .fillMaxWidth(),
+            cornerRadius = 16.dp,
+            borderColor = c.cardBorder,
+            padding = PaddingValues(18.dp),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                OutlinedTextField(
+                    value = masterPassword,
+                    onValueChange = { masterPassword = it; errorMessage = null },
+                    label = { Text("Mật khẩu chính") },
+                    singleLine = true,
+                    visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        IconButton(onClick = { showPassword = !showPassword }) {
+                            Icon(
+                                if (showPassword) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                                contentDescription = "Hiện/Ẩn",
+                                tint = c.textSecondary,
+                            )
+                        }
+                    },
+                    shape = RoundedCornerShape(10.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = c.accent,
+                        unfocusedBorderColor = c.cardBorder,
+                        focusedTextColor = c.textPrimary,
+                        unfocusedTextColor = c.textPrimary,
+                        focusedLabelColor = c.accent,
+                        unfocusedLabelColor = c.textSecondary,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                if (errorMessage != null) {
+                    Text(errorMessage!!, color = c.danger, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                }
+
+                Button(
+                    onClick = {
+                        if (masterPassword.isEmpty() || busy) return@Button
+                        busy = true
+                        errorMessage = null
+                        scope.launch {
+                            val ok = repository.unlockWithMasterPassword(masterPassword)
+                            busy = false
+                            if (ok) {
+                                masterPassword = ""
+                                onUnlocked()
+                            } else {
+                                errorMessage = "Mật khẩu chính không đúng."
+                            }
+                        }
+                    },
+                    enabled = !busy && masterPassword.isNotEmpty(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = c.accentButtonBg, contentColor = Color.White),
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                ) {
+                    if (busy) {
+                        CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(19.dp))
+                    } else {
+                        Text("Mở khóa", fontWeight = FontWeight.SemiBold, fontSize = 15.5.sp)
+                    }
+                }
+
+                if (canUseBiometric) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(c.accentSoft)
+                            .clickable { launchBiometricPrompt() }
+                            .padding(vertical = 12.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Rounded.Fingerprint, contentDescription = null, tint = c.navActiveContent, modifier = Modifier.size(21.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Mở nhanh bằng sinh trắc học", color = c.navActiveContent, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    }
+                }
+            }
+        }
+    }
+
+    // Adaptive Layout: Split 2-column on unfolded Z Fold 3 PIN mode, centered vertical otherwise
+    if (fold.isTwoPane && !useMasterMode && settings.pinEnabled) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(c.background)
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(horizontal = 32.dp, vertical = 24.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(if (fold.hingeWidthDp > 0.dp) fold.hingeWidthDp + 24.dp else 32.dp),
+        ) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                BrandHeader()
+                Spacer(modifier = Modifier.height(24.dp))
+                FooterActions()
+            }
+            Box(
+                modifier = Modifier.weight(1f),
+                contentAlignment = Alignment.Center,
+            ) {
+                PinPadBlock()
+            }
+        }
+    } else {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(c.background)
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .imePadding()
+                .padding(horizontal = if (fold.isNarrowCover) 14.dp else 22.dp, vertical = 18.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.SpaceBetween,
+        ) {
+            BrandHeader(modifier = Modifier.padding(top = if (fold.isNarrowCover) 8.dp else 18.dp))
+
+            if (!useMasterMode && settings.pinEnabled) {
+                PinPadBlock(modifier = Modifier.fillMaxWidth())
+            } else {
+                MasterPasswordCard()
+            }
+
+            FooterActions()
+        }
+    }
 }
 
 @Composable
-private fun FlatKeypadButton(label: String, enabled: Boolean, onClick: () -> Unit) {
+private fun FlatKeypadButton(
+    label: String,
+    size: Dp,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
     val c = LocalOpenVaultColors.current
     Box(
         modifier = Modifier
-            .size(70.dp)
+            .size(size)
             .clip(CircleShape)
             .background(c.surface)
             .border(if (c.isDark) 0.dp else 0.8.dp, if (c.isDark) Color.Transparent else c.cardBorder, CircleShape)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text = label, color = c.textPrimary, fontSize = 26.sp, fontWeight = FontWeight.Normal)
+        Text(
+            text = label,
+            color = c.textPrimary,
+            fontSize = if (size < 66.dp) 23.sp else 26.sp,
+            fontWeight = FontWeight.Normal,
+        )
     }
 }

@@ -1,6 +1,7 @@
 package io.openvault.app.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -9,7 +10,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -20,11 +20,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -38,7 +39,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
@@ -47,28 +47,36 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.openvault.app.core.crypto.VaultItem
 import io.openvault.app.core.crypto.WatchtowerReport
-import io.openvault.app.ui.components.OnePassAccountAvatar
-import io.openvault.app.ui.components.OnePassAddButton
 import io.openvault.app.ui.components.OnePassCard
 import io.openvault.app.ui.components.OnePassItemRow
-import io.openvault.app.ui.components.OnePassSearchBar
+import io.openvault.app.ui.components.OnePassTopSearchBar
+import io.openvault.app.ui.theme.LocalFoldableLayout
 import io.openvault.app.ui.theme.LocalOpenVaultColors
+import kotlin.math.cos
+import kotlin.math.sin
 
 /**
- * 1Password 8 Mobile Watchtower Tab (matching Image 1-middle):
- * - Signature Green -> Turquoise -> Blue semi-circular 0..1000 Arc Gauge
- * - "Overall Password Strength" segmented color bar
- * - Clean alert cards with bold issue counts (Weak, Reused, Missing 2FA)
+ * Authentic 1Password 8 Android Watchtower Screen:
+ * - Single-row Midnight-Navy Search Pill + Account Dropdown
+ * - Thick semicircular 0..1000 gauge with radial tick marks (matching real Android Watchtower capture)
+ * - Outlined "Kiểm tra & đồng bộ" pill button right below gauge
+ * - Overall Password Strength bar + expandable alert cards (supports Z Fold 3 selected highlight)
  */
 @Composable
 fun WatchtowerTabScreen(
     email: String,
     report: WatchtowerReport,
+    isSyncing: Boolean = false,
+    selectedItemId: String? = null,
     onOpenSettings: () -> Unit,
-    onOpenNewItem: () -> Unit,
+    onOpenGenerator: () -> Unit,
+    onOpenQrScanner: () -> Unit,
+    onSync: () -> Unit,
+    onLock: () -> Unit,
     onOpenItem: (VaultItem) -> Unit,
 ) {
     val c = LocalOpenVaultColors.current
+    val fold = LocalFoldableLayout.current
     var query by remember { mutableStateOf("") }
     var expandWeak by remember { mutableStateOf(false) }
     var expandReused by remember { mutableStateOf(false) }
@@ -84,6 +92,7 @@ fun WatchtowerTabScreen(
 
     val strongCount = (report.totalLogins - report.weakItems.size).coerceAtLeast(0)
     val strongRatio = if (report.totalLogins > 0) strongCount.toFloat() / report.totalLogins else 1f
+    val bottomInset = if (fold.isTwoPane) 28.dp else 108.dp
 
     Column(
         modifier = Modifier
@@ -91,80 +100,74 @@ fun WatchtowerTabScreen(
             .background(c.background)
             .statusBarsPadding(),
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            OnePassAccountAvatar(email = email, onClick = onOpenSettings)
-            OnePassAddButton(onClick = onOpenNewItem)
-        }
+        OnePassTopSearchBar(
+            email = email,
+            query = query,
+            onQueryChange = { query = it },
+            placeholder = if (fold.isNarrowCover) "Tìm cảnh báo..." else "Tìm cảnh báo bảo mật",
+            isSyncing = isSyncing,
+            onSync = onSync,
+            onOpenGenerator = onOpenGenerator,
+            onOpenQrScanner = onOpenQrScanner,
+            onOpenSettings = onOpenSettings,
+            onLock = onLock,
+        )
 
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 96.dp),
+            contentPadding = PaddingValues(
+                start = fold.horizontalPadding,
+                end = fold.horizontalPadding,
+                top = 8.dp,
+                bottom = bottomInset,
+            ),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
+            // Iconic 1Password Android Semicircular Tick-Mark Gauge (0..1000)
             item {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        text = "Watchtower",
-                        color = c.textPrimary,
-                        fontSize = 31.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = (-0.7).sp,
-                    )
-                    OnePassSearchBar(
-                        query = query,
-                        onQueryChange = { query = it },
-                        placeholder = "Tìm cảnh báo bảo mật",
-                    )
-                }
-            }
-
-            // Iconic 1Password Semi-Circular Arc Gauge (0..1000)
-            item {
+                val gaugeSize = if (fold.isNarrowCover) 204.dp else 228.dp
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 12.dp, bottom = 4.dp),
+                        .padding(top = 6.dp, bottom = 2.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
                     Box(
-                        modifier = Modifier.size(220.dp, 180.dp),
+                        modifier = Modifier.size(gaugeSize, gaugeSize * 0.84f),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Canvas(modifier = Modifier.size(204.dp)) {
+                        Canvas(modifier = Modifier.size(gaugeSize)) {
                             val strokeW = 24.dp.toPx()
                             val inset = strokeW / 2f
                             val arcSize = Size(size.width - strokeW, size.height - strokeW)
                             val topLeft = Offset(inset, inset)
+                            val startDeg = 148f
+                            val totalSweep = 244f
 
-                            // Track arc
+                            // Matte dark track arc
                             drawArc(
-                                color = if (c.isDark) Color(0xFF23252A) else Color(0xFFE2E6EE),
-                                startAngle = 150f,
-                                sweepAngle = 240f,
+                                color = if (c.isDark) Color(0xFF1F2124) else Color(0xFFE2E6EE),
+                                startAngle = startDeg,
+                                sweepAngle = totalSweep,
                                 useCenter = false,
                                 topLeft = topLeft,
                                 size = arcSize,
                                 style = Stroke(width = strokeW, cap = StrokeCap.Round),
                             )
 
-                            // Active Green -> Cyan -> Blue gradient arc
-                            val sweep = (240f * (score1000 / 1000f)).coerceAtLeast(8f)
+                            // Vivid Green -> Teal -> Cyan -> Blue progress sweep
+                            val sweep = (totalSweep * (score1000 / 1000f)).coerceAtLeast(10f)
                             drawArc(
                                 brush = Brush.horizontalGradient(
                                     colors = listOf(
                                         Color(0xFF22C55E),
                                         Color(0xFF2DD4BF),
                                         Color(0xFF38BDF8),
-                                        Color(0xFF3B8BFF),
+                                        Color(0xFF0C74F2),
                                     ),
                                 ),
-                                startAngle = 150f,
+                                startAngle = startDeg,
                                 sweepAngle = sweep,
                                 useCenter = false,
                                 topLeft = topLeft,
@@ -172,15 +175,30 @@ fun WatchtowerTabScreen(
                                 style = Stroke(width = strokeW, cap = StrokeCap.Round),
                             )
 
-                            // Small centered upward triangle indicator (1P signature detail)
-                            val triY = size.height * 0.27f
-                            val tri = Path().apply {
-                                moveTo(center.x, triY - 7.dp.toPx())
-                                lineTo(center.x - 6.dp.toPx(), triY + 4.dp.toPx())
-                                lineTo(center.x + 6.dp.toPx(), triY + 4.dp.toPx())
-                                close()
+                            // Signature 1Password Android subtle radial tick marks along the gauge
+                            val tickCount = 24
+                            val radiusOuter = (size.minDimension / 2f) - 4.dp.toPx()
+                            val radiusInner = radiusOuter - 10.dp.toPx()
+                            val tickColor = if (c.isDark) Color(0x44000000) else Color(0x44FFFFFF)
+                            for (i in 1 until tickCount) {
+                                val deg = startDeg + (totalSweep * i / tickCount)
+                                val rad = Math.toRadians(deg.toDouble())
+                                val start = Offset(
+                                    x = center.x + (radiusInner * cos(rad)).toFloat(),
+                                    y = center.y + (radiusInner * sin(rad)).toFloat(),
+                                )
+                                val end = Offset(
+                                    x = center.x + (radiusOuter * cos(rad)).toFloat(),
+                                    y = center.y + (radiusOuter * sin(rad)).toFloat(),
+                                )
+                                drawLine(
+                                    color = tickColor,
+                                    start = start,
+                                    end = end,
+                                    strokeWidth = 1.6.dp.toPx(),
+                                    cap = StrokeCap.Round,
+                                )
                             }
-                            drawPath(tri, color = Color(0xFF38BDF8))
                         }
 
                         Column(
@@ -190,34 +208,70 @@ fun WatchtowerTabScreen(
                             Text(
                                 text = "$score1000",
                                 color = c.textPrimary,
-                                fontSize = 44.sp,
+                                fontSize = if (fold.isNarrowCover) 40.sp else 46.sp,
                                 fontWeight = FontWeight.Bold,
                                 letterSpacing = (-1).sp,
                             )
                             Text(
                                 text = ratingLabel,
                                 color = c.textSecondary,
-                                fontSize = 12.5.sp,
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 letterSpacing = 1.2.sp,
                             )
                         }
                     }
 
+                    // Outlined matte action button matching real 1Password Watchtower
+                    Surface(
+                        onClick = onSync,
+                        enabled = !isSyncing,
+                        shape = RoundedCornerShape(10.dp),
+                        color = c.surface,
+                        border = BorderStroke(1.dp, c.cardBorder),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 11.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            if (isSyncing) {
+                                CircularProgressIndicator(
+                                    color = c.accent,
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Rounded.Refresh,
+                                    contentDescription = null,
+                                    tint = c.textPrimary,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                            Text(
+                                text = if (isSyncing) "Đang kiểm tra kho…" else "Đồng bộ & quét lại",
+                                color = c.textPrimary,
+                                fontSize = 14.5.sp,
+                                fontWeight = FontWeight.Medium,
+                            )
+                        }
+                    }
+
                     Text(
-                        text = "Điểm bảo mật được phân tích hoàn toàn cục bộ trên thiết bị từ ${report.totalLogins} tài khoản đăng nhập. Xử lý các cảnh báo bên dưới để nâng cao điểm an toàn.",
+                        text = "Điểm bảo mật được phân tích hoàn toàn cục bộ từ ${report.totalLogins} tài khoản đăng nhập. Xử lý các mục cảnh báo bên dưới để tăng mức an toàn.",
                         color = c.textSecondary,
                         fontSize = 13.5.sp,
                         lineHeight = 19.sp,
                         textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(horizontal = 8.dp),
+                        modifier = Modifier.padding(horizontal = 6.dp),
                     )
                 }
             }
 
-            // Overall Password Strength Card (exact segmented color bar from Image 1-middle!)
+            // Overall Password Strength Card
             item {
-                OnePassCard(modifier = Modifier.fillMaxWidth(), padding = PaddingValues(15.dp)) {
+                OnePassCard(modifier = Modifier.fillMaxWidth(), padding = PaddingValues(16.dp)) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -286,8 +340,9 @@ fun WatchtowerTabScreen(
                     subtitle = "Nên đổi sang mật khẩu ngẫu nhiên tối thiểu 16 ký tự",
                     count = report.weakItems.size,
                     accentColor = c.danger,
-                    tintedBg = if (report.weakItems.isNotEmpty() && c.isDark) Color(0xFF261719) else null,
+                    tintedBg = if (report.weakItems.isNotEmpty() && c.isDark) Color(0xFF231517) else null,
                     items = filterItems(report.weakItems, query),
+                    selectedItemId = selectedItemId,
                     expanded = expandWeak,
                     onToggle = { expandWeak = !expandWeak },
                     onOpenItem = onOpenItem,
@@ -300,8 +355,9 @@ fun WatchtowerTabScreen(
                     subtitle = "Tránh dùng chung mật khẩu giữa nhiều dịch vụ",
                     count = report.reusedItems.size,
                     accentColor = c.warning,
-                    tintedBg = if (report.reusedItems.isNotEmpty() && c.isDark) Color(0xFF252014) else null,
+                    tintedBg = if (report.reusedItems.isNotEmpty() && c.isDark) Color(0xFF221D12) else null,
                     items = filterItems(report.reusedItems, query),
+                    selectedItemId = selectedItemId,
                     expanded = expandReused,
                     onToggle = { expandReused = !expandReused },
                     onOpenItem = onOpenItem,
@@ -316,6 +372,7 @@ fun WatchtowerTabScreen(
                     accentColor = c.accent,
                     tintedBg = null,
                     items = filterItems(report.missingTotpItems, query).take(25),
+                    selectedItemId = selectedItemId,
                     expanded = expandMissing2fa,
                     onToggle = { expandMissing2fa = !expandMissing2fa },
                     onOpenItem = onOpenItem,
@@ -341,11 +398,13 @@ private fun WatchtowerAlertCard(
     accentColor: Color,
     tintedBg: Color?,
     items: List<VaultItem>,
+    selectedItemId: String?,
     expanded: Boolean,
     onToggle: () -> Unit,
     onOpenItem: (VaultItem) -> Unit,
 ) {
     val c = LocalOpenVaultColors.current
+    val fold = LocalFoldableLayout.current
     OnePassCard(
         modifier = Modifier.fillMaxWidth(),
         backgroundColor = tintedBg,
@@ -356,14 +415,14 @@ private fun WatchtowerAlertCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable(enabled = items.isNotEmpty(), onClick = onToggle)
-                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                    .padding(horizontal = 16.dp, vertical = 15.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 Text(
                     text = "$count",
                     color = if (count > 0) accentColor else c.success,
-                    fontSize = 30.sp,
+                    fontSize = 28.sp,
                     fontWeight = FontWeight.Bold,
                 )
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -383,20 +442,19 @@ private fun WatchtowerAlertCard(
                     Icon(
                         imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
                         contentDescription = null,
-                        tint = c.textSecondary,
+                        tint = c.accent,
                     )
                 }
             }
 
             AnimatedVisibility(visible = expanded && items.isNotEmpty()) {
-                Column {
+                Column(modifier = Modifier.padding(bottom = 6.dp)) {
                     items.forEach { item ->
-                        HorizontalDivider(
-                            color = c.divider,
-                            thickness = 0.7.dp,
-                            modifier = Modifier.padding(start = 62.dp),
+                        OnePassItemRow(
+                            item = item,
+                            selected = fold.isTwoPane && item.id == selectedItemId,
+                            onClick = { onOpenItem(item) },
                         )
-                        OnePassItemRow(item = item, onClick = { onOpenItem(item) })
                     }
                 }
             }
