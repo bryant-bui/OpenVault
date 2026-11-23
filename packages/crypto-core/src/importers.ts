@@ -175,6 +175,7 @@ interface ProtonItemRaw {
     metadata?: {
       name?: string;
       note?: string;
+      type?: string;
     };
     type?: string;
     extraFields?: ProtonExtraField[];
@@ -263,11 +264,15 @@ function parseProtonPassJson(doc: ProtonExportJson): ParsedImportBundle {
   const items: CipherPayload[] = [];
   let skippedCount = 0;
 
-  for (const [vaultId, vault] of Object.entries(doc.vaults)) {
-    const folderName = vault.name?.trim() || "Proton Pass";
+  const vaultEntries: [string, { name?: string; items?: ProtonItemRaw[] }][] = Array.isArray(doc.vaults)
+    ? (doc.vaults as { name?: string; items?: ProtonItemRaw[] }[]).map((v, i) => [`vault-${i}`, v])
+    : Object.entries(doc.vaults);
+
+  for (const [vaultId, vault] of vaultEntries) {
+    const folderName = vault?.name?.trim() || "Proton Pass";
     folders.push({ id: vaultId, name: folderName });
 
-    for (const rawItem of vault.items ?? []) {
+    for (const rawItem of vault?.items ?? []) {
       // Skip trashed items (state === 2)
       if (rawItem.state === 2) {
         skippedCount++;
@@ -281,9 +286,10 @@ function parseProtonPassJson(doc: ProtonExportJson): ParsedImportBundle {
       }
 
       const title = data.metadata?.name?.trim() || "Untitled";
-      const noteText = data.metadata?.note?.trim() || null;
+      const rawNote = data.metadata?.note?.trim() || null;
+      const noteText = rawNote && rawNote.length > 40_000 ? rawNote.slice(0, 40_000) : rawNote;
       const content = data.content ?? {};
-      const itemType = (data.type ?? "login").toLowerCase();
+      const itemType = (data.type ?? data.metadata?.type ?? "login").toLowerCase();
 
       const customFields: CipherField[] = [];
       let extraTotp: string | null = null;
@@ -344,10 +350,10 @@ function parseProtonPassJson(doc: ProtonExportJson): ParsedImportBundle {
             username: primaryUser,
             password: content.password ?? null,
             totp: content.totpUri?.trim() || extraTotp || null,
-            uris: Array.from(urlSet).map((uri) => ({ uri, match: null })),
-            fido2Credentials: fido2Credentials.length > 0 ? fido2Credentials : null,
+            uris: Array.from(urlSet).slice(0, 50).map((uri) => ({ uri, match: null })),
+            fido2Credentials: fido2Credentials.length > 0 ? fido2Credentials.slice(0, 25) : null,
           },
-          fields: customFields.length > 0 ? customFields : null,
+          fields: customFields.length > 0 ? customFields.slice(0, 100) : null,
         });
       } else if (itemType === "creditcard") {
         const { expMonth, expYear } = parseExpirationDate(content.expirationDate);
@@ -610,8 +616,8 @@ export function parseUniversalVaultImport(rawText: string): ParsedImportBundle {
       throw new Error("Tệp JSON bị lỗi cú pháp.");
     }
 
-    // Detect Proton Pass `data.json`: has `vaults` object map
-    if (parsed["vaults"] && typeof parsed["vaults"] === "object" && !Array.isArray(parsed["vaults"])) {
+    // Detect Proton Pass `data.json`: has `vaults` object map or array
+    if (parsed["vaults"] && typeof parsed["vaults"] === "object") {
       return parseProtonPassJson(parsed as unknown as ProtonExportJson);
     }
 

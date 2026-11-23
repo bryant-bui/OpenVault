@@ -1,4 +1,4 @@
-import { extractVaultTextFromZip } from "@openvault/crypto-core";
+import { extractVaultTextFromZip, parseUniversalVaultImport } from "@openvault/crypto-core";
 import {
   CloudUpload,
   Download,
@@ -132,15 +132,31 @@ export function SettingsScreen({
         rawText = await file.text();
       }
 
+      // Pre-validate locally before sending to Service Worker for instant, clear feedback
+      const preview = parseUniversalVaultImport(rawText);
+      const itemCount = preview.exportData.items?.length ?? 0;
+      if (itemCount === 0) {
+        onToast("Không tìm thấy mục mật khẩu nào trong tệp đã chọn.", "error");
+        return;
+      }
+
       const res = await sendBg<{
-        format: string;
+        format?: string;
         importedFolders: number;
         importedCiphers: number;
-        skippedCount: number;
+        skippedCount?: number;
       }>({
         type: "IMPORT_BITWARDEN_JSON",
         rawJson: rawText,
       });
+
+      if (!res.format) {
+        onToast(
+          "Service Worker đang dùng bản cũ — vui lòng vào chrome://extensions bấm ↻ Tải lại OpenVault rồi nhập lại!",
+          "error",
+        );
+        return;
+      }
 
       const sourceLabel =
         res.format === "proton-pass-json"
