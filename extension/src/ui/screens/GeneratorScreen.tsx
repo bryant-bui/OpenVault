@@ -5,9 +5,11 @@ import {
 } from "@openvault/crypto-core";
 import { ChevronRight, Copy, History, RotateCw, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { getStrings, type AppLanguage } from "../../shared/i18n.js";
 import { ColorPassword } from "../components/ColorPassword.js";
 
 interface GeneratorScreenProps {
+  language?: AppLanguage;
   autoCopyOnGenerate?: boolean;
   onCopyText: (text: string, label: string) => Promise<void>;
   onClose?: () => void;
@@ -15,18 +17,13 @@ interface GeneratorScreenProps {
 
 type GenType = "random" | "passphrase";
 
-/**
- * Exact 1Password 8 Right Slide-Over Password Generator (Image 2):
- * - Clean header "Trình tạo mật khẩu" + X
- * - 3-action top row: Copy | Refresh | Dùng mật khẩu
- * - Crisp bordered password input box + solid strength underline
- * - Hairline-divided controls (Loại, Số ký tự + numeric badge, Chữ số, Ký tự đặc biệt, Lịch sử)
- */
 export function GeneratorScreen({
+  language = "en",
   autoCopyOnGenerate = false,
   onCopyText,
   onClose,
 }: GeneratorScreenProps) {
+  const s = getStrings(language);
   const [genType, setGenType] = useState<GenType>("random");
   const [length, setLength] = useState(20);
   const [wordCount, setWordCount] = useState(4);
@@ -75,14 +72,14 @@ export function GeneratorScreen({
     <div className="flex-1 flex flex-col min-h-0 bg-[var(--surface)]">
       <div className="px-4 py-3 flex items-center justify-between">
         <h2 className="text-[15.5px] font-bold m-0 tracking-tight text-[var(--text-primary)]">
-          Trình tạo mật khẩu
+          {s.passwordGenerator}
         </h2>
         {onClose ? (
           <button
             type="button"
             onClick={onClose}
             className="ov-icon-btn w-7 h-7"
-            aria-label="Đóng trình tạo mật khẩu"
+            aria-label={s.close}
           >
             <X size={16} />
           </button>
@@ -95,19 +92,19 @@ export function GeneratorScreen({
           <button
             type="button"
             onClick={() => {
-              void onCopyText(password, "Đã sao chép mật khẩu");
+              void onCopyText(password, s.isVi ? "Đã sao chép mật khẩu" : "Copied password");
             }}
             className="ov-btn-ghost px-3.5 py-1.5 text-[12.5px]"
           >
-            Sao chép
+            {s.copy}
           </button>
 
           <button
             type="button"
             onClick={() => regenerate(true)}
             className="ov-icon-btn w-8 h-8"
-            title="Tạo mật khẩu khác"
-            aria-label="Tạo lại mật khẩu"
+            title={s.isVi ? "Tạo mật khẩu khác" : "Regenerate"}
+            aria-label={s.isVi ? "Tạo lại mật khẩu" : "Regenerate"}
           >
             <RotateCw size={16} />
           </button>
@@ -115,12 +112,12 @@ export function GeneratorScreen({
           <button
             type="button"
             onClick={() => {
-              void onCopyText(password, "Đã sao chép mật khẩu mới");
+              void onCopyText(password, s.isVi ? "Đã sao chép mật khẩu mới" : "Copied new password");
               onClose?.();
             }}
             className="ov-btn-primary px-3.5 py-1.5 text-[12.5px]"
           >
-            Dùng mật khẩu
+            {s.isVi ? "Dùng mật khẩu" : "Use password"}
           </button>
         </div>
 
@@ -149,7 +146,7 @@ export function GeneratorScreen({
         <div className="flex flex-col divide-y divide-[var(--border)]">
           <div className="py-2.5 flex items-center justify-between gap-3">
             <label htmlFor="gen-type" className="text-[13px] font-medium text-[var(--text-secondary)]">
-              Loại
+              {s.isVi ? "Loại" : "Type"}
             </label>
             <select
               id="gen-type"
@@ -157,14 +154,20 @@ export function GeneratorScreen({
               onChange={(e) => setGenType(e.target.value as GenType)}
               className="ov-input w-auto py-1 text-[12.5px] font-medium"
             >
-              <option value="random">Mật khẩu ngẫu nhiên</option>
-              <option value="passphrase">Cụm từ dễ nhớ</option>
+              <option value="random">{s.isVi ? "Mật khẩu ngẫu nhiên" : "Random Password"}</option>
+              <option value="passphrase">{s.isVi ? "Cụm từ dễ nhớ" : "Memorable Passphrase"}</option>
             </select>
           </div>
 
           <div className="py-2.5 flex items-center justify-between gap-3">
             <label htmlFor="gen-len" className="text-[13px] font-medium text-[var(--text-secondary)] shrink-0">
-              {genType === "random" ? "Số ký tự" : "Số từ"}
+              {genType === "random"
+                ? s.isVi
+                  ? "Số ký tự"
+                  : "Characters"
+                : s.isVi
+                  ? "Số từ"
+                  : "Words"}
             </label>
             <div className="flex items-center gap-2.5 flex-1 max-w-[195px]">
               <input
@@ -187,7 +190,9 @@ export function GeneratorScreen({
           </div>
 
           <div className="py-2.5 flex items-center justify-between">
-            <span className="text-[13px] font-medium text-[var(--text-secondary)]">Chữ số</span>
+            <span className="text-[13px] font-medium text-[var(--text-secondary)]">
+              {s.isVi ? "Chữ số" : "Numbers"}
+            </span>
             <label className="ov-switch">
               <input
                 type="checkbox"
@@ -200,7 +205,13 @@ export function GeneratorScreen({
 
           <div className="py-2.5 flex items-center justify-between">
             <span className="text-[13px] font-medium text-[var(--text-secondary)]">
-              {genType === "random" ? "Ký tự đặc biệt" : "Dấu gạch ngang (-)"}
+              {genType === "random"
+                ? s.isVi
+                  ? "Ký tự đặc biệt"
+                  : "Symbols"
+                : s.isVi
+                  ? "Dấu gạch ngang (-)"
+                  : "Hyphen separator (-)"}
             </span>
             <label className="ov-switch">
               <input
@@ -215,7 +226,7 @@ export function GeneratorScreen({
           {genType === "random" ? (
             <div className="py-2.5 flex items-center justify-between">
               <span className="text-[13px] font-medium text-[var(--text-secondary)]">
-                Tránh ký tự dễ nhầm
+                {s.isVi ? "Tránh ký tự dễ nhầm" : "Avoid ambiguous characters"}
               </span>
               <label className="ov-switch">
                 <input
@@ -236,7 +247,9 @@ export function GeneratorScreen({
             >
               <span className="inline-flex items-center gap-2">
                 <History size={14} />
-                <span>Lịch sử tạo mật khẩu ({history.length})</span>
+                <span>
+                  {s.isVi ? "Lịch sử tạo mật khẩu" : "Generator history"} ({history.length})
+                </span>
               </span>
               <ChevronRight
                 size={14}
@@ -251,7 +264,7 @@ export function GeneratorScreen({
                     key={`${item}-${idx}`}
                     type="button"
                     onClick={() => {
-                      void onCopyText(item, "Đã sao chép từ lịch sử");
+                      void onCopyText(item, s.isVi ? "Đã sao chép từ lịch sử" : "Copied from history");
                     }}
                     className="w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-[7px] bg-[var(--surface-subtle)] hover:bg-[var(--surface-hover)] border-0 cursor-pointer text-left"
                   >

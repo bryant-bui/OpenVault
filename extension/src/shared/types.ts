@@ -48,6 +48,8 @@ export interface ExtensionSettings {
   // General UX
   promptSaveCredentials: boolean;
   showFavicons: boolean;
+  language: "en" | "vi";
+  accountAvatarBase64: string | null;
 }
 
 export interface StoredAccount {

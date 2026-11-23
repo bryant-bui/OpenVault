@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Visibility
@@ -58,18 +59,22 @@ import io.openvault.app.ui.components.OnePassCard
 import io.openvault.app.ui.components.OpenVaultBrandCrest
 import io.openvault.app.ui.theme.LocalFoldableLayout
 import io.openvault.app.ui.theme.LocalOpenVaultColors
+import io.openvault.app.ui.theme.LocalStrings
 import kotlinx.coroutines.launch
 
 @Composable
 fun AuthScreen(
     repository: VaultRepository,
+    initialRegister: Boolean = false,
+    onBackToOnboarding: (() -> Unit)? = null,
     onAuthenticated: () -> Unit,
 ) {
     val c = LocalOpenVaultColors.current
+    val s = LocalStrings.current
     val fold = LocalFoldableLayout.current
     val scope = rememberCoroutineScope()
 
-    var isRegister by remember { mutableStateOf(false) }
+    var isRegister by remember(initialRegister) { mutableStateOf(initialRegister) }
     var serverUrl by remember { mutableStateOf(repository.preferences.getServerUrl()) }
     var showServerEditor by remember { mutableStateOf(false) }
     var email by remember { mutableStateOf("") }
@@ -101,6 +106,17 @@ fun AuthScreen(
             .verticalScroll(rememberScrollState()),
         contentAlignment = Alignment.TopCenter,
     ) {
+        if (onBackToOnboarding != null) {
+            IconButton(
+                onClick = onBackToOnboarding,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(8.dp),
+            ) {
+                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = s.back, tint = c.textPrimary)
+            }
+        }
+
         Column(
             modifier = Modifier
                 .widthIn(max = 460.dp)
@@ -109,7 +125,7 @@ fun AuthScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(if (onBackToOnboarding != null) 22.dp else 6.dp))
             OpenVaultBrandCrest(size = 62.dp)
 
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -121,7 +137,7 @@ fun AuthScreen(
                     letterSpacing = (-0.6).sp,
                 )
                 Text(
-                    text = "Kho mật khẩu Zero-Knowledge chuẩn Bitwarden",
+                    text = if (s.isVi) "Kho mật khẩu Zero-Knowledge chuẩn Bitwarden" else "Zero-Knowledge Vault · Bitwarden Compatible",
                     color = c.textSecondary,
                     fontSize = 13.5.sp,
                     textAlign = TextAlign.Center,
@@ -135,7 +151,10 @@ fun AuthScreen(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Row(modifier = Modifier.fillMaxWidth()) {
-                    listOf(false to "Đăng nhập", true to "Tạo tài khoản").forEach { (reg, label) ->
+                    listOf(
+                        false to (if (s.isVi) "Đăng nhập" else "Sign In"),
+                        true to (if (s.isVi) "Tạo tài khoản" else "Create Account"),
+                    ).forEach { (reg, label) ->
                         val active = isRegister == reg
                         Box(
                             modifier = Modifier
@@ -179,14 +198,14 @@ fun AuthScreen(
                     ) {
                         Icon(Icons.Rounded.Cloud, contentDescription = null, tint = c.accent, modifier = Modifier.size(16.dp))
                         Text(
-                            text = serverUrl.removePrefix("https://").removePrefix("http://"),
+                            text = if (s.isVi) "Máy chủ đám mây OpenVault" else "OpenVault Cloud Server",
                             color = c.textPrimary,
                             fontSize = 12.5.sp,
                             fontWeight = FontWeight.Medium,
                             modifier = Modifier.weight(1f),
                         )
                         Text(
-                            text = if (showServerEditor) "Ẩn" else "Đổi",
+                            text = if (showServerEditor) (if (s.isVi) "Ẩn" else "Hide") else (if (s.isVi) "Tùy chỉnh" else "Custom"),
                             color = c.accent,
                             fontSize = 12.5.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -197,7 +216,7 @@ fun AuthScreen(
                         OutlinedTextField(
                             value = serverUrl,
                             onValueChange = { serverUrl = it },
-                            label = { Text("URL Máy chủ") },
+                            label = { Text(if (s.isVi) "URL Máy chủ" else "Server URL") },
                             placeholder = { Text(AppPreferences.DEFAULT_SERVER_URL) },
                             singleLine = true,
                             shape = RoundedCornerShape(10.dp),
@@ -221,7 +240,7 @@ fun AuthScreen(
                         OutlinedTextField(
                             value = displayName,
                             onValueChange = { displayName = it },
-                            label = { Text("Tên hiển thị (tùy chọn)") },
+                            label = { Text(if (s.isVi) "Tên hiển thị (tùy chọn)" else "Display name (optional)") },
                             singleLine = true,
                             shape = RoundedCornerShape(10.dp),
                             colors = fieldColors,
@@ -232,14 +251,14 @@ fun AuthScreen(
                     OutlinedTextField(
                         value = password,
                         onValueChange = { password = it; error = null },
-                        label = { Text("Mật khẩu chính") },
+                        label = { Text(s.masterPassword) },
                         singleLine = true,
                         visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
                         trailingIcon = {
                             IconButton(onClick = { showPassword = !showPassword }) {
                                 Icon(
                                     if (showPassword) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
-                                    contentDescription = "Hiện/Ẩn",
+                                    contentDescription = null,
                                     tint = c.textSecondary,
                                 )
                             }
@@ -253,7 +272,7 @@ fun AuthScreen(
                         OutlinedTextField(
                             value = confirmPassword,
                             onValueChange = { confirmPassword = it; error = null },
-                            label = { Text("Xác nhận mật khẩu chính") },
+                            label = { Text(if (s.isVi) "Xác nhận mật khẩu chính" else "Confirm master password") },
                             singleLine = true,
                             visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
                             shape = RoundedCornerShape(10.dp),
@@ -263,7 +282,7 @@ fun AuthScreen(
                         OutlinedTextField(
                             value = hint,
                             onValueChange = { hint = it },
-                            label = { Text("Gợi ý mật khẩu (tùy chọn)") },
+                            label = { Text(if (s.isVi) "Gợi ý mật khẩu (tùy chọn)" else "Password hint (optional)") },
                             singleLine = true,
                             shape = RoundedCornerShape(10.dp),
                             colors = fieldColors,
@@ -279,15 +298,15 @@ fun AuthScreen(
                         onClick = {
                             val cleanEmail = email.trim()
                             if (cleanEmail.isBlank() || !cleanEmail.contains("@")) {
-                                error = "Vui lòng nhập email hợp lệ."
+                                error = if (s.isVi) "Vui lòng nhập email hợp lệ." else "Please enter a valid email address."
                                 return@Button
                             }
                             if (password.length < 8) {
-                                error = "Mật khẩu chính cần tối thiểu 8 ký tự."
+                                error = if (s.isVi) "Mật khẩu chính cần tối thiểu 8 ký tự." else "Master password must be at least 8 characters."
                                 return@Button
                             }
                             if (isRegister && password != confirmPassword) {
-                                error = "Mật khẩu xác nhận không khớp."
+                                error = if (s.isVi) "Mật khẩu xác nhận không khớp." else "Master passwords do not match."
                                 return@Button
                             }
                             loading = true
@@ -306,7 +325,7 @@ fun AuthScreen(
                                     }
                                     .onFailure { ex ->
                                         loading = false
-                                        error = ex.message ?: "Không thể kết nối máy chủ."
+                                        error = ex.message ?: if (s.isVi) "Không thể kết nối máy chủ." else "Could not reach server."
                                     }
                             }
                         },
@@ -318,10 +337,17 @@ fun AuthScreen(
                         if (loading) {
                             CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(19.dp))
                             Spacer(modifier = Modifier.size(10.dp))
-                            Text("Đang dẫn xuất khóa Argon2id…", fontWeight = FontWeight.SemiBold)
+                            Text(
+                                if (s.isVi) "Đang dẫn xuất khóa Argon2id…" else "Deriving Argon2id key…",
+                                fontWeight = FontWeight.SemiBold,
+                            )
                         } else {
                             Text(
-                                text = if (isRegister) "Tạo kho Zero-Knowledge" else "Đăng nhập",
+                                text = if (isRegister) {
+                                    if (s.isVi) "Tạo kho Zero-Knowledge" else "Create Zero-Knowledge Vault"
+                                } else {
+                                    if (s.isVi) "Đăng nhập" else "Sign In"
+                                },
                                 fontSize = 15.5.sp,
                                 fontWeight = FontWeight.SemiBold,
                             )
@@ -333,7 +359,7 @@ fun AuthScreen(
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Icon(Icons.Rounded.Lock, contentDescription = null, tint = c.textMuted, modifier = Modifier.size(14.dp))
                 Text(
-                    "Mã hóa AES-256-CBC + HMAC-SHA256 hoàn toàn cục bộ",
+                    if (s.isVi) "Mã hóa AES-256-CBC + HMAC-SHA256 hoàn toàn cục bộ" else "End-to-end AES-256-CBC + HMAC-SHA256 encryption",
                     color = c.textMuted,
                     fontSize = 12.sp,
                     textAlign = TextAlign.Center,

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -55,6 +56,7 @@ import io.openvault.app.core.crypto.VaultItem
 import io.openvault.app.ui.components.CategoryIconBadge
 import io.openvault.app.ui.components.OnePassCard
 import io.openvault.app.ui.components.OnePassItemRow
+import io.openvault.app.ui.components.OnePassSearchModeView
 import io.openvault.app.ui.components.OnePassTopSearchBar
 import io.openvault.app.ui.theme.LocalFoldableLayout
 import io.openvault.app.ui.theme.LocalOpenVaultColors
@@ -89,6 +91,7 @@ fun ItemsScreen(
     val s = LocalStrings.current
     val fold = LocalFoldableLayout.current
     var scope by remember { mutableStateOf<ItemsScope>(ItemsScope.Root) }
+    var searchActive by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
     var categoriesExpanded by remember { mutableStateOf(true) }
     var vaultsExpanded by remember { mutableStateOf(true) }
@@ -127,6 +130,33 @@ fun ItemsScreen(
 
     val bottomInset = if (fold.isTwoPane) 28.dp else 156.dp
 
+    if (searchActive) {
+        OnePassSearchModeView(
+            email = email,
+            query = query,
+            onQueryChange = { query = it },
+            placeholder = if (scope == ItemsScope.Root) s.searchAllItems else "${s.searchInPrefix}$listTitle",
+            results = if (query.isBlank()) emptyList() else filteredList,
+            selectedItemId = selectedItemId,
+            onSelectItem = {
+                searchActive = false
+                query = ""
+                onSelectItem(it)
+            },
+            onCloseSearch = {
+                searchActive = false
+                query = ""
+            },
+            onOpenSettings = onOpenSettings,
+            onOpenGenerator = onOpenGenerator,
+            onOpenQrScanner = onOpenQrScanner,
+            onSync = onSync,
+            onLock = onLock,
+            isSyncing = isSyncing,
+        )
+        return
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -135,14 +165,15 @@ fun ItemsScreen(
     ) {
         OnePassTopSearchBar(
             email = email,
-            query = query,
-            onQueryChange = { query = it },
+            query = "",
+            onQueryChange = { },
             placeholder = if (scope == ItemsScope.Root) {
                 if (fold.isNarrowCover) s.searchShort else s.searchAllItems
             } else {
                 "${s.searchInPrefix}$listTitle"
             },
             isSyncing = isSyncing,
+            onSearchActivated = { searchActive = true },
             onSync = onSync,
             onOpenGenerator = onOpenGenerator,
             onOpenQrScanner = onOpenQrScanner,
@@ -167,9 +198,15 @@ fun ItemsScreen(
             } else null,
         )
 
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.TopCenter,
+        ) {
         if (scope == ItemsScope.Root && query.isBlank()) {
             LazyColumn(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .widthIn(max = 680.dp)
+                    .fillMaxSize(),
                 contentPadding = PaddingValues(
                     start = fold.horizontalPadding,
                     end = fold.horizontalPadding,
@@ -329,7 +366,9 @@ fun ItemsScreen(
             }
         } else {
             LazyColumn(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .widthIn(max = 680.dp)
+                    .fillMaxSize(),
                 contentPadding = PaddingValues(
                     start = fold.horizontalPadding,
                     end = fold.horizontalPadding,
@@ -375,6 +414,7 @@ fun ItemsScreen(
                     }
                 }
             }
+        }
         }
     }
 

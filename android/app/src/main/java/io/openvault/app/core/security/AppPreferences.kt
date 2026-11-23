@@ -120,6 +120,7 @@ class AppPreferences(context: Context) {
         private const val KEY_ACCOUNT_AVATAR_B64 = "account_avatar_b64"
         private const val KEY_HOME_SECTIONS = "home_sections_json"
         private const val KEY_ITEM_USAGE_COUNTS = "item_usage_counts_json"
+        private const val KEY_ONBOARDING_SEEN = "onboarding_seen"
     }
 
     private val prefs: SharedPreferences =
@@ -338,6 +339,12 @@ class AppPreferences(context: Context) {
         }
         prefs.edit().putString(KEY_ITEM_USAGE_COUNTS, json.encodeToString(pruned)).apply()
         _itemUsageCounts.value = pruned
+    }
+
+    fun hasSeenOnboarding(): Boolean = prefs.getBoolean(KEY_ONBOARDING_SEEN, false)
+
+    fun setOnboardingSeen(seen: Boolean) {
+        prefs.edit().putBoolean(KEY_ONBOARDING_SEEN, seen).apply()
     }
 
     fun clearSessionForLogout() {

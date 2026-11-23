@@ -1,17 +1,23 @@
 import { extractVaultTextFromZip, parseUniversalVaultImport } from "@openvault/crypto-core";
 import {
+  Camera,
   CloudUpload,
   Download,
+  Globe,
+  Info,
   Lock,
   LogOut,
   Monitor,
   Moon,
   PanelRightOpen,
   Sun,
+  Trash2,
   Upload,
   X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { formatLocalTimestamp, getStrings, type AppLanguage } from "../../shared/i18n.js";
+import { compressImageFileToBase64, normalizeAvatarDataUrl } from "../../shared/media.js";
 import {
   applyColorScheme,
   getResolvedSystemScheme,
@@ -25,7 +31,6 @@ import { ConfirmDialog } from "../components/ConfirmDialog.js";
 
 interface SettingsScreenProps {
   email: string;
-  serverUrl: string;
   lastSyncAt: string | null;
   settings: ExtensionSettings;
   pinEnabled: boolean;
@@ -74,7 +79,6 @@ function ToggleRow({ title, description, checked, onChange }: ToggleRowProps) {
 
 export function SettingsScreen({
   email,
-  serverUrl,
   lastSyncAt,
   settings,
   pinEnabled,
@@ -90,6 +94,9 @@ export function SettingsScreen({
   onClose,
   onToast,
 }: SettingsScreenProps) {
+  const lang: AppLanguage = settings.language ?? "en";
+  const s = getStrings(lang);
+
   const [schemePref, setSchemePref] = useState<ColorSchemePreference>(() =>
     readColorSchemePreference(),
   );
@@ -104,15 +111,32 @@ export function SettingsScreen({
   const [requireMasterOnRestart, setRequireMasterOnRestart] = useState(pinRequireMasterOnRestart);
   const [savingPin, setSavingPin] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+
+  const avatarDataUrl = normalizeAvatarDataUrl(settings.accountAvatarBase64);
+  const accountInitial = (email.split("@")[0]?.[0] ?? "O").toUpperCase();
+
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const b64 = await compressImageFileToBase64(file, 160, 0.84);
+      await onUpdateSettings({ accountAvatarBase64: b64 });
+    } catch (err) {
+      onToast(err instanceof Error ? err.message : "Could not update avatar", "error");
+    } finally {
+      if (avatarInputRef.current) avatarInputRef.current.value = "";
+    }
+  };
 
   const handleSavePin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (pinValue.length < 4) {
-      onToast("Mã PIN phải dài ít nhất 4 ký tự.", "error");
+      onToast(s.isVi ? "Mã PIN phải dài ít nhất 4 ký tự." : "PIN must be at least 4 characters.", "error");
       return;
     }
     if (pinValue !== pinConfirm) {
-      onToast("Mã PIN xác nhận không khớp.", "error");
+      onToast(s.isVi ? "Mã PIN xác nhận không khớp." : "PINs do not match.", "error");
       return;
     }
     setSavingPin(true);
@@ -128,11 +152,13 @@ export function SettingsScreen({
       setShowPinSetup(false);
       await onPinUpdated();
       onToast(
-        `Đã bật mở khóa bằng mã PIN (PBKDF2 600k · tối đa ${settings.pinMaxAttempts} lần thử)!`,
+        s.isVi
+          ? `Đã bật mở khóa bằng mã PIN (PBKDF2 600k · tối đa ${settings.pinMaxAttempts} lần thử)!`
+          : `PIN unlock enabled (PBKDF2 600k · max ${settings.pinMaxAttempts} attempts)!`,
         "success",
       );
     } catch (err) {
-      onToast(err instanceof Error ? err.message : "Không thể lưu mã PIN", "error");
+      onToast(err instanceof Error ? err.message : "Failed to save PIN", "error");
     } finally {
       setSavingPin(false);
     }
@@ -142,9 +168,9 @@ export function SettingsScreen({
     try {
       await sendBg({ type: "DISABLE_PIN" });
       await onPinUpdated();
-      onToast("Đã tắt mở khóa bằng mã PIN", "info");
+      onToast(s.isVi ? "Đã tắt mở khóa bằng mã PIN" : "PIN unlock disabled", "info");
     } catch (err) {
-      onToast(err instanceof Error ? err.message : "Không thể tắt mã PIN", "error");
+      onToast(err instanceof Error ? err.message : "Failed to disable PIN", "error");
     }
   };
 
@@ -175,13 +201,15 @@ export function SettingsScreen({
         type: "TRIGGER_R2_BACKUP",
       });
       onToast(
-        `Đã sao lưu ${res.cipherCount} mục (${Math.max(1, Math.round(res.bytes / 1024))} KB) lên Cloudflare R2!`,
+        s.isVi
+          ? `Đã sao lưu ${res.cipherCount} mục (${Math.max(1, Math.round(res.bytes / 1024))} KB) lên Cloudflare R2!`
+          : `Backed up ${res.cipherCount} items (${Math.max(1, Math.round(res.bytes / 1024))} KB) to Cloudflare R2!`,
         "success",
       );
       const list = await sendBg<R2BackupItem[]>({ type: "LIST_R2_BACKUPS" });
       setR2Backups(list.slice(0, 5));
     } catch (err) {
-      onToast(err instanceof Error ? err.message : "Sao lưu R2 thất bại", "error");
+      onToast(err instanceof Error ? err.message : "R2 backup failed", "error");
     } finally {
       setBackingUp(false);
     }
@@ -197,9 +225,9 @@ export function SettingsScreen({
       a.download = `openvault-encrypted-backup-${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       URL.revokeObjectURL(url);
-      onToast("Đã tải xuống bản sao lưu mã hóa JSON", "success");
+      onToast(s.isVi ? "Đã tải xuống bản sao lưu mã hóa JSON" : "Downloaded encrypted JSON backup", "success");
     } catch (err) {
-      onToast(err instanceof Error ? err.message : "Xuất backup thất bại", "error");
+      onToast(err instanceof Error ? err.message : "Export failed", "error");
     }
   };
 
@@ -221,7 +249,10 @@ export function SettingsScreen({
       const preview = parseUniversalVaultImport(rawText);
       const itemCount = preview.exportData.items?.length ?? 0;
       if (itemCount === 0) {
-        onToast("Không tìm thấy mục mật khẩu nào trong tệp đã chọn.", "error");
+        onToast(
+          s.isVi ? "Không tìm thấy mục mật khẩu nào trong tệp đã chọn." : "No items found in selected file.",
+          "error",
+        );
         return;
       }
 
@@ -237,7 +268,9 @@ export function SettingsScreen({
 
       if (!res.format) {
         onToast(
-          "Service Worker đang dùng bản cũ — vui lòng vào chrome://extensions bấm ↻ Tải lại OpenVault rồi nhập lại!",
+          s.isVi
+            ? "Service Worker đang dùng bản cũ — vui lòng vào chrome://extensions bấm ↻ Tải lại OpenVault!"
+            : "Outdated service worker — please reload OpenVault in chrome://extensions!",
           "error",
         );
         return;
@@ -253,12 +286,14 @@ export function SettingsScreen({
             : "Bitwarden (JSON)";
 
       onToast(
-        `Đã mã hóa & nhập ${res.importedCiphers} mục (${res.importedFolders} thư mục) từ ${sourceLabel}!`,
+        s.isVi
+          ? `Đã mã hóa & nhập ${res.importedCiphers} mục (${res.importedFolders} thư mục) từ ${sourceLabel}!`
+          : `Encrypted & imported ${res.importedCiphers} items (${res.importedFolders} folders) from ${sourceLabel}!`,
         "success",
       );
       await onImported();
     } catch (err) {
-      onToast(err instanceof Error ? err.message : "Tệp nhập liệu không hợp lệ", "error");
+      onToast(err instanceof Error ? err.message : "Invalid import file", "error");
     } finally {
       setImporting(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -268,13 +303,13 @@ export function SettingsScreen({
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-[var(--bg)]">
       <header className="px-4 py-2.5 border-b border-[var(--border)] bg-[var(--surface)] flex items-center justify-between">
-        <h2 className="text-[14px] font-bold m-0">Cài đặt OpenVault</h2>
+        <h2 className="text-[14px] font-bold m-0">{s.settingsTitle}</h2>
         {onClose ? (
           <button
             type="button"
             onClick={onClose}
             className="ov-icon-btn w-7 h-7"
-            aria-label="Đóng Cài đặt"
+            aria-label={s.close}
           >
             <X size={15} />
           </button>
@@ -282,33 +317,76 @@ export function SettingsScreen({
       </header>
 
       <div className="flex-1 overflow-y-auto ov-scroll p-3.5 flex flex-col gap-3">
-        {/* Account summary */}
-        <div className="ov-card p-3">
-          <div className="text-[13px] font-bold truncate">{email}</div>
-          <div className="text-[11.5px] text-[var(--text-secondary)] truncate mt-0.5">
-            {serverUrl}
-          </div>
-          {lastSyncAt ? (
-            <div className="text-[11px] text-[var(--text-muted)] mt-1">
-              Đồng bộ gần nhất: {new Date(lastSyncAt).toLocaleString("vi-VN")}
+        {/* Clean Account Card with Custom Avatar Picker & NO Server URL Clutter (#7 & #17) */}
+        <div className="ov-card p-3 flex items-center gap-3">
+          <input
+            ref={avatarInputRef}
+            type="file"
+            accept="image/*"
+            className="sr-only"
+            onChange={(e) => {
+              void handleAvatarUpload(e);
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => avatarInputRef.current?.click()}
+            className="relative w-11 h-11 rounded-[12px] shrink-0 overflow-hidden border border-[var(--border)] p-0 cursor-pointer flex items-center justify-center font-bold text-white text-[16px]"
+            style={{
+              background: avatarDataUrl
+                ? "var(--surface-subtle)"
+                : "linear-gradient(135deg, #0A84FF, #0455BF)",
+            }}
+            title={s.changeAvatar}
+          >
+            {avatarDataUrl ? (
+              <img src={avatarDataUrl} alt="" className="w-full h-full object-cover" />
+            ) : (
+              accountInitial
+            )}
+            <span className="absolute bottom-0 right-0 w-4 h-4 rounded-tl-[6px] bg-black/65 text-white flex items-center justify-center">
+              <Camera size={9} />
+            </span>
+          </button>
+
+          <div className="min-w-0 flex-1">
+            <div className="text-[13px] font-bold truncate">{email}</div>
+            <div className="text-[11px] text-[var(--text-muted)] mt-0.5 truncate">
+              {s.autoSyncActive}
+              {lastSyncAt ? ` · ${formatLocalTimestamp(lastSyncAt, lang)}` : ""}
             </div>
+          </div>
+
+          {avatarDataUrl ? (
+            <button
+              type="button"
+              onClick={() => {
+                void onUpdateSettings({ accountAvatarBase64: null });
+              }}
+              className="ov-icon-btn w-7 h-7 shrink-0 hover:text-[var(--danger)]"
+              title={s.removeAvatar}
+              aria-label={s.removeAvatar}
+            >
+              <Trash2 size={13} />
+            </button>
           ) : null}
         </div>
 
-        {/* Appearance (3-state system / light / dark) */}
-        <div className="ov-card p-3 flex flex-col gap-2">
+        {/* Appearance & Language (#9) */}
+        <div className="ov-card p-3 flex flex-col gap-3">
           <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-            Giao diện
+            {s.appearanceAndLang}
           </div>
+
           <div className="grid grid-cols-3 gap-1.5">
             {[
               {
                 id: "system" as const,
-                label: `Hệ thống (${systemScheme === "dark" ? "Tối" : "Sáng"})`,
+                label: `${s.themeSystem} (${systemScheme === "dark" ? s.themeDark : s.themeLight})`,
                 icon: Monitor,
               },
-              { id: "light" as const, label: "Sáng", icon: Sun },
-              { id: "dark" as const, label: "Tối", icon: Moon },
+              { id: "light" as const, label: s.themeLight, icon: Sun },
+              { id: "dark" as const, label: s.themeDark, icon: Moon },
             ].map((opt) => {
               const Icon = opt.icon;
               const active = schemePref === opt.id;
@@ -329,57 +407,87 @@ export function SettingsScreen({
               );
             })}
           </div>
+
+          <div className="flex items-center justify-between gap-2 pt-2 border-t border-[var(--border)]">
+            <span className="inline-flex items-center gap-1.5 text-[12.5px] font-medium">
+              <Globe size={13} className="text-[var(--text-muted)]" />
+              <span>{s.languageLabel}</span>
+            </span>
+            <div className="inline-flex rounded-[8px] p-0.5 bg-[var(--surface-subtle)] border border-[var(--border)]">
+              {(
+                [
+                  { id: "en", label: "English" },
+                  { id: "vi", label: "Tiếng Việt" },
+                ] as const
+              ).map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => {
+                    void onUpdateSettings({ language: opt.id });
+                  }}
+                  className={`px-2.5 py-1 rounded-[6px] border-0 text-[11.5px] font-semibold cursor-pointer transition-colors ${
+                    lang === opt.id
+                      ? "bg-[var(--accent)] text-white"
+                      : "bg-transparent text-[var(--text-secondary)]"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
-        {/* Autofill (Proton Pass granular controls) */}
+        {/* Autofill */}
         <div className="ov-card p-3 flex flex-col gap-3">
           <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-            Tự động điền
+            {s.autofillSection}
           </div>
 
           <ToggleRow
-            title="Tự điền thông tin đăng nhập"
-            description="Hiện gợi ý và điền nhanh tên đăng nhập, mật khẩu đã lưu."
+            title={s.isVi ? "Tự điền đăng nhập" : "Autofill logins"}
+            description={s.isVi ? "Hiện gợi ý điền nhanh tên đăng nhập & mật khẩu." : "Suggest and fill saved usernames and passwords."}
             checked={settings.showInlineAutofill}
             onChange={(v) => {
               void onUpdateSettings({ showInlineAutofill: v });
             }}
           />
           <ToggleRow
-            title="Tự động điền danh tính"
-            description="Điền nhanh họ tên, email, số điện thoại và địa chỉ đã lưu."
+            title={s.isVi ? "Tự điền danh tính" : "Autofill identities"}
+            description={s.isVi ? "Điền nhanh họ tên, email, điện thoại và địa chỉ." : "Fill saved names, emails, phones, and addresses."}
             checked={settings.autofillIdentity}
             onChange={(v) => {
               void onUpdateSettings({ autofillIdentity: v });
             }}
           />
           <ToggleRow
-            title="Tự động điền 2FA"
-            description="Nhận diện ô OTP (kể cả 6 ô rời) để điền nhanh mã 2FA TOTP."
+            title={s.isVi ? "Tự điền 2FA (TOTP)" : "Autofill 2FA codes"}
+            description={s.isVi ? "Nhận diện ô OTP (kể cả 6 ô rời) để điền mã 2FA." : "Detect OTP inputs (including split 6-digit boxes)."}
             checked={settings.autofillTotp}
             onChange={(v) => {
               void onUpdateSettings({ autofillTotp: v });
             }}
           />
           <ToggleRow
-            title="Tự động sao chép mã 2FA"
-            description="Sau khi tự động điền đăng nhập, mã 2FA sẽ tự động chép vào bảng tạm."
+            title={s.isVi ? "Tự chép mã 2FA sau khi điền" : "Auto-copy 2FA code"}
+            description={s.isVi ? "Sao chép mã TOTP vào bảng tạm sau khi điền đăng nhập." : "Copy TOTP to clipboard right after filling a login."}
             checked={settings.autoCopyTotp}
             onChange={(v) => {
               void onUpdateSettings({ autoCopyTotp: v });
             }}
           />
           <ToggleRow
-            title="Tự động điền thẻ tín dụng"
-            description="Điền nhanh số thẻ, ngày hết hạn và mã CVV khi thanh toán."
+            title={s.isVi ? "Tự điền thẻ tín dụng" : "Autofill credit cards"}
+            description={s.isVi ? "Điền nhanh số thẻ, hạn dùng và CVV khi thanh toán." : "Fill card number, expiry, and CVV at checkout."}
             checked={settings.autofillCard}
             onChange={(v) => {
               void onUpdateSettings({ autofillCard: v });
             }}
           />
           <ToggleRow
-            title="Tự động điền xác thực cơ bản"
-            description="Tự động điền vào hộp thoại HTTP Basic Auth bằng tài khoản đã lưu."
+            title={s.isVi ? "Tự điền HTTP Basic Auth" : "Autofill HTTP Basic Auth"}
+            description={s.isVi ? "Tự điền hộp thoại đăng nhập hệ thống của trình duyệt." : "Automatically fill browser Basic Auth prompts."}
             checked={settings.autofillBasicAuth}
             onChange={(v) => {
               void onUpdateSettings({ autofillBasicAuth: v });
@@ -388,16 +496,16 @@ export function SettingsScreen({
 
           <div className="pt-2 border-t border-[var(--border)] flex flex-col gap-3">
             <ToggleRow
-              title="Gợi ý lưu khi đăng nhập tài khoản mới"
-              description="Hiện thông báo lưu nhanh khi bạn đăng nhập tài khoản chưa có trong kho."
+              title={s.isVi ? "Hỏi lưu tài khoản mới" : "Prompt to save new logins"}
+              description={s.isVi ? "Gợi ý lưu nhanh khi bạn đăng nhập tài khoản mới." : "Offer to save credentials when signing into new sites."}
               checked={settings.promptSaveCredentials}
               onChange={(v) => {
                 void onUpdateSettings({ promptSaveCredentials: v });
               }}
             />
             <ToggleRow
-              title="Hiển thị biểu tượng (favicon) website"
-              description="Tải logo trang web trong danh sách và khung chi tiết."
+              title={s.isVi ? "Hiển thị biểu tượng website" : "Show website icons"}
+              description={s.isVi ? "Tự tải favicon rõ nét cho các trang web đã lưu." : "Fetch crisp favicons for saved websites."}
               checked={settings.showFavicons}
               onChange={(v) => {
                 void onUpdateSettings({ showFavicons: v });
@@ -406,62 +514,47 @@ export function SettingsScreen({
           </div>
         </div>
 
-        {/* Autosuggest */}
+        {/* Autosuggest & Passkeys */}
         <div className="ov-card p-3 flex flex-col gap-3">
           <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-            Tự động đề xuất
+            {s.passkeysSection} &amp; {s.autosuggestSection}
           </div>
 
           <ToggleRow
-            title="Mật khẩu mạnh khi đăng ký"
-            description="OpenVault sẽ gợi ý tạo và điền mật khẩu mạnh 20 ký tự trên ô mật khẩu mới."
-            checked={settings.autosuggestPassword}
-            onChange={(v) => {
-              void onUpdateSettings({ autosuggestPassword: v });
-            }}
-          />
-          <ToggleRow
-            title="Tự động sao chép mật khẩu vừa tạo"
-            description="Tự động sao chép các mật khẩu mới tạo vào bảng tạm (và tự xóa theo lịch)."
-            checked={settings.autoCopyGeneratedPassword}
-            onChange={(v) => {
-              void onUpdateSettings({ autoCopyGeneratedPassword: v });
-            }}
-          />
-        </div>
-
-        {/* Passkeys (WebAuthn / FIDO2) */}
-        <div className="ov-card p-3 flex flex-col gap-3">
-          <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-            Mã khóa (Passkeys)
-          </div>
-
-          <ToggleRow
-            title="Lưu mã khóa"
-            description="OpenVault sẽ gợi ý tạo và lưu mã khóa (ECDSA P-256) đồng bộ sang Android."
+            title={s.isVi ? "Lưu mã khóa (Passkey)" : "Save passkeys"}
+            description={s.isVi ? "Tạo & đồng bộ mã khóa ECDSA P-256 sang Android." : "Create & sync ECDSA P-256 passkeys across devices."}
             checked={settings.passkeySaveEnabled}
             onChange={(v) => {
               void onUpdateSettings({ passkeySaveEnabled: v });
             }}
           />
           <ToggleRow
-            title="Xác thực bằng mã khóa"
-            description="OpenVault sẽ gợi ý đăng nhập bằng các mã khóa đã lưu trong kho."
+            title={s.isVi ? "Đăng nhập bằng Passkey" : "Authenticate with passkeys"}
+            description={s.isVi ? "Gợi ý xác thực không mật khẩu bằng Passkey đã lưu." : "Sign in passwordlessly with stored passkeys."}
             checked={settings.passkeyAuthEnabled}
             onChange={(v) => {
               void onUpdateSettings({ passkeyAuthEnabled: v });
             }}
           />
-        </div>
-
-        {/* Browser Settings */}
-        <div className="ov-card p-3 flex flex-col gap-2.5">
-          <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-            Thiết lập trình duyệt
-          </div>
           <ToggleRow
-            title="Dùng OpenVault làm trình quản lý mật khẩu mặc định"
-            description="Tắt trình lưu mật khẩu, thẻ thanh toán và địa chỉ tích hợp của Chrome để không bị popup đè."
+            title={s.isVi ? "Gợi ý mật khẩu mạnh" : "Suggest strong passwords"}
+            description={s.isVi ? "Gợi ý tạo mật khẩu 20 ký tự trên ô mật khẩu mới." : "Suggest 20-char random passwords on signup forms."}
+            checked={settings.autosuggestPassword}
+            onChange={(v) => {
+              void onUpdateSettings({ autosuggestPassword: v });
+            }}
+          />
+          <ToggleRow
+            title={s.isVi ? "Tự chép mật khẩu vừa tạo" : "Auto-copy generated passwords"}
+            description={s.isVi ? "Tự chép mật khẩu mới vào bảng tạm." : "Automatically copy generated passwords to clipboard."}
+            checked={settings.autoCopyGeneratedPassword}
+            onChange={(v) => {
+              void onUpdateSettings({ autoCopyGeneratedPassword: v });
+            }}
+          />
+          <ToggleRow
+            title={s.isVi ? "Đặt làm trình quản lý mật khẩu mặc định" : "Default browser password manager"}
+            description={s.isVi ? "Tắt popup lưu mật khẩu tích hợp của Chrome." : "Disable Chrome's built-in password prompts to avoid overlap."}
             checked={settings.defaultBrowserPasswordManager}
             onChange={(v) => {
               void onUpdateSettings({ defaultBrowserPasswordManager: v });
@@ -472,18 +565,23 @@ export function SettingsScreen({
         {/* Security & Lock */}
         <div className="ov-card p-3 flex flex-col gap-3">
           <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-            Bảo mật & Mở khóa
+            {s.securitySection}
           </div>
 
-          {/* Zero-Knowledge PIN Unlock */}
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between gap-2">
               <div>
-                <div className="text-[12.5px] font-semibold">Mở khóa nhanh bằng mã PIN</div>
+                <div className="text-[12.5px] font-semibold">
+                  {s.isVi ? "Mở khóa nhanh bằng mã PIN" : "Quick PIN unlock"}
+                </div>
                 <div className="text-[11px] text-[var(--text-muted)]">
                   {pinEnabled
-                    ? `${pinRequireMasterOnRestart ? "Hỏi Master Password khi mở lại Chrome" : "Dùng được ngay khi mở lại Chrome"} · Tự hủy sau ${pinMaxAttempts} lần sai`
-                    : `Bọc khóa bằng PBKDF2 600k · Tự hủy sau ${settings.pinMaxAttempts} lần nhập sai`}
+                    ? s.isVi
+                      ? `${pinRequireMasterOnRestart ? "Hỏi Master Password khi mở lại Chrome" : "Dùng ngay khi mở lại Chrome"} · Tối đa ${pinMaxAttempts} lần sai`
+                      : `${pinRequireMasterOnRestart ? "Requires Master Password on restart" : "Available on browser restart"} · Max ${pinMaxAttempts} attempts`
+                    : s.isVi
+                      ? `PBKDF2 600k · Tự hủy sau ${settings.pinMaxAttempts} lần sai`
+                      : `PBKDF2 600k · Wipes after ${settings.pinMaxAttempts} failed attempts`}
                 </div>
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
@@ -492,7 +590,7 @@ export function SettingsScreen({
                   onClick={() => setShowPinSetup((v) => !v)}
                   className="ov-btn-ghost px-2.5 py-1 text-[11.5px]"
                 >
-                  {pinEnabled ? "Đổi PIN" : "Thiết lập"}
+                  {pinEnabled ? (s.isVi ? "Đổi PIN" : "Change") : (s.isVi ? "Thiết lập" : "Set PIN")}
                 </button>
                 {pinEnabled ? (
                   <button
@@ -502,7 +600,7 @@ export function SettingsScreen({
                     }}
                     className="px-2.5 py-1 rounded-[8px] border border-[var(--danger)] text-[var(--danger)] bg-transparent text-[11.5px] font-semibold cursor-pointer"
                   >
-                    Tắt
+                    {s.isVi ? "Tắt" : "Off"}
                   </button>
                 ) : null}
               </div>
@@ -520,7 +618,7 @@ export function SettingsScreen({
                     type="password"
                     inputMode="numeric"
                     className="ov-input font-mono-code text-[12.5px]"
-                    placeholder="Mã PIN (khuyên dùng 6 số)"
+                    placeholder={s.isVi ? "Mã PIN (6 số)" : "PIN (6 digits)"}
                     value={pinValue}
                     onChange={(e) => setPinValue(e.target.value)}
                     required
@@ -529,14 +627,18 @@ export function SettingsScreen({
                     type="password"
                     inputMode="numeric"
                     className="ov-input font-mono-code text-[12.5px]"
-                    placeholder="Nhập lại PIN"
+                    placeholder={s.isVi ? "Nhập lại PIN" : "Confirm PIN"}
                     value={pinConfirm}
                     onChange={(e) => setPinConfirm(e.target.value)}
                     required
                   />
                 </div>
                 <label className="flex items-center justify-between text-[11.5px] text-[var(--text-secondary)] cursor-pointer">
-                  <span>Yêu cầu Master Password khi khởi động lại Chrome</span>
+                  <span>
+                    {s.isVi
+                      ? "Yêu cầu Master Password khi khởi động lại Chrome"
+                      : "Require Master Password after Chrome restarts"}
+                  </span>
                   <input
                     type="checkbox"
                     checked={requireMasterOnRestart}
@@ -549,14 +651,14 @@ export function SettingsScreen({
                     onClick={() => setShowPinSetup(false)}
                     className="ov-btn-ghost px-2.5 py-1 text-[11.5px]"
                   >
-                    Hủy
+                    {s.cancel}
                   </button>
                   <button
                     type="submit"
                     disabled={savingPin}
                     className="ov-btn-primary px-3 py-1 text-[11.5px]"
                   >
-                    {savingPin ? "Đang bọc khóa..." : "Lưu mã PIN"}
+                    {savingPin ? s.saving : s.save}
                   </button>
                 </div>
               </form>
@@ -566,7 +668,7 @@ export function SettingsScreen({
           <div className="pt-2.5 border-t border-[var(--border)] flex flex-col gap-2.5">
             <div className="flex items-center justify-between gap-2">
               <label htmlFor="pin-attempts-select" className="text-[12.5px] font-medium">
-                Tự hủy PIN khi nhập sai
+                {s.isVi ? "Tự hủy PIN khi nhập sai" : "Wipe PIN after failed attempts"}
               </label>
               <select
                 id="pin-attempts-select"
@@ -580,14 +682,14 @@ export function SettingsScreen({
                 }}
                 className="ov-input w-auto py-1 text-[12px]"
               >
-                <option value={3}>3 lần</option>
-                <option value={5}>5 lần</option>
+                <option value={3}>3</option>
+                <option value={5}>5</option>
               </select>
             </div>
 
             <div className="flex items-center justify-between gap-2">
               <label htmlFor="autolock-select" className="text-[12.5px] font-medium">
-                Tự động khóa sau
+                {s.isVi ? "Tự động khóa sau" : "Auto-lock after"}
               </label>
               <select
                 id="autolock-select"
@@ -597,47 +699,42 @@ export function SettingsScreen({
                 }}
                 className="ov-input w-auto py-1 text-[12px]"
               >
-                <option value={1}>1 phút</option>
-                <option value={5}>5 phút</option>
-                <option value={10}>10 phút</option>
-                <option value={15}>15 phút</option>
-                <option value={30}>30 phút</option>
-                <option value={60}>1 giờ</option>
-                <option value={0}>Khi đóng Chrome</option>
+                <option value={1}>1 min</option>
+                <option value={5}>5 min</option>
+                <option value={10}>10 min</option>
+                <option value={15}>15 min</option>
+                <option value={30}>30 min</option>
+                <option value={60}>1 hour</option>
+                <option value={0}>{s.isVi ? "Khi đóng Chrome" : "Browser restart"}</option>
               </select>
             </div>
 
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center justify-between gap-2">
-                <label htmlFor="clipboard-clear-select" className="text-[12.5px] font-medium">
-                  Xóa bảng tạm sau
-                </label>
-                <select
-                  id="clipboard-clear-select"
-                  value={settings.clipboardClearSeconds}
-                  onChange={(e) => {
-                    void onUpdateSettings({ clipboardClearSeconds: Number(e.target.value) });
-                  }}
-                  className="ov-input w-auto py-1 text-[12px]"
-                >
-                  <option value={15}>15 giây</option>
-                  <option value={30}>30 giây</option>
-                  <option value={60}>60 giây</option>
-                  <option value={120}>2 phút</option>
-                  <option value={0}>Không tự xóa</option>
-                </select>
-              </div>
-              <div className="text-[11px] text-[var(--text-muted)]">
-                Vui lòng giữ trình duyệt mở để có thể tự động xóa bảng tạm.
-              </div>
+            <div className="flex items-center justify-between gap-2">
+              <label htmlFor="clipboard-clear-select" className="text-[12.5px] font-medium">
+                {s.isVi ? "Xóa bảng tạm sau" : "Clear clipboard after"}
+              </label>
+              <select
+                id="clipboard-clear-select"
+                value={settings.clipboardClearSeconds}
+                onChange={(e) => {
+                  void onUpdateSettings({ clipboardClearSeconds: Number(e.target.value) });
+                }}
+                className="ov-input w-auto py-1 text-[12px]"
+              >
+                <option value={15}>15s</option>
+                <option value={30}>30s</option>
+                <option value={60}>60s</option>
+                <option value={120}>2 min</option>
+                <option value={0}>{s.isVi ? "Tắt" : "Never"}</option>
+              </select>
             </div>
           </div>
         </div>
 
-        {/* Cloudflare R2 Backups & Universal Import/Export */}
+        {/* Backup & Migration */}
         <div className="ov-card p-3 flex flex-col gap-2.5">
           <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-            Sao lưu & Di chuyển dữ liệu
+            {s.backupSection}
           </div>
 
           <button
@@ -650,23 +747,31 @@ export function SettingsScreen({
           >
             <CloudUpload size={14} />
             <span>
-              {backingUp ? "Đang tạo snapshot R2..." : "Sao lưu mã hóa lên Cloudflare R2 ngay"}
+              {backingUp
+                ? s.isVi
+                  ? "Đang tạo snapshot R2..."
+                  : "Creating R2 snapshot..."
+                : s.isVi
+                  ? "Sao lưu mã hóa lên Cloudflare R2 ngay"
+                  : "Back up encrypted vault to R2 now"}
             </span>
           </button>
 
           {r2Backups.length > 0 ? (
             <div className="rounded-[10px] bg-[var(--surface-subtle)] p-2 flex flex-col gap-1.5">
               <div className="text-[10.5px] font-semibold text-[var(--text-muted)]">
-                Bản sao lưu R2 gần nhất (tự động hằng ngày 03:00 UTC)
+                {s.isVi
+                  ? "Bản sao lưu R2 gần nhất (tự động 03:00 UTC)"
+                  : "Recent R2 Snapshots (daily at 03:00 UTC)"}
               </div>
               {r2Backups.map((b) => (
                 <div
                   key={b.key}
                   className="flex items-center justify-between text-[11px] text-[var(--text-secondary)]"
                 >
-                  <span>{new Date(b.uploaded).toLocaleString("vi-VN")}</span>
+                  <span>{formatLocalTimestamp(b.uploaded, lang)}</span>
                   <span className="font-mono-code text-[10.5px]">
-                    {b.cipherCount ?? "?"} mục · {Math.max(1, Math.round(b.size / 1024))} KB
+                    {b.cipherCount ?? "?"} · {Math.max(1, Math.round(b.size / 1024))} KB
                   </span>
                 </div>
               ))}
@@ -690,7 +795,7 @@ export function SettingsScreen({
               className="ov-btn-ghost py-2 inline-flex items-center justify-center gap-1.5 text-[12px]"
             >
               <Upload size={13} />
-              <span>{importing ? "Đang mã hóa & nhập..." : "Import Proton / BW"}</span>
+              <span>{importing ? (s.isVi ? "Đang nhập..." : "Importing...") : "Import Proton / BW"}</span>
             </button>
             <button
               type="button"
@@ -700,14 +805,28 @@ export function SettingsScreen({
               className="ov-btn-ghost py-2 inline-flex items-center justify-center gap-1.5 text-[12px]"
             >
               <Download size={13} />
-              <span>Xuất JSON mã hóa</span>
+              <span>{s.isVi ? "Xuất JSON mã hóa" : "Export Encrypted"}</span>
             </button>
           </div>
-          <p className="text-[11px] text-[var(--text-muted)] m-0 leading-snug">
-            Hỗ trợ trực tiếp file <strong>ZIP (&quot;Mã bưu chính&quot;)</strong>,{" "}
-            <strong>data.json</strong>, <strong>CSV</strong> xuất từ Proton Pass và{" "}
-            <strong>JSON</strong> từ Bitwarden.
-          </p>
+        </div>
+
+        {/* About OpenVault (#10) */}
+        <div className="ov-card p-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <img src="/icons/icon-48.png" alt="" className="w-8 h-8 rounded-[9px] shrink-0" />
+            <div className="min-w-0">
+              <div className="text-[12.5px] font-bold flex items-center gap-1.5">
+                <span>OpenVault for Chrome</span>
+                <span className="text-[10.5px] font-semibold px-1.5 py-0.5 rounded-full bg-[var(--accent-soft)] text-[var(--accent)]">
+                  v0.5.0
+                </span>
+              </div>
+              <div className="text-[11px] text-[var(--text-muted)] truncate">
+                Zero-Knowledge · AES-256-CBC + HMAC · Argon2id · Passkeys
+              </div>
+            </div>
+          </div>
+          <Info size={15} className="text-[var(--text-muted)] shrink-0" />
         </div>
 
         {/* Actions */}
@@ -721,7 +840,7 @@ export function SettingsScreen({
               className="ov-btn-ghost w-full py-2 inline-flex items-center justify-center gap-1.5"
             >
               <PanelRightOpen size={14} />
-              <span>Mở OpenVault trong Side Panel</span>
+              <span>{s.openSidePanel}</span>
             </button>
           ) : null}
 
@@ -734,7 +853,7 @@ export function SettingsScreen({
               className="ov-btn-ghost py-2 inline-flex items-center justify-center gap-1.5"
             >
               <Lock size={14} />
-              <span>Khóa ngay</span>
+              <span>{s.lockNow}</span>
             </button>
             <button
               type="button"
@@ -742,7 +861,7 @@ export function SettingsScreen({
               className="py-2 rounded-[10px] border border-[var(--danger)] text-[var(--danger)] bg-transparent font-semibold text-[12.5px] inline-flex items-center justify-center gap-1.5 cursor-pointer hover:bg-[var(--danger-soft)]"
             >
               <LogOut size={14} />
-              <span>Đăng xuất</span>
+              <span>{s.signOut}</span>
             </button>
           </div>
         </div>
@@ -750,9 +869,9 @@ export function SettingsScreen({
 
       <ConfirmDialog
         open={confirmLogoutOpen}
-        title="Đăng xuất tài khoản?"
-        description="Khóa phiên RAM và bộ nhớ đệm mã hóa cục bộ sẽ bị xóa. Bạn sẽ cần nhập lại email và Master Password để đăng nhập."
-        confirmLabel="Đăng xuất"
+        title={s.signOutTitle}
+        description={s.signOutDesc}
+        confirmLabel={s.signOut}
         onConfirm={() => {
           setConfirmLogoutOpen(false);
           void onLogout(false);

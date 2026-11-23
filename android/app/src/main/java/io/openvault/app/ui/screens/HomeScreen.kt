@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -55,6 +57,7 @@ import io.openvault.app.ui.components.CategoryIconBadge
 import io.openvault.app.ui.components.ItemIconTile
 import io.openvault.app.ui.components.OnePassCard
 import io.openvault.app.ui.components.OnePassItemRow
+import io.openvault.app.ui.components.OnePassSearchModeView
 import io.openvault.app.ui.components.OnePassTopSearchBar
 import io.openvault.app.ui.components.TotpInlineCountdown
 import io.openvault.app.ui.theme.LocalFoldableLayout
@@ -90,6 +93,7 @@ fun HomeScreen(
     val c = LocalOpenVaultColors.current
     val s = LocalStrings.current
     val fold = LocalFoldableLayout.current
+    var searchActive by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
     var favoritesExpanded by remember { mutableStateOf(true) }
     var recentExpanded by remember { mutableStateOf(true) }
@@ -133,6 +137,33 @@ fun HomeScreen(
 
     val bottomInset = if (fold.isTwoPane) 28.dp else 156.dp
 
+    if (searchActive) {
+        OnePassSearchModeView(
+            email = email,
+            query = query,
+            onQueryChange = { query = it },
+            placeholder = s.searchInVault,
+            results = searchResults,
+            selectedItemId = selectedItemId,
+            onSelectItem = {
+                searchActive = false
+                query = ""
+                onSelectItem(it)
+            },
+            onCloseSearch = {
+                searchActive = false
+                query = ""
+            },
+            onOpenSettings = onOpenSettings,
+            onOpenGenerator = onOpenGenerator,
+            onOpenQrScanner = onOpenQrScanner,
+            onSync = onSync,
+            onLock = onLock,
+            isSyncing = isSyncing,
+        )
+        return
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -141,10 +172,11 @@ fun HomeScreen(
     ) {
         OnePassTopSearchBar(
             email = email,
-            query = query,
-            onQueryChange = { query = it },
+            query = "",
+            onQueryChange = { },
             placeholder = if (fold.isNarrowCover) s.searchShort else s.searchInVault,
             isSyncing = isSyncing,
+            onSearchActivated = { searchActive = true },
             onSync = onSync,
             onOpenGenerator = onOpenGenerator,
             onOpenQrScanner = onOpenQrScanner,
@@ -165,8 +197,14 @@ fun HomeScreen(
             },
         )
 
-        LazyColumn(
+        Box(
             modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.TopCenter,
+        ) {
+        LazyColumn(
+            modifier = Modifier
+                .widthIn(max = 680.dp)
+                .fillMaxSize(),
             contentPadding = PaddingValues(
                 start = fold.horizontalPadding,
                 end = fold.horizontalPadding,
@@ -543,6 +581,7 @@ fun HomeScreen(
                     }
                 }
             }
+        }
         }
     }
 }

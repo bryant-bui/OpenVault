@@ -44,4 +44,6 @@ export const DEFAULT_SETTINGS = {
   defaultBrowserPasswordManager: false,
   promptSaveCredentials: true,
   showFavicons: true,
-} as const;
+  language: "en" as "en" | "vi",
+  accountAvatarBase64: null as string | null,
+};

@@ -244,24 +244,32 @@ async function withValidAccessToken<T>(
 
 async function syncEncryptedVaultFromServer(force = false): Promise<StoredVaultCache> {
   const account = await getAccount();
-  if (!account) throw new Error("Chưa đăng nhập tài khoản.");
+  if (!account) throw new Error("Not signed in.");
 
   const cached = await getVaultCache();
-  if (!force && cached) {
+  let remoteRevision = 0;
+  if (cached) {
     try {
-      const remoteRevision = await withValidAccessToken((url, token) =>
+      remoteRevision = await withValidAccessToken((url, token) =>
         apiGetRevisionDate(url, token),
       );
-      if (remoteRevision <= account.lastRevisionMs) {
+      if (!force && remoteRevision <= account.lastRevisionMs) {
         return cached;
       }
     } catch {
-      // Offline fallback: return cached encrypted vault
-      return cached;
+      if (!force) {
+        // Offline fallback: return cached encrypted vault
+        return cached;
+      }
     }
   }
 
   const syncData = await withValidAccessToken((url, token) => apiSync(url, token));
+  if (remoteRevision === 0) {
+    remoteRevision = await withValidAccessToken((url, token) =>
+      apiGetRevisionDate(url, token),
+    ).catch(() => Date.now());
+  }
   const nowIso = new Date().toISOString();
   const nextCache: StoredVaultCache = {
     folders: syncData.folders,
@@ -274,9 +282,11 @@ async function syncEncryptedVaultFromServer(force = false): Promise<StoredVaultC
     name: syncData.profile.name,
     protectedKey: syncData.profile.key,
     encryptedPrivateKey: syncData.profile.privateKey,
-    lastRevisionMs: Date.now(),
+    lastRevisionMs: remoteRevision,
     lastSyncAt: nowIso,
   });
+  // Notify any open popup or sidepanel so remote edits appear immediately
+  chrome.runtime.sendMessage({ type: "OV_VAULT_UPDATED" }).catch(() => undefined);
   return nextCache;
 }
 
@@ -722,7 +732,7 @@ async function handleMessage(
       await clearAllPinData();
       await syncEncryptedVaultFromServer(true);
       await scheduleAutoLock();
-      await chrome.alarms.create(ALARMS.SYNC_POLL, { periodInMinutes: 5 });
+      await chrome.alarms.create(ALARMS.SYNC_POLL, { periodInMinutes: 0.5 });
       await refreshActiveTabBadge();
 
       return { ok: true, data: { email, serverUrl } };
@@ -767,7 +777,7 @@ async function handleMessage(
       await clearAllPinData();
       await syncEncryptedVaultFromServer(true);
       await scheduleAutoLock();
-      await chrome.alarms.create(ALARMS.SYNC_POLL, { periodInMinutes: 5 });
+      await chrome.alarms.create(ALARMS.SYNC_POLL, { periodInMinutes: 0.5 });
       await refreshActiveTabBadge();
 
       return { ok: true, data: { email, serverUrl } };
@@ -1655,7 +1665,7 @@ chrome.runtime.onInstalled.addListener(() => {
   void (async () => {
     await ensureSessionAccessPolicy();
     await setupContextMenus();
-    await chrome.alarms.create(ALARMS.SYNC_POLL, { periodInMinutes: 5 });
+    await chrome.alarms.create(ALARMS.SYNC_POLL, { periodInMinutes: 0.5 });
     const settings = await getSettings();
     if (settings.defaultBrowserPasswordManager) {
       await applyBrowserPasswordManagerPreference(true);
@@ -1667,6 +1677,7 @@ chrome.runtime.onStartup.addListener(() => {
   void (async () => {
     await ensureSessionAccessPolicy();
     await setupContextMenus();
+    await chrome.alarms.create(ALARMS.SYNC_POLL, { periodInMinutes: 0.5 });
     const settings = await getSettings();
     if (settings.defaultBrowserPasswordManager) {
       await applyBrowserPasswordManagerPreference(true);

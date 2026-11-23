@@ -1,5 +1,6 @@
 package io.openvault.app.ui.components
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
@@ -27,10 +28,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
@@ -60,6 +63,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -68,6 +72,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -226,6 +232,7 @@ fun OnePassTopSearchBar(
     onQueryChange: (String) -> Unit,
     placeholder: String,
     isSyncing: Boolean = false,
+    onSearchActivated: (() -> Unit)? = null,
     onSync: (() -> Unit)? = null,
     onOpenGenerator: (() -> Unit)? = null,
     onOpenQrScanner: (() -> Unit)? = null,
@@ -259,12 +266,40 @@ fun OnePassTopSearchBar(
             leadingAction()
         }
 
-        OnePassSearchBar(
-            query = query,
-            onQueryChange = onQueryChange,
-            placeholder = placeholder,
-            modifier = Modifier.weight(1f),
-        )
+        if (onSearchActivated != null) {
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(46.dp)
+                    .clip(CircleShape)
+                    .background(c.searchBackground)
+                    .clickable(onClick = onSearchActivated)
+                    .padding(horizontal = 15.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Search,
+                    contentDescription = null,
+                    tint = c.textPrimary.copy(alpha = 0.85f),
+                    modifier = Modifier.size(20.dp),
+                )
+                Text(
+                    text = placeholder,
+                    color = c.textSecondary,
+                    fontSize = 15.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        } else {
+            OnePassSearchBar(
+                query = query,
+                onQueryChange = onQueryChange,
+                placeholder = placeholder,
+                modifier = Modifier.weight(1f),
+            )
+        }
 
         if (trailingAction != null) {
             trailingAction()
@@ -538,18 +573,233 @@ fun OnePassBottomBar(
 }
 
 /**
- * Unfolded Samsung Galaxy Z Fold 3 / Tablet Left Navigation Rail.
+ * Dedicated 1Password 8 Android Search Mode View (Image 17):
+ * - Top bar with ← Back + live input + blue underline + clear button
+ * - Centered dark magnifying-glass "Search" empty state when query is blank
+ * - Instant live results card as the user types
+ */
+@Composable
+fun OnePassSearchModeView(
+    email: String,
+    query: String,
+    onQueryChange: (String) -> Unit,
+    placeholder: String,
+    results: List<VaultItem>,
+    selectedItemId: String? = null,
+    onSelectItem: (VaultItem) -> Unit,
+    onCloseSearch: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onOpenGenerator: () -> Unit,
+    onOpenQrScanner: () -> Unit,
+    onSync: () -> Unit,
+    onLock: () -> Unit,
+    isSyncing: Boolean = false,
+) {
+    val c = LocalOpenVaultColors.current
+    val s = LocalStrings.current
+    val fold = LocalFoldableLayout.current
+    val focusRequester = remember { FocusRequester() }
+
+    BackHandler(onBack = onCloseSearch)
+
+    LaunchedEffect(Unit) {
+        runCatching { focusRequester.requestFocus() }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(c.background)
+            .statusBarsPadding(),
+    ) {
+        // Elevated Search Header with signature blue bottom underline (Image 17)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(if (c.isDark) Color(0xFF141517) else c.surface),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                IconButton(onClick = onCloseSearch) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                        contentDescription = s.back,
+                        tint = c.textPrimary,
+                    )
+                }
+
+                Box(modifier = Modifier.weight(1f)) {
+                    if (query.isEmpty()) {
+                        Text(
+                            text = placeholder,
+                            color = c.textSecondary,
+                            fontSize = 16.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    BasicTextField(
+                        value = query,
+                        onValueChange = onQueryChange,
+                        singleLine = true,
+                        textStyle = TextStyle(
+                            color = c.textPrimary,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Normal,
+                        ),
+                        cursorBrush = SolidColor(c.accent),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(focusRequester),
+                    )
+                }
+
+                if (query.isNotEmpty()) {
+                    IconButton(onClick = { onQueryChange("") }, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.Rounded.Close, contentDescription = s.close, tint = c.textSecondary, modifier = Modifier.size(20.dp))
+                    }
+                } else {
+                    OnePassAccountAvatar(
+                        email = email,
+                        size = 34.dp,
+                        onClick = onOpenSettings,
+                        modifier = Modifier.padding(end = 6.dp),
+                    )
+                }
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.5.dp)
+                    .background(c.accentButtonBg.copy(alpha = 0.85f)),
+            )
+        }
+
+        if (query.isBlank()) {
+            // Centered Magnifying-Glass Empty Search State (exact Image 17!)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 32.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Canvas(modifier = Modifier.size(86.dp)) {
+                        val ringRadius = size.minDimension * 0.30f
+                        val ringCenter = Offset(size.width * 0.42f, size.height * 0.40f)
+                        // Glass lens fill
+                        drawCircle(
+                            color = if (c.isDark) Color(0xFF23252A) else Color(0xFFE5E7EB),
+                            radius = ringRadius,
+                            center = ringCenter,
+                        )
+                        // Outer lens ring
+                        drawCircle(
+                            color = if (c.isDark) Color(0xFF4B505A) else Color(0xFF9CA3AF),
+                            radius = ringRadius,
+                            center = ringCenter,
+                            style = Stroke(width = 6.dp.toPx()),
+                        )
+                        // Subtle inner specular arc
+                        drawArc(
+                            color = if (c.isDark) Color(0xFF343840) else Color(0xFFF3F4F6),
+                            startAngle = 205f,
+                            sweepAngle = 70f,
+                            useCenter = false,
+                            topLeft = Offset(ringCenter.x - ringRadius * 0.65f, ringCenter.y - ringRadius * 0.65f),
+                            size = Size(ringRadius * 1.3f, ringRadius * 1.3f),
+                            style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round),
+                        )
+                        // Handle
+                        drawLine(
+                            color = if (c.isDark) Color(0xFF4B505A) else Color(0xFF9CA3AF),
+                            start = Offset(ringCenter.x + ringRadius * 0.72f, ringCenter.y + ringRadius * 0.72f),
+                            end = Offset(size.width * 0.84f, size.height * 0.84f),
+                            strokeWidth = 9.dp.toPx(),
+                            cap = StrokeCap.Round,
+                        )
+                    }
+                    Text(
+                        text = if (s.isVi) "Tìm kiếm" else "Search",
+                        color = c.textPrimary.copy(alpha = 0.88f),
+                        fontSize = 23.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = if (s.isVi) "Tìm theo tên tài khoản, email, trang web hoặc thư mục." else "Search for an item, category, or folder.",
+                        color = c.textSecondary,
+                        fontSize = 14.5.sp,
+                        lineHeight = 20.sp,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    )
+                }
+            }
+        } else {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.TopCenter,
+            ) {
+                LazyColumn(
+                    modifier = Modifier
+                        .widthIn(max = 680.dp)
+                        .fillMaxSize(),
+                    contentPadding = PaddingValues(
+                        start = fold.horizontalPadding,
+                        end = fold.horizontalPadding,
+                        top = 12.dp,
+                        bottom = 48.dp,
+                    ),
+                ) {
+                    item {
+                        if (results.isEmpty()) {
+                            OnePassCard(modifier = Modifier.fillMaxWidth()) {
+                                Text(
+                                    text = "${s.noMatchingItems} \"$query\"",
+                                    color = c.textSecondary,
+                                    fontSize = 14.5.sp,
+                                )
+                            }
+                        } else {
+                            OnePassCard(
+                                modifier = Modifier.fillMaxWidth(),
+                                padding = PaddingValues(vertical = 6.dp),
+                            ) {
+                                Column {
+                                    results.forEach { item ->
+                                        OnePassItemRow(
+                                            item = item,
+                                            showFavoriteBadge = true,
+                                            selected = fold.isTwoPane && item.id == selectedItemId,
+                                            onClick = { onSelectItem(item) },
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Refined Slim Navigation Rail for Unfolded Galaxy Z Fold 3 / Tablets (Requirement #18 — Image 29 polish):
+ * Clean minimal vertical rail with top OpenVault crest, centered 3 pill destinations, and sleek bottom Cobalt '+'.
  */
 @Composable
 fun OnePassNavigationRail(
     selectedTab: MainTab,
-    isSyncing: Boolean,
     onSelect: (MainTab) -> Unit,
     onNewItem: () -> Unit,
-    onSync: () -> Unit,
-    onOpenGenerator: () -> Unit,
-    onOpenSettings: () -> Unit,
-    onLock: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val c = LocalOpenVaultColors.current
@@ -557,109 +807,80 @@ fun OnePassNavigationRail(
     Row(modifier = modifier.fillMaxHeight()) {
         Column(
             modifier = Modifier
-                .width(78.dp)
+                .width(72.dp)
                 .fillMaxHeight()
-                .background(c.navBarBg)
+                .background(if (c.isDark) Color(0xFF0E0F12) else c.navBarBg)
                 .statusBarsPadding()
                 .navigationBarsPadding()
-                .padding(vertical = 14.dp, horizontal = 6.dp),
+                .padding(vertical = 16.dp, horizontal = 6.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
+            OpenVaultBrandCrest(size = 34.dp)
+
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(18.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                Surface(
-                    onClick = onNewItem,
-                    modifier = Modifier.size(48.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    color = c.accentButtonBg,
-                    contentColor = c.accentButtonFg,
-                    shadowElevation = 4.dp,
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Rounded.Add, contentDescription = s.newItem, modifier = Modifier.size(24.dp))
-                    }
-                }
+                MainTab.entries.forEach { tab ->
+                    val active = tab == selectedTab
+                    val tint by animateColorAsState(
+                        targetValue = if (active) c.navActiveContent else c.navInactiveContent,
+                        animationSpec = tween(150),
+                        label = "rail_tint",
+                    )
+                    val pillBg by animateColorAsState(
+                        targetValue = if (active) c.navActivePill else Color.Transparent,
+                        animationSpec = tween(150),
+                        label = "rail_pill",
+                    )
 
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    MainTab.entries.forEach { tab ->
-                        val active = tab == selectedTab
-                        val tint by animateColorAsState(
-                            targetValue = if (active) c.navActiveContent else c.navInactiveContent,
-                            animationSpec = tween(150),
-                            label = "rail_tint",
-                        )
-                        val pillBg by animateColorAsState(
-                            targetValue = if (active) c.navActivePill else Color.Transparent,
-                            animationSpec = tween(150),
-                            label = "rail_pill",
-                        )
-
-                        Column(
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .clickable { onSelect(tab) }
+                            .padding(vertical = 4.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Box(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(14.dp))
-                                .clickable { onSelect(tab) }
-                                .padding(vertical = 4.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                                .width(52.dp)
+                                .height(32.dp)
+                                .clip(CircleShape)
+                                .background(pillBg),
+                            contentAlignment = Alignment.Center,
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .width(54.dp)
-                                    .height(32.dp)
-                                    .clip(CircleShape)
-                                    .background(pillBg),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Icon(
-                                    imageVector = tab.icon,
-                                    contentDescription = tab.label(s),
-                                    tint = tint,
-                                    modifier = Modifier.size(21.dp),
-                                )
-                            }
-                            Text(
-                                text = tab.railLabel(s),
-                                color = tint,
-                                fontSize = 11.sp,
-                                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
+                            Icon(
+                                imageVector = tab.icon,
+                                contentDescription = tab.label(s),
+                                tint = tint,
+                                modifier = Modifier.size(21.dp),
                             )
                         }
+                        Text(
+                            text = tab.railLabel(s),
+                            color = tint,
+                            fontSize = 11.sp,
+                            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
                 }
             }
 
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+            Surface(
+                onClick = onNewItem,
+                modifier = Modifier.size(46.dp),
+                shape = RoundedCornerShape(14.dp),
+                color = c.accentButtonBg,
+                contentColor = c.accentButtonFg,
+                shadowElevation = 4.dp,
             ) {
-                IconButton(onClick = onSync, enabled = !isSyncing) {
-                    if (isSyncing) {
-                        CircularProgressIndicator(
-                            color = c.accent,
-                            strokeWidth = 2.dp,
-                            modifier = Modifier.size(18.dp),
-                        )
-                    } else {
-                        Icon(Icons.Rounded.Refresh, contentDescription = s.syncNow, tint = c.navInactiveContent, modifier = Modifier.size(20.dp))
-                    }
-                }
-                IconButton(onClick = onOpenGenerator) {
-                    Icon(Icons.Rounded.Key, contentDescription = s.passwordGenerator, tint = c.navInactiveContent, modifier = Modifier.size(20.dp))
-                }
-                IconButton(onClick = onOpenSettings) {
-                    Icon(Icons.Rounded.Settings, contentDescription = s.settings, tint = c.navInactiveContent, modifier = Modifier.size(20.dp))
-                }
-                IconButton(onClick = onLock) {
-                    Icon(Icons.Rounded.Lock, contentDescription = s.lockVault, tint = c.navInactiveContent, modifier = Modifier.size(20.dp))
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(Icons.Rounded.Add, contentDescription = s.newItem, modifier = Modifier.size(23.dp))
                 }
             }
         }

@@ -1,11 +1,14 @@
 import { Eye, EyeOff, KeyRound, Loader2 } from "lucide-react";
 import { Fragment, useCallback, useEffect, useId, useRef, useState } from "react";
+import { getStrings, type AppLanguage } from "../../shared/i18n.js";
+import { normalizeAvatarDataUrl } from "../../shared/media.js";
 import { sendBg } from "../components/bridge.js";
 import { ConfirmDialog } from "../components/ConfirmDialog.js";
 
 interface UnlockScreenProps {
   email: string;
-  serverUrl: string;
+  accountAvatarBase64?: string | null;
+  language?: AppLanguage;
   pinEnabled: boolean;
   pinAvailableNow: boolean;
   pinRemainingAttempts: number;
@@ -15,15 +18,13 @@ interface UnlockScreenProps {
 }
 
 /**
- * Atmospheric PIN / Master Password Unlock Screen
- * - Single accessible <input> overlaid on 6 visual rounded slots (grouped 3 + 3)
- *   per modern-web-guidance `sms-otp-form` & `accessible-error-announcement`
- * - Automatically unlocks the instant the final PIN digit is entered
- * - Smooth shake feedback + immediate clear & refocus on wrong PIN
+ * Atmospheric 3 + 3 Auto-Unlock PIN / Master Password Screen
+ * with rotating vault keyhole unlock animation (#13) & clean footer without server URL (#17).
  */
 export function UnlockScreen({
   email,
-  serverUrl,
+  accountAvatarBase64,
+  language = "en",
   pinEnabled,
   pinAvailableNow,
   pinRemainingAttempts,
@@ -31,6 +32,7 @@ export function UnlockScreen({
   onUnlocked,
   onLoggedOut,
 }: UnlockScreenProps) {
+  const s = getStrings(language);
   const safeSlotCount = pinLength >= 4 && pinLength <= 8 ? pinLength : 6;
   const useSegmentedBoxes = pinLength >= 4 && pinLength <= 8;
 
@@ -42,6 +44,7 @@ export function UnlockScreen({
   const [pin, setPin] = useState("");
   const [pinFocused, setPinFocused] = useState(false);
   const [shakeKey, setShakeKey] = useState(0);
+  const [unlockingDoors, setUnlockingDoors] = useState(false);
 
   const [masterPassword, setMasterPassword] = useState("");
   const [showMasterPassword, setShowMasterPassword] = useState(false);
@@ -55,6 +58,8 @@ export function UnlockScreen({
   const submittingRef = useRef(false);
   const errorId = useId();
   const pinInputId = useId();
+
+  const avatarDataUrl = normalizeAvatarDataUrl(accountAvatarBase64);
 
   useEffect(() => {
     setPinAvailable(pinAvailableNow);
@@ -71,6 +76,12 @@ export function UnlockScreen({
     }
   }, [usePin]);
 
+  const playKeyholeUnlockAndProceed = useCallback(async () => {
+    setUnlockingDoors(true);
+    await new Promise((r) => window.setTimeout(r, 300));
+    await onUnlocked();
+  }, [onUnlocked]);
+
   const submitPin = useCallback(
     async (candidatePin: string) => {
       if (!candidatePin || submittingRef.current) return;
@@ -80,13 +91,13 @@ export function UnlockScreen({
       try {
         await sendBg({ type: "UNLOCK_WITH_PIN", pin: candidatePin });
         setPin("");
-        await onUnlocked();
+        await playKeyholeUnlockAndProceed();
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Mã PIN không chính xác.";
+        const msg = err instanceof Error ? err.message : s.isVi ? "Mã PIN không chính xác." : "Incorrect PIN.";
         setError(msg);
         setShakeKey((k) => k + 1);
         setPin("");
-        if (msg.includes("hủy mã PIN")) {
+        if (msg.includes("hủy mã PIN") || msg.toLowerCase().includes("wiped")) {
           setPinAvailable(false);
           setPinWiped(true);
           setRemainingAttempts(0);
@@ -102,11 +113,11 @@ export function UnlockScreen({
         submittingRef.current = false;
       }
     },
-    [onUnlocked],
+    [playKeyholeUnlockAndProceed, s.isVi],
   );
 
   const handlePinChange = (raw: string) => {
-    if (loading) return;
+    if (loading || unlockingDoors) return;
     setError(null);
 
     if (useSegmentedBoxes) {
@@ -129,15 +140,20 @@ export function UnlockScreen({
 
   const handleMasterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!masterPassword || loading) return;
+    if (!masterPassword || loading || unlockingDoors) return;
     setError(null);
     setLoading(true);
     try {
       await sendBg({ type: "UNLOCK", masterPassword });
       setMasterPassword("");
-      await onUnlocked();
+      await playKeyholeUnlockAndProceed();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Master Password không chính xác.";
+      const msg =
+        err instanceof Error
+          ? err.message
+          : s.isVi
+            ? "Master Password không chính xác."
+            : "Incorrect Master Password.";
       setError(msg);
       window.requestAnimationFrame(() => {
         masterInputRef.current?.focus();
@@ -153,29 +169,48 @@ export function UnlockScreen({
     await onLoggedOut();
   };
 
-  // Visual group split: 3+3 for 6 digits, 4+4 for 8 digits
   const splitAfterIndex = safeSlotCount === 6 ? 2 : safeSlotCount === 8 ? 3 : -1;
 
   return (
-    <div className="ov-unlock-canvas flex-1 flex flex-col justify-between px-6 pb-5 pt-24">
+    <div
+      className={`ov-unlock-canvas flex-1 flex flex-col justify-between px-6 pb-5 pt-20 ${
+        unlockingDoors ? "ov-unlock-opening" : ""
+      }`}
+    >
       {/* Peeking top OpenVault gradient emblem silhouette */}
       <div className="ov-unlock-emblem" aria-hidden="true" />
 
       <div className="flex-1 flex flex-col items-center justify-center relative z-10 w-full max-w-[360px] mx-auto">
+        {/* Rotating Vault Keyhole Dial (rotates 90° on unlock!) */}
+        <div className="flex items-center justify-center gap-3 mb-3">
+          <div className={`ov-keyhole-dial ${unlockingDoors ? "ov-keyhole-rotated" : ""}`} aria-hidden="true">
+            <div className="ov-keyhole-inner">
+              <div className="ov-keyhole-slot" />
+            </div>
+          </div>
+          {avatarDataUrl ? (
+            <img
+              src={avatarDataUrl}
+              alt=""
+              className="w-10 h-10 rounded-[12px] object-cover border border-[var(--border)] shadow-sm"
+            />
+          ) : null}
+        </div>
+
         <h1 className="text-[22px] font-bold tracking-tight m-0 text-[var(--text-primary)] text-center">
-          Mở khóa{" "}
+          {s.unlockHeading}{" "}
           <span className="font-extrabold bg-gradient-to-r from-[#2f85ff] to-[#818cf8] bg-clip-text text-transparent">
             OpenVault
           </span>
         </h1>
 
         <p className="text-[13px] font-medium text-[var(--text-secondary)] mt-1.5 mb-5 text-center">
-          {usePin ? "Nhập mã PIN" : "Nhập Master Password"}
+          {usePin ? s.enterPinPrompt : s.enterMasterPrompt}
         </p>
 
         {pinEnabled && !pinAvailable && !pinWiped ? (
           <div className="mb-4 px-3.5 py-2 rounded-[10px] text-[11.5px] bg-[var(--accent-soft)] text-[var(--accent)] text-center leading-snug w-full">
-            Trình duyệt vừa khởi động lại — nhập Master Password 1 lần, sau đó mã PIN sẽ tự kích hoạt lại.
+            {s.pinRestartNotice}
           </div>
         ) : null}
 
@@ -186,14 +221,10 @@ export function UnlockScreen({
             noValidate
           >
             {useSegmentedBoxes ? (
-              <div
-                className="ov-pin-wrapper"
-                onClick={() => pinInputRef.current?.focus()}
-              >
+              <div className="ov-pin-wrapper" onClick={() => pinInputRef.current?.focus()}>
                 <label htmlFor={pinInputId} className="sr-only">
-                  Nhập mã PIN gồm {safeSlotCount} ký tự để mở khóa OpenVault
+                  {s.enterPinPrompt}
                 </label>
-                {/* Single native input for perfect paste, Backspace, and screen reader support */}
                 <input
                   ref={pinInputRef}
                   id={pinInputId}
@@ -202,7 +233,7 @@ export function UnlockScreen({
                   autoComplete="off"
                   maxLength={safeSlotCount}
                   value={pin}
-                  disabled={loading}
+                  disabled={loading || unlockingDoors}
                   autoFocus
                   aria-invalid={error ? "true" : "false"}
                   aria-describedby={error ? errorId : undefined}
@@ -227,7 +258,7 @@ export function UnlockScreen({
                           data-active={isActive ? "true" : "false"}
                           data-filled={isFilled ? "true" : "false"}
                           data-error={error ? "true" : "false"}
-                          data-loading={loading ? "true" : "false"}
+                          data-loading={loading || unlockingDoors ? "true" : "false"}
                         >
                           {isFilled ? (
                             <span className="ov-pin-dot" />
@@ -249,9 +280,9 @@ export function UnlockScreen({
                   type="password"
                   inputMode="numeric"
                   autoComplete="off"
-                  placeholder="Nhập mã PIN"
+                  placeholder={s.enterPinPrompt}
                   value={pin}
-                  disabled={loading}
+                  disabled={loading || unlockingDoors}
                   autoFocus
                   aria-invalid={error ? "true" : "false"}
                   aria-describedby={error ? errorId : undefined}
@@ -260,20 +291,19 @@ export function UnlockScreen({
                 />
                 <button
                   type="submit"
-                  disabled={loading || pin.length < 4}
+                  disabled={loading || unlockingDoors || pin.length < 4}
                   className="ov-btn-primary w-full py-2.5"
                 >
-                  {loading ? "Đang giải mã..." : "Mở khóa"}
+                  {loading || unlockingDoors ? s.unlocking : s.unlockHeading}
                 </button>
               </div>
             )}
 
-            {/* Status / Error live feedback */}
             <div className="min-h-[20px] flex items-center justify-center text-center" aria-live="polite">
-              {loading ? (
+              {loading || unlockingDoors ? (
                 <span className="inline-flex items-center gap-1.5 text-[12px] font-medium text-[var(--accent)]">
                   <Loader2 size={13} className="animate-spin" />
-                  <span>Đang mở khóa OpenVault...</span>
+                  <span>{s.unlocking}</span>
                 </span>
               ) : error ? (
                 <span id={errorId} className="text-[12px] font-medium text-[var(--danger)]">
@@ -282,7 +312,6 @@ export function UnlockScreen({
               ) : null}
             </div>
 
-            {/* Minimal centered actions just like the Proton Pass screen */}
             <div className="flex items-center gap-4 mt-1 text-[12.5px] font-semibold">
               <button
                 type="button"
@@ -293,7 +322,7 @@ export function UnlockScreen({
                 }}
                 className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] bg-transparent border-0 cursor-pointer p-0 transition-colors"
               >
-                Dùng Master Password
+                {s.useMasterPassword}
               </button>
               <span className="text-[var(--border-strong)]" aria-hidden="true">
                 ·
@@ -303,7 +332,7 @@ export function UnlockScreen({
                 onClick={() => setConfirmLogout(true)}
                 className="text-[var(--text-secondary)] hover:text-[var(--danger)] bg-transparent border-0 cursor-pointer p-0 transition-colors"
               >
-                Đăng xuất
+                {s.signOut}
               </button>
             </div>
           </form>
@@ -314,7 +343,7 @@ export function UnlockScreen({
                 ref={masterInputRef}
                 type={showMasterPassword ? "text" : "password"}
                 className="ov-input pr-10 py-2.5 text-[13.5px]"
-                placeholder="Nhập Master Password"
+                placeholder={s.enterMasterPrompt}
                 value={masterPassword}
                 onChange={(e) => {
                   setMasterPassword(e.target.value);
@@ -329,7 +358,7 @@ export function UnlockScreen({
                 type="button"
                 onClick={() => setShowMasterPassword((v) => !v)}
                 className="ov-icon-btn w-8 h-8 absolute right-1.5 top-1/2 -translate-y-1/2"
-                aria-label={showMasterPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+                aria-label={showMasterPassword ? s.hidePassword : s.showPassword}
               >
                 {showMasterPassword ? <EyeOff size={15} /> : <Eye size={15} />}
               </button>
@@ -348,11 +377,11 @@ export function UnlockScreen({
 
             <button
               type="submit"
-              disabled={loading || !masterPassword}
+              disabled={loading || unlockingDoors || !masterPassword}
               className="ov-btn-primary w-full py-2.5 flex items-center justify-center gap-2"
             >
-              {loading ? <Loader2 size={15} className="animate-spin" /> : <KeyRound size={15} />}
-              <span>{loading ? "Đang giải mã khóa..." : "Mở khóa OpenVault"}</span>
+              {loading || unlockingDoors ? <Loader2 size={15} className="animate-spin" /> : <KeyRound size={15} />}
+              <span>{loading || unlockingDoors ? s.unlocking : `${s.unlockHeading} OpenVault`}</span>
             </button>
 
             <div className="flex items-center justify-center gap-4 mt-1 text-[12.5px] font-semibold">
@@ -367,7 +396,7 @@ export function UnlockScreen({
                     }}
                     className="text-[var(--accent)] hover:underline bg-transparent border-0 cursor-pointer p-0"
                   >
-                    Mở bằng mã PIN ({remainingAttempts})
+                    {s.usePin(remainingAttempts)}
                   </button>
                   <span className="text-[var(--border-strong)]" aria-hidden="true">
                     ·
@@ -379,23 +408,23 @@ export function UnlockScreen({
                 onClick={() => setConfirmLogout(true)}
                 className="text-[var(--text-secondary)] hover:text-[var(--danger)] bg-transparent border-0 cursor-pointer p-0 transition-colors"
               >
-                Đăng xuất
+                {s.signOut}
               </button>
             </div>
           </form>
         )}
       </div>
 
-      {/* Subtle centered account footer */}
+      {/* Clean email-only footer without server URL clutter (#17) */}
       <div className="relative z-10 text-center text-[11px] text-[var(--text-muted)] truncate">
-        {email} · {serverUrl.replace(/^https?:\/\//, "")}
+        {email}
       </div>
 
       <ConfirmDialog
         open={confirmLogout}
-        title="Đăng xuất khỏi OpenVault?"
-        description="Bộ nhớ đệm mã hóa cục bộ trên trình duyệt này sẽ bị xóa sạch. Dữ liệu trên Cloudflare D1 vẫn an toàn."
-        confirmLabel="Đăng xuất"
+        title={s.signOutTitle}
+        description={s.signOutDesc}
+        confirmLabel={s.signOut}
         onConfirm={() => {
           void handleConfirmLogout();
         }}

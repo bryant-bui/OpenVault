@@ -9,35 +9,33 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Key
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -48,12 +46,15 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.openvault.app.core.crypto.CipherType
 import io.openvault.app.core.crypto.VaultItem
 import io.openvault.app.core.security.AppThemeMode
@@ -63,7 +64,6 @@ import io.openvault.app.ui.components.OnePassBottomBar
 import io.openvault.app.ui.components.OnePassCard
 import io.openvault.app.ui.components.OnePassExtendedFab
 import io.openvault.app.ui.components.OnePassNavigationRail
-import io.openvault.app.ui.components.OpenVaultBrandCrest
 import io.openvault.app.ui.screens.AuthScreen
 import io.openvault.app.ui.screens.CustomizeHomeScreen
 import io.openvault.app.ui.screens.GeneratorScreen
@@ -72,6 +72,7 @@ import io.openvault.app.ui.screens.ItemDetailScreen
 import io.openvault.app.ui.screens.ItemEditorScreen
 import io.openvault.app.ui.screens.ItemsScreen
 import io.openvault.app.ui.screens.NewItemSheet
+import io.openvault.app.ui.screens.OnboardingScreen
 import io.openvault.app.ui.screens.ProfileScreen
 import io.openvault.app.ui.screens.QrScannerScreen
 import io.openvault.app.ui.screens.SettingsScreen
@@ -84,6 +85,7 @@ import io.openvault.app.ui.theme.LocalStrings
 import io.openvault.app.ui.theme.OpenVaultTheme
 import io.openvault.app.ui.theme.ProvideFoldableLayout
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class MainActivity : FragmentActivity() {
@@ -155,6 +157,7 @@ private sealed interface OverlayRoute {
     data object Settings : OverlayRoute
     data object Generator : OverlayRoute
     data object TotpHub : OverlayRoute
+    data object WelcomeTour : OverlayRoute
     data class Detail(val itemId: String) : OverlayRoute
     data class Editor(val initialItem: VaultItem?, val initialType: CipherType = CipherType.LOGIN) : OverlayRoute
     data class QrScanner(val returnToEditor: Boolean) : OverlayRoute
@@ -166,6 +169,7 @@ private fun OpenVaultRootApp(
     activity: FragmentActivity,
 ) {
     val scope = rememberCoroutineScope()
+    val lifecycleOwner = LocalLifecycleOwner.current
     val fold = LocalFoldableLayout.current
     val c = LocalOpenVaultColors.current
     val s = LocalStrings.current
@@ -191,6 +195,19 @@ private fun OpenVaultRootApp(
     var isSavingItem by remember { mutableStateOf(false) }
     var toastMessage by remember { mutableStateOf<String?>(null) }
 
+    // First-launch 5-slide onboarding state when logged out
+    var showingOnboarding by remember { mutableStateOf(!container.preferences.hasSeenOnboarding()) }
+    var authInitialRegister by remember { mutableStateOf(false) }
+
+    // Vault-Door overlay remains mounted across LOCKED -> UNLOCKED so the 90° rotating
+    // keyhole & sliding top/bottom doors physically part to reveal the live vault underneath!
+    var showVaultDoorOverlay by remember { mutableStateOf(lockState == VaultLockState.LOCKED) }
+    if (lockState == VaultLockState.LOCKED && !showVaultDoorOverlay) {
+        showVaultDoorOverlay = true
+    } else if (lockState == VaultLockState.LOGGED_OUT && showVaultDoorOverlay) {
+        showVaultDoorOverlay = false
+    }
+
     LaunchedEffect(toastMessage) {
         if (toastMessage != null) {
             delay(2500L)
@@ -198,12 +215,32 @@ private fun OpenVaultRootApp(
         }
     }
 
+    // Smart real-time foreground auto-sync (#16):
+    // Checks lightweight GET /api/accounts/revision-date (1 D1 PK read) every 25s while unlocked
+    // and only pulls full /api/sync if another device changed the vault!
     LaunchedEffect(lockState) {
         if (lockState == VaultLockState.UNLOCKED) {
             runCatching { container.repository.syncNow(force = false) }
+            while (isActive) {
+                delay(25_000L)
+                runCatching { container.repository.syncNow(force = false) }
+            }
         } else {
             overlay = OverlayRoute.None
         }
+    }
+
+    // Also run lightweight revision check immediately whenever the user returns to OpenVault
+    DisposableEffect(lifecycleOwner, lockState) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME && lockState == VaultLockState.UNLOCKED) {
+                scope.launch {
+                    runCatching { container.repository.syncNow(force = false) }
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     fun showToast(msg: String) {
@@ -242,16 +279,11 @@ private fun OpenVaultRootApp(
         overlay = OverlayRoute.QrScanner(returnToEditor = returnToEditor)
     }
 
-    val hasClosableOverlay = if (fold.isTwoPane) {
-        overlay != OverlayRoute.None && overlay !is OverlayRoute.Detail
-    } else {
-        overlay != OverlayRoute.None
-    }
-
-    BackHandler(enabled = hasClosableOverlay) {
+    // Back handling (#14 fix: Editor for a NEW item returns cleanly to Home / None, NEVER stale Detail!)
+    BackHandler(enabled = overlay != OverlayRoute.None) {
         overlay = when (val current = overlay) {
             is OverlayRoute.QrScanner -> if (current.returnToEditor) OverlayRoute.Editor(editingReturnItem) else OverlayRoute.None
-            is OverlayRoute.Editor -> selectedItemId?.let { OverlayRoute.Detail(it) } ?: OverlayRoute.None
+            is OverlayRoute.Editor -> current.initialItem?.let { OverlayRoute.Detail(it.id) } ?: OverlayRoute.None
             else -> OverlayRoute.None
         }
     }
@@ -266,7 +298,7 @@ private fun OpenVaultRootApp(
                     homeSections = settings.homeSections,
                     usageCounts = usageCounts,
                     isSyncing = isSyncing,
-                    selectedItemId = selectedItemId,
+                    selectedItemId = if (overlay is OverlayRoute.Detail) (overlay as OverlayRoute.Detail).itemId else null,
                     onOpenProfile = { overlay = OverlayRoute.Profile },
                     onOpenCustomizeHome = { overlay = OverlayRoute.CustomizeHome },
                     onOpenSettings = { overlay = OverlayRoute.Settings },
@@ -284,7 +316,7 @@ private fun OpenVaultRootApp(
                     items = items,
                     folders = folders,
                     isSyncing = isSyncing,
-                    selectedItemId = selectedItemId,
+                    selectedItemId = if (overlay is OverlayRoute.Detail) (overlay as OverlayRoute.Detail).itemId else null,
                     onOpenSettings = { overlay = OverlayRoute.Settings },
                     onOpenGenerator = { overlay = OverlayRoute.Generator },
                     onOpenQrScanner = { openQrScanner(returnToEditor = false) },
@@ -308,7 +340,7 @@ private fun OpenVaultRootApp(
                     checkReused = settings.checkReusedPasswords,
                     checkTwoFactor = settings.checkTwoFactor,
                     isSyncing = isSyncing,
-                    selectedItemId = selectedItemId,
+                    selectedItemId = if (overlay is OverlayRoute.Detail) (overlay as OverlayRoute.Detail).itemId else null,
                     onOpenSettings = { overlay = OverlayRoute.Settings },
                     onOpenGenerator = { overlay = OverlayRoute.Generator },
                     onOpenQrScanner = { openQrScanner(returnToEditor = false) },
@@ -386,8 +418,9 @@ private fun OpenVaultRootApp(
                 editingReturnItem = editor.initialItem
                 overlay = OverlayRoute.QrScanner(returnToEditor = true)
             },
+            // #14 fix: canceling a brand-new item returns directly to Home / None, not a previous item!
             onCancel = {
-                overlay = selectedItemId?.let { OverlayRoute.Detail(it) } ?: OverlayRoute.None
+                overlay = editor.initialItem?.let { OverlayRoute.Detail(it.id) } ?: OverlayRoute.None
             },
             isSaving = isSavingItem,
             onSave = { built ->
@@ -410,259 +443,266 @@ private fun OpenVaultRootApp(
     }
 
     @Composable
-    fun RenderProfile() {
-        ProfileScreen(
-            email = account.email,
-            items = items,
-            defaultIdentityId = settings.defaultIdentityId,
-            defaultCardId = settings.defaultCardId,
-            onSelectDefaultIdentity = { container.preferences.setDefaultIdentityId(it) },
-            onSelectDefaultCard = { container.preferences.setDefaultCardId(it) },
-            onUpdateAccountAvatar = { container.preferences.setAccountAvatarBase64(it) },
-            onCreateItemOfType = { cipherType ->
-                editingReturnItem = null
-                overlay = OverlayRoute.Editor(initialItem = null, initialType = cipherType)
-            },
-            onBack = { overlay = OverlayRoute.None },
-            onShowMessage = ::showToast,
-        )
-    }
+    fun RenderOverlayContent(currentOverlay: OverlayRoute) {
+        when (currentOverlay) {
+            OverlayRoute.None -> Unit
 
-    @Composable
-    fun RenderCustomizeHome() {
-        CustomizeHomeScreen(
-            sections = settings.homeSections,
-            onUpdateSections = { container.preferences.setHomeSections(it) },
-            onBack = { overlay = OverlayRoute.None },
-        )
+            OverlayRoute.NewItemPicker -> NewItemSheet(
+                onCreateType = { type ->
+                    editingReturnItem = null
+                    overlay = OverlayRoute.Editor(initialItem = null, initialType = type)
+                },
+                onOpenGenerator = { overlay = OverlayRoute.Generator },
+                onOpenQrScanner = { openQrScanner(returnToEditor = false) },
+                onDismiss = { overlay = OverlayRoute.None },
+            )
+
+            OverlayRoute.Profile -> ProfileScreen(
+                email = account.email,
+                items = items,
+                defaultIdentityId = settings.defaultIdentityId,
+                defaultCardId = settings.defaultCardId,
+                onSelectDefaultIdentity = { container.preferences.setDefaultIdentityId(it) },
+                onSelectDefaultCard = { container.preferences.setDefaultCardId(it) },
+                onUpdateAccountAvatar = { container.preferences.setAccountAvatarBase64(it) },
+                onCreateItemOfType = { cipherType ->
+                    editingReturnItem = null
+                    overlay = OverlayRoute.Editor(initialItem = null, initialType = cipherType)
+                },
+                onBack = { overlay = OverlayRoute.None },
+                onShowMessage = ::showToast,
+            )
+
+            OverlayRoute.CustomizeHome -> CustomizeHomeScreen(
+                sections = settings.homeSections,
+                onUpdateSections = { container.preferences.setHomeSections(it) },
+                onBack = { overlay = OverlayRoute.None },
+            )
+
+            OverlayRoute.Settings -> SettingsScreen(
+                repository = container.repository,
+                activity = activity,
+                showCloseButton = true,
+                onOpenWelcomeTour = { overlay = OverlayRoute.WelcomeTour },
+                onBack = { overlay = OverlayRoute.None },
+                onShowMessage = ::showToast,
+                onLock = {
+                    overlay = OverlayRoute.None
+                    container.sessionManager.lock()
+                },
+            )
+
+            OverlayRoute.Generator -> GeneratorScreen(
+                onBack = { overlay = OverlayRoute.None },
+                onCopy = { pwd -> copyToClipboard(s.password, pwd, true) },
+            )
+
+            OverlayRoute.TotpHub -> TotpScreen(
+                items = items,
+                onBack = { overlay = OverlayRoute.None },
+                onScanQrToAdd = { openQrScanner(returnToEditor = false) },
+                onOpenItem = ::openItem,
+                onCopyCode = { title, code -> copyToClipboard("2FA $title", code, true) },
+            )
+
+            OverlayRoute.WelcomeTour -> OnboardingScreen(
+                previewOnly = true,
+                onClosePreview = { overlay = OverlayRoute.None },
+            )
+
+            is OverlayRoute.Detail -> {
+                val liveItem = items.firstOrNull { it.id == currentOverlay.itemId }
+                if (liveItem == null) {
+                    LaunchedEffect(Unit) { overlay = OverlayRoute.None }
+                } else {
+                    RenderItemDetail(item = liveItem, showBackButton = true)
+                }
+            }
+
+            is OverlayRoute.Editor -> RenderItemEditor(currentOverlay)
+
+            is OverlayRoute.QrScanner -> Unit
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        when (lockState) {
-            VaultLockState.LOGGED_OUT -> {
+        // ── 1. LOGGED OUT FLOW (5-Slide Onboarding -> Auth Screen) ──────────
+        if (lockState == VaultLockState.LOGGED_OUT) {
+            if (showingOnboarding) {
+                OnboardingScreen(
+                    previewOnly = false,
+                    onCreateAccount = {
+                        container.preferences.setOnboardingSeen(true)
+                        authInitialRegister = true
+                        showingOnboarding = false
+                    },
+                    onSignIn = {
+                        container.preferences.setOnboardingSeen(true)
+                        authInitialRegister = false
+                        showingOnboarding = false
+                    },
+                )
+            } else {
                 AuthScreen(
                     repository = container.repository,
-                    onAuthenticated = { showToast(if (s.isVi) "Đăng nhập thành công & đã đồng bộ kho!" else "Signed in & vault synced!") },
+                    initialRegister = authInitialRegister,
+                    onBackToOnboarding = { showingOnboarding = true },
+                    onAuthenticated = {
+                        container.preferences.setOnboardingSeen(true)
+                        showToast(if (s.isVi) "Đăng nhập thành công & đã đồng bộ kho!" else "Signed in & vault synced!")
+                    },
                 )
             }
+        }
 
-            VaultLockState.LOCKED -> {
-                UnlockScreen(
-                    repository = container.repository,
-                    activity = activity,
-                    autoTriggerBiometric = true,
-                    allowLogout = true,
-                    onUnlocked = { },
-                )
-            }
-
-            VaultLockState.UNLOCKED -> {
-                when (val currentOverlay = overlay) {
-                    is OverlayRoute.QrScanner -> {
-                        QrScannerScreen(
-                            onResult = { scanned ->
-                                pendingScannedTotp = scanned
-                                overlay = if (currentOverlay.returnToEditor) {
-                                    OverlayRoute.Editor(editingReturnItem)
-                                } else {
-                                    editingReturnItem = null
-                                    OverlayRoute.Editor(null, CipherType.LOGIN)
-                                }
-                                showToast(if (s.isVi) "Đã quét mã QR 2FA thành công!" else "2FA QR code scanned!")
-                            },
-                            onCancel = {
-                                overlay = if (currentOverlay.returnToEditor) {
-                                    OverlayRoute.Editor(editingReturnItem)
-                                } else {
-                                    OverlayRoute.None
-                                }
-                            },
-                        )
-                    }
-
-                    OverlayRoute.NewItemPicker -> {
-                        NewItemSheet(
-                            onCreateType = { type ->
-                                editingReturnItem = null
-                                overlay = OverlayRoute.Editor(initialItem = null, initialType = type)
-                            },
-                            onOpenGenerator = { overlay = OverlayRoute.Generator },
-                            onOpenQrScanner = { openQrScanner(returnToEditor = false) },
-                            onDismiss = { overlay = OverlayRoute.None },
-                        )
-                    }
-
-                    else -> {
-                        if (fold.isTwoPane) {
-                            // UNFOLDED GALAXY Z FOLD 3 / TABLET: 3-COLUMN ADAPTIVE TWO-PANE UI
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(c.background),
-                            ) {
-                                OnePassNavigationRail(
-                                    selectedTab = selectedTab,
-                                    isSyncing = isSyncing,
-                                    onSelect = { tab -> selectedTabName = tab.name },
-                                    onNewItem = { overlay = OverlayRoute.NewItemPicker },
-                                    onSync = ::triggerSync,
-                                    onOpenGenerator = { overlay = OverlayRoute.Generator },
-                                    onOpenSettings = { overlay = OverlayRoute.Settings },
-                                    onLock = { container.sessionManager.lock() },
-                                )
-
-                                ActiveTabContent(
-                                    modifier = Modifier
-                                        .weight(fold.leftPaneWeight)
-                                        .fillMaxHeight(),
-                                )
-
-                                if (fold.hingeWidthDp > 0.dp) {
-                                    Box(
-                                        modifier = Modifier
-                                            .width(fold.hingeWidthDp)
-                                            .fillMaxHeight()
-                                            .background(c.background),
-                                    )
-                                } else {
-                                    Box(
-                                        modifier = Modifier
-                                            .width(0.9.dp)
-                                            .fillMaxHeight()
-                                            .background(c.divider),
-                                    )
-                                }
-
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f - fold.leftPaneWeight)
-                                        .fillMaxHeight()
-                                        .background(c.sheetBackground),
-                                ) {
-                                    when (currentOverlay) {
-                                        OverlayRoute.Profile -> RenderProfile()
-                                        OverlayRoute.CustomizeHome -> RenderCustomizeHome()
-                                        OverlayRoute.Settings -> SettingsScreen(
-                                            repository = container.repository,
-                                            activity = activity,
-                                            showCloseButton = true,
-                                            onBack = { overlay = OverlayRoute.None },
-                                            onShowMessage = ::showToast,
-                                            onLock = {
-                                                overlay = OverlayRoute.None
-                                                container.sessionManager.lock()
-                                            },
-                                        )
-
-                                        OverlayRoute.Generator -> GeneratorScreen(
-                                            onBack = { overlay = OverlayRoute.None },
-                                            onCopy = { pwd -> copyToClipboard(s.password, pwd, true) },
-                                        )
-
-                                        OverlayRoute.TotpHub -> TotpScreen(
-                                            items = items,
-                                            onBack = { overlay = OverlayRoute.None },
-                                            onScanQrToAdd = { openQrScanner(returnToEditor = false) },
-                                            onOpenItem = ::openItem,
-                                            onCopyCode = { title, code -> copyToClipboard("2FA $title", code, true) },
-                                        )
-
-                                        is OverlayRoute.Editor -> RenderItemEditor(currentOverlay)
-
-                                        else -> {
-                                            val activeId = (currentOverlay as? OverlayRoute.Detail)?.itemId ?: selectedItemId
-                                            val liveItem = items.firstOrNull { it.id == activeId }
-                                                ?: items.firstOrNull { !it.isDeleted }
-                                            if (liveItem != null) {
-                                                if (selectedItemId != liveItem.id) {
-                                                    LaunchedEffect(liveItem.id) { selectedItemId = liveItem.id }
-                                                }
-                                                RenderItemDetail(item = liveItem, showBackButton = false)
-                                            } else {
-                                                TwoPaneEmptyDetailState(
-                                                    totalItems = items.count { !it.isDeleted },
-                                                    onNewItem = { overlay = OverlayRoute.NewItemPicker },
-                                                    onOpenGenerator = { overlay = OverlayRoute.Generator },
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+        // ── 2. UNLOCKED VAULT LAYER (renders underneath vault door during split reveal!) ──
+        if (lockState == VaultLockState.UNLOCKED) {
+            val currentOverlay = overlay
+            if (currentOverlay is OverlayRoute.QrScanner) {
+                QrScannerScreen(
+                    onResult = { scanned ->
+                        pendingScannedTotp = scanned
+                        overlay = if (currentOverlay.returnToEditor) {
+                            OverlayRoute.Editor(editingReturnItem)
                         } else {
-                            // FOLDED Z FOLD 3 COVER SCREEN (320dp) / STANDARD PHONE SINGLE-PANE
-                            when (currentOverlay) {
-                                OverlayRoute.Profile -> RenderProfile()
-                                OverlayRoute.CustomizeHome -> RenderCustomizeHome()
-                                OverlayRoute.Settings -> SettingsScreen(
-                                    repository = container.repository,
-                                    activity = activity,
-                                    showCloseButton = true,
-                                    onBack = { overlay = OverlayRoute.None },
-                                    onShowMessage = ::showToast,
-                                    onLock = {
-                                        overlay = OverlayRoute.None
-                                        container.sessionManager.lock()
-                                    },
-                                )
+                            editingReturnItem = null
+                            OverlayRoute.Editor(null, CipherType.LOGIN)
+                        }
+                        showToast(if (s.isVi) "Đã quét mã QR 2FA thành công!" else "2FA QR code scanned!")
+                    },
+                    onCancel = {
+                        overlay = if (currentOverlay.returnToEditor) {
+                            OverlayRoute.Editor(editingReturnItem)
+                        } else {
+                            OverlayRoute.None
+                        }
+                    },
+                )
+            } else if (fold.isTwoPane) {
+                // ── UNFOLDED GALAXY Z FOLD 3 / TABLET (#18) ─────────────────
+                // Spacious full-canvas Home / Items / Watchtower + sleek 72dp Navigation Rail,
+                // with Detail / Editor / Settings / Profile opening as a floating elevated modal sheet!
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(c.background),
+                ) {
+                    Row(modifier = Modifier.fillMaxSize()) {
+                        OnePassNavigationRail(
+                            selectedTab = selectedTab,
+                            onSelect = { tab ->
+                                selectedTabName = tab.name
+                                if (overlay != OverlayRoute.None) overlay = OverlayRoute.None
+                            },
+                            onNewItem = { overlay = OverlayRoute.NewItemPicker },
+                        )
 
-                                OverlayRoute.Generator -> GeneratorScreen(
-                                    onBack = { overlay = OverlayRoute.None },
-                                    onCopy = { pwd -> copyToClipboard(s.password, pwd, true) },
-                                )
+                        ActiveTabContent(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight(),
+                        )
+                    }
 
-                                OverlayRoute.TotpHub -> TotpScreen(
-                                    items = items,
-                                    onBack = { overlay = OverlayRoute.None },
-                                    onScanQrToAdd = { openQrScanner(returnToEditor = false) },
-                                    onOpenItem = ::openItem,
-                                    onCopyCode = { title, code -> copyToClipboard("2FA $title", code, true) },
-                                )
-
-                                is OverlayRoute.Detail -> {
-                                    val liveItem = items.firstOrNull { it.id == currentOverlay.itemId }
-                                    if (liveItem == null) {
-                                        LaunchedEffect(Unit) { overlay = OverlayRoute.None }
-                                    } else {
-                                        RenderItemDetail(item = liveItem, showBackButton = true)
-                                    }
+                    // Floating Elevated Overlay Sheet above the spacious canvas
+                    var cachedFloatingOverlay by remember { mutableStateOf<OverlayRoute>(OverlayRoute.None) }
+                    if (currentOverlay != OverlayRoute.None && currentOverlay !is OverlayRoute.QrScanner) {
+                        cachedFloatingOverlay = currentOverlay
+                    }
+                    val allowScrimDismiss = currentOverlay !is OverlayRoute.Editor
+                    AnimatedVisibility(
+                        visible = currentOverlay != OverlayRoute.None,
+                        enter = fadeIn() + scaleIn(initialScale = 0.95f),
+                        exit = fadeOut() + scaleOut(targetScale = 0.95f),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Black.copy(alpha = 0.62f))
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                ) {
+                                    if (allowScrimDismiss) overlay = OverlayRoute.None
                                 }
-
-                                is OverlayRoute.Editor -> RenderItemEditor(currentOverlay)
-
-                                else -> {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .background(c.background),
-                                    ) {
-                                        ActiveTabContent(modifier = Modifier.fillMaxSize())
-
-                                        if (selectedTab != MainTab.WATCHTOWER) {
-                                            OnePassExtendedFab(
-                                                text = s.newItem,
-                                                onClick = { overlay = OverlayRoute.NewItemPicker },
-                                                modifier = Modifier
-                                                    .align(Alignment.BottomEnd)
-                                                    .navigationBarsPadding()
-                                                    .padding(end = fold.horizontalPadding, bottom = 84.dp),
-                                            )
-                                        }
-
-                                        OnePassBottomBar(
-                                            selectedTab = selectedTab,
-                                            onSelect = { tab -> selectedTabName = tab.name },
-                                            modifier = Modifier.align(Alignment.BottomCenter),
-                                        )
-                                    }
-                                }
+                                .statusBarsPadding()
+                                .navigationBarsPadding()
+                                .padding(horizontal = 24.dp, vertical = 18.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            val sheetShape = RoundedCornerShape(24.dp)
+                            Surface(
+                                modifier = Modifier
+                                    .widthIn(max = 560.dp)
+                                    .fillMaxWidth(0.90f)
+                                    .fillMaxHeight(0.92f)
+                                    .clip(sheetShape)
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null,
+                                    ) { /* consume clicks inside floating card */ }
+                                    .consumeWindowInsets(WindowInsets.systemBars),
+                                shape = sheetShape,
+                                color = c.sheetBackground,
+                                border = BorderStroke(1.dp, c.cardBorder),
+                                shadowElevation = 28.dp,
+                                tonalElevation = 0.dp,
+                            ) {
+                                RenderOverlayContent(
+                                    if (currentOverlay != OverlayRoute.None) currentOverlay else cachedFloatingOverlay,
+                                )
                             }
                         }
+                    }
+                }
+            } else {
+                // ── FOLDED Z FOLD 3 COVER SCREEN (320dp) / STANDARD PHONE ──
+                if (currentOverlay != OverlayRoute.None) {
+                    RenderOverlayContent(currentOverlay)
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(c.background),
+                    ) {
+                        ActiveTabContent(modifier = Modifier.fillMaxSize())
+
+                        if (selectedTab != MainTab.WATCHTOWER) {
+                            OnePassExtendedFab(
+                                text = s.newItem,
+                                onClick = { overlay = OverlayRoute.NewItemPicker },
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .navigationBarsPadding()
+                                    .padding(end = fold.horizontalPadding, bottom = 84.dp),
+                            )
+                        }
+
+                        OnePassBottomBar(
+                            selectedTab = selectedTab,
+                            onSelect = { tab -> selectedTabName = tab.name },
+                            modifier = Modifier.align(Alignment.BottomCenter),
+                        )
                     }
                 }
             }
         }
 
+        // ── 3. VAULT-DOOR UNLOCK OVERLAY (#13) ──────────────────────────────
+        if (showVaultDoorOverlay && lockState != VaultLockState.LOGGED_OUT) {
+            UnlockScreen(
+                repository = container.repository,
+                activity = activity,
+                autoTriggerBiometric = true,
+                allowLogout = true,
+                animateDoorReveal = true,
+                isUnlockedReveal = lockState == VaultLockState.UNLOCKED,
+                onDoorAnimationFinished = { showVaultDoorOverlay = false },
+                onUnlocked = { },
+            )
+        }
+
+        // ── 4. TOP TOAST BANNER ─────────────────────────────────────────────
         AnimatedVisibility(
             visible = toastMessage != null,
             enter = fadeIn() + slideInVertically { -it },
@@ -684,61 +724,6 @@ private fun OpenVaultRootApp(
                     fontSize = 13.5.sp,
                     fontWeight = FontWeight.Medium,
                 )
-            }
-        }
-    }
-}
-
-@Composable
-private fun TwoPaneEmptyDetailState(
-    totalItems: Int,
-    onNewItem: () -> Unit,
-    onOpenGenerator: () -> Unit,
-) {
-    val c = LocalOpenVaultColors.current
-    val s = LocalStrings.current
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(c.sheetBackground)
-            .padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        OpenVaultBrandCrest(size = 64.dp)
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(
-            text = "OpenVault",
-            color = c.textPrimary,
-            fontSize = 22.sp,
-            fontWeight = FontWeight.Bold,
-        )
-        Spacer(modifier = Modifier.height(6.dp))
-        Text(
-            text = if (totalItems > 0) "${s.twoPaneHintPrefix} ($totalItems)." else s.twoPaneEmptyHint,
-            color = c.textSecondary,
-            fontSize = 14.sp,
-            textAlign = TextAlign.Center,
-        )
-        Spacer(modifier = Modifier.height(22.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(
-                onClick = onNewItem,
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = c.accentButtonBg, contentColor = Color.White),
-            ) {
-                Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(s.newItem, fontWeight = FontWeight.SemiBold)
-            }
-            OutlinedButton(
-                onClick = onOpenGenerator,
-                shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(1.dp, c.cardBorder),
-            ) {
-                Icon(Icons.Rounded.Key, contentDescription = null, tint = c.accent, modifier = Modifier.size(17.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(s.passwordGenerator, color = c.textPrimary)
             }
         }
     }

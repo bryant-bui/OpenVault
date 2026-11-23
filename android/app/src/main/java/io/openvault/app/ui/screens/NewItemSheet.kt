@@ -18,8 +18,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CreditCard
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Key
@@ -99,7 +99,7 @@ fun NewItemSheet(
             .statusBarsPadding()
             .navigationBarsPadding(),
     ) {
-        // Header: ✕  Thêm mục mới
+        // Header: ←  New Item (matching Image 20)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -108,10 +108,10 @@ fun NewItemSheet(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             IconButton(onClick = onDismiss) {
-                Icon(Icons.Rounded.Close, contentDescription = s.close, tint = c.textPrimary)
+                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = s.back, tint = c.textPrimary)
             }
             Text(
-                text = s.addItemsTitle,
+                text = s.newItem,
                 color = c.textPrimary,
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,

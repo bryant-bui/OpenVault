@@ -81,6 +81,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -126,6 +127,7 @@ fun SettingsScreen(
     repository: VaultRepository,
     activity: FragmentActivity?,
     showCloseButton: Boolean = true,
+    onOpenWelcomeTour: (() -> Unit)? = null,
     onBack: () -> Unit,
     onShowMessage: (String) -> Unit,
     onLock: () -> Unit,
@@ -155,6 +157,7 @@ fun SettingsScreen(
     var showThemeDialog by remember { mutableStateOf(false) }
     var showLanguageDialog by remember { mutableStateOf(false) }
     var showLogoutDialog by remember { mutableStateOf(false) }
+    var aboutInfoDialog by remember { mutableStateOf<Pair<String, String>?>(null) }
 
     var backupBusy by remember { mutableStateOf(false) }
     var backups by remember { mutableStateOf<List<R2BackupItemDto>>(emptyList()) }
@@ -351,14 +354,9 @@ fun SettingsScreen(
                                         fontWeight = FontWeight.Bold,
                                     )
                                     Text(
-                                        text = account.serverUrl.removePrefix("https://"),
+                                        text = if (s.isVi) "Tự động đồng bộ · $syncTimeText" else "Auto-sync active · $syncTimeText",
                                         color = c.textSecondary,
                                         fontSize = 13.sp,
-                                    )
-                                    Text(
-                                        text = syncTimeText,
-                                        color = c.textMuted,
-                                        fontSize = 12.sp,
                                     )
                                 }
                             }
@@ -767,22 +765,115 @@ fun SettingsScreen(
                     }
 
                     SettingsPage.ABOUT -> {
+                        // Rich About Screen matching Image 16!
                         Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = hPad, vertical = 28.dp),
+                            modifier = Modifier.fillMaxWidth(),
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            OpenVaultBrandCrest(size = 64.dp)
-                            Text("OpenVault", color = c.textPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                            Text("v${BuildConfig.VERSION_NAME}", color = c.accent, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                            Text(
-                                text = "Zero-Knowledge Password & Passkey Manager\nBitwarden-compatible AES-256-CBC + HMAC-SHA256 + Argon2id\nHosted on Cloudflare Workers, D1 & R2 · MIT License",
-                                color = c.textSecondary,
-                                fontSize = 13.sp,
-                                lineHeight = 19.sp,
+                            AboutHeroBanner(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(150.dp),
                             )
+
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = hPad, vertical = 26.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    OpenVaultBrandCrest(size = 44.dp)
+                                    Text(
+                                        text = "OpenVault",
+                                        color = c.textPrimary,
+                                        fontSize = 30.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = (-0.6).sp,
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(6.dp))
+
+                                Text(
+                                    text = "OpenVault for Android ${BuildConfig.VERSION_NAME}",
+                                    color = c.textPrimary,
+                                    fontSize = 16.5.sp,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                                Text(
+                                    text = "Build ${BuildConfig.VERSION_CODE}, on PRODUCTION channel",
+                                    color = c.textSecondary,
+                                    fontSize = 14.sp,
+                                )
+
+                                // Outlined Version + Release Notes box (Image 16!)
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 6.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(c.surface)
+                                        .clickable {
+                                            aboutInfoDialog = (if (s.isVi) "Ghi chú phát hành" else "Release Notes") to
+                                                "v${BuildConfig.VERSION_NAME}\n" +
+                                                "• Vault Door 90° rotating keyhole unlock animation\n" +
+                                                "• 5-slide onboarding welcome carousel\n" +
+                                                "• Dedicated Search mode & animated Watchtower gauge\n" +
+                                                "• Floating Detail overlay & refined Navigation Rail on Z Fold 3\n" +
+                                                "• Real-time auto-sync with Cloudflare Workers + D1\n" +
+                                                "• Profile screen, Home Customize, Favicons & Custom Icons\n" +
+                                                "• Passkey deletion & +add more custom fields\n" +
+                                                "• English (default) & Vietnamese language support"
+                                        }
+                                        .padding(horizontal = 18.dp, vertical = 16.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        text = "Version ${BuildConfig.VERSION_NAME}",
+                                        color = c.textPrimary,
+                                        fontSize = 15.5.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                    Text(
+                                        text = if (s.isVi) "Ghi chú phát hành" else "Release Notes",
+                                        color = c.accent,
+                                        fontSize = 15.sp,
+                                        textDecoration = TextDecoration.Underline,
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(6.dp))
+
+                                Text(
+                                    text = "© 2026 OpenVault. MIT Open Source.",
+                                    color = c.textSecondary,
+                                    fontSize = 13.5.sp,
+                                )
+
+                                AboutLinkText(if (s.isVi) "Điều khoản sử dụng (MIT)" else "Terms of Service") {
+                                    aboutInfoDialog = "MIT License" to
+                                        "OpenVault is free, open-source software licensed under the MIT License. You own your vault, your Cloudflare Worker, and your encrypted backups."
+                                }
+                                AboutLinkText(if (s.isVi) "Chính sách bảo mật Zero-Knowledge" else "Privacy Policy") {
+                                    aboutInfoDialog = "Zero-Knowledge Privacy" to
+                                        "Every vault item, password, 2FA secret, Passkey private key, and custom icon is encrypted locally on your device using AES-256-CBC + HMAC-SHA256 (Bitwarden Type 2) before leaving your phone. Your Master Password never leaves your device."
+                                }
+                                AboutLinkText(if (s.isVi) "Ghi công & Thư viện mở" else "Credits & Acknowledgements") {
+                                    aboutInfoDialog = "Credits & Acknowledgements" to
+                                        "Built with Kotlin, Jetpack Compose, Material 3, AndroidX Credentials (FIDO2/Passkeys), Room, CameraX, ZXing, BouncyCastle Argon2id, OkHttp, and Cloudflare Workers + D1 + R2."
+                                }
+                                if (onOpenWelcomeTour != null) {
+                                    AboutLinkText(if (s.isVi) "Xem lại màn hình giới thiệu" else "Replay Welcome Tour") {
+                                        onOpenWelcomeTour()
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -932,6 +1023,20 @@ fun SettingsScreen(
         )
     }
 
+    aboutInfoDialog?.let { (title, body) ->
+        AlertDialog(
+            onDismissRequest = { aboutInfoDialog = null },
+            containerColor = c.surfaceElevated,
+            title = { Text(title, color = c.textPrimary, fontWeight = FontWeight.Bold) },
+            text = { Text(body, color = c.textSecondary, fontSize = 14.sp, lineHeight = 20.sp) },
+            confirmButton = {
+                TextButton(onClick = { aboutInfoDialog = null }) {
+                    Text(s.done, color = c.accent, fontWeight = FontWeight.SemiBold)
+                }
+            },
+        )
+    }
+
     if (showLogoutDialog) {
         AlertDialog(
             onDismissRequest = { showLogoutDialog = false },
@@ -954,6 +1059,120 @@ fun SettingsScreen(
                 }
             },
         )
+    }
+}
+
+@Composable
+private fun AboutLinkText(label: String, onClick: () -> Unit) {
+    val c = LocalOpenVaultColors.current
+    Text(
+        text = label,
+        color = c.accent,
+        fontSize = 14.5.sp,
+        textDecoration = TextDecoration.Underline,
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+    )
+}
+
+/**
+ * Illustrated teal-cyan About banner (original Compose vector art inspired by Image 16):
+ * Giant soft keyhole watermark + floating blue credit card, golden key, pink padlock, and document.
+ */
+@Composable
+private fun AboutHeroBanner(modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier.background(Color(0xFF6BC7D9))) {
+        val w = size.width
+        val h = size.height
+
+        // Soft lighter circle glow + keyhole silhouette backdrop
+        drawCircle(
+            color = Color(0xFF9DE2EC),
+            radius = h * 0.92f,
+            center = Offset(w * 0.50f, h * 0.58f),
+        )
+        drawRoundRect(
+            color = Color(0xFF7CD3E3),
+            topLeft = Offset(w * 0.43f, 0f),
+            size = Size(w * 0.14f, h),
+            cornerRadius = CornerRadius(12f, 12f),
+        )
+
+        // Left: tilted blue credit card
+        rotate(degrees = 14f, pivot = Offset(w * 0.10f, h * 0.78f)) {
+            drawRoundRect(
+                color = Color(0xFF3366CC),
+                topLeft = Offset(w * 0.01f, h * 0.46f),
+                size = Size(w * 0.19f, h * 0.58f),
+                cornerRadius = CornerRadius(14f, 14f),
+            )
+            drawRect(
+                color = Color(0xFF1D4499),
+                topLeft = Offset(w * 0.05f, h * 0.46f),
+                size = Size(w * 0.04f, h * 0.58f),
+            )
+            drawRoundRect(
+                color = Color(0xFF93C5FD),
+                topLeft = Offset(w * 0.12f, h * 0.80f),
+                size = Size(w * 0.05f, h * 0.12f),
+                cornerRadius = CornerRadius(4f, 4f),
+            )
+        }
+
+        // Mid-left: golden key
+        rotate(degrees = -12f, pivot = Offset(w * 0.34f, h * 0.84f)) {
+            drawRoundRect(
+                color = Color(0xFFF5B942),
+                topLeft = Offset(w * 0.22f, h * 0.80f),
+                size = Size(w * 0.16f, h * 0.10f),
+                cornerRadius = CornerRadius(6f, 6f),
+            )
+            drawCircle(
+                color = Color(0xFFFCD34D),
+                radius = h * 0.15f,
+                center = Offset(w * 0.38f, h * 0.84f),
+            )
+            drawCircle(
+                color = Color(0xFFD9941E),
+                radius = h * 0.11f,
+                center = Offset(w * 0.38f, h * 0.84f),
+                style = Stroke(width = 3.dp.toPx()),
+            )
+        }
+
+        // Center-right: pink matte square padlock with keyhole
+        val lockSize = h * 0.42f
+        val lockLeft = w * 0.52f
+        val lockTop = h * 0.58f
+        drawRoundRect(
+            color = Color(0xFFF49AC2),
+            topLeft = Offset(lockLeft, lockTop),
+            size = Size(lockSize, lockSize),
+            cornerRadius = CornerRadius(18f, 18f),
+        )
+        drawCircle(
+            color = Color(0xFF1E293B),
+            radius = lockSize * 0.14f,
+            center = Offset(lockLeft + lockSize / 2f, lockTop + lockSize * 0.42f),
+        )
+        drawRoundRect(
+            color = Color(0xFF1E293B),
+            topLeft = Offset(lockLeft + lockSize * 0.43f, lockTop + lockSize * 0.48f),
+            size = Size(lockSize * 0.14f, lockSize * 0.26f),
+            cornerRadius = CornerRadius(6f, 6f),
+        )
+
+        // Far-right: crisp curved document sheet
+        val doc = Path().apply {
+            moveTo(w * 0.82f, h)
+            quadraticTo(w * 0.90f, h * 0.86f, w * 0.91f, h * 0.50f)
+            lineTo(w * 1.02f, h * 0.50f)
+            lineTo(w * 1.02f, h)
+            close()
+        }
+        drawPath(doc, color = Color(0xFFE5E7EB))
     }
 }
 

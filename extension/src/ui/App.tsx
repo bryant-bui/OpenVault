@@ -36,6 +36,8 @@ import {
   findMatchingLogins,
   scoreUriMatch,
 } from "../shared/domain-match.js";
+import { getStrings, type AppLanguage } from "../shared/i18n.js";
+import { normalizeAvatarDataUrl } from "../shared/media.js";
 import type {
   DecryptedVault,
   ExtensionSettings,
@@ -69,18 +71,6 @@ type FilterKind =
   | "trash";
 type RightPanelMode = "detail" | "editor" | "watchtower" | "settings";
 
-const FILTER_CATEGORIES: Array<{ id: FilterKind; label: string; icon: typeof KeyRound }> = [
-  { id: "all", label: "Tất cả mục", icon: LayoutGrid },
-  { id: "favorites", label: "Yêu thích", icon: Star },
-  { id: "login", label: "Đăng nhập", icon: Shield },
-  { id: "totp", label: "Mã 2FA (TOTP)", icon: ShieldCheck },
-  { id: "passkey", label: "Passkeys", icon: Fingerprint },
-  { id: "card", label: "Thẻ tín dụng", icon: CreditCard },
-  { id: "identity", label: "Danh tính", icon: UserSquare2 },
-  { id: "note", label: "Ghi chú bảo mật", icon: FileText },
-  { id: "trash", label: "Thùng rác", icon: Trash2 },
-];
-
 export function App() {
   const isPopup = document.body.dataset.surface !== "sidepanel";
 
@@ -100,6 +90,25 @@ export function App() {
     pinMaxAttempts: 5,
     pinLength: 6,
   });
+
+  const lang: AppLanguage = status.settings.language ?? "en";
+  const s = useMemo(() => getStrings(lang), [lang]);
+
+  const filterCategories = useMemo(
+    () =>
+      [
+        { id: "all" as const, label: s.allItems, icon: LayoutGrid },
+        { id: "favorites" as const, label: s.favorites, icon: Star },
+        { id: "login" as const, label: s.logins, icon: Shield },
+        { id: "totp" as const, label: s.totpCodes, icon: ShieldCheck },
+        { id: "passkey" as const, label: s.passkeys, icon: Fingerprint },
+        { id: "card" as const, label: s.creditCards, icon: CreditCard },
+        { id: "identity" as const, label: s.identities, icon: UserSquare2 },
+        { id: "note" as const, label: s.secureNotes, icon: FileText },
+        { id: "trash" as const, label: s.trash, icon: Trash2 },
+      ],
+    [s],
+  );
 
   const [ciphers, setCiphers] = useState<CipherPayload[]>([]);
   const [folders, setFolders] = useState<FolderPayload[]>([]);
@@ -170,17 +179,19 @@ export function App() {
   }, []);
 
   const loadVault = useCallback(
-    async (forceSync = false) => {
-      setSyncing(true);
+    async (forceSync = false, silent = false) => {
+      if (!silent) setSyncing(true);
       try {
         const vault = await sendBg<DecryptedVault>({ type: "GET_VAULT", forceSync });
         setCiphers(vault.ciphers);
         setFolders(vault.folders);
         setStatus((prev) => ({ ...prev, lastSyncAt: vault.lastSyncAt }));
       } catch (err) {
-        showToast(err instanceof Error ? err.message : "Không thể đồng bộ Vault", "error");
+        if (!silent) {
+          showToast(err instanceof Error ? err.message : "Could not sync vault", "error");
+        }
       } finally {
-        setSyncing(false);
+        if (!silent) setSyncing(false);
       }
     },
     [showToast],
@@ -200,7 +211,7 @@ export function App() {
         setGeneratorDrawerOpen(false);
       }
     } catch (err) {
-      showToast(err instanceof Error ? err.message : "Lỗi khởi động OpenVault", "error");
+      showToast(err instanceof Error ? err.message : "OpenVault startup error", "error");
     } finally {
       setBooting(false);
     }
@@ -210,6 +221,27 @@ export function App() {
     void refreshActiveTab();
     void loadStatus();
   }, [refreshActiveTab, loadStatus]);
+
+  // Real-time automatic sync while popup or side panel is open (#16)
+  useEffect(() => {
+    if (!status.hasAccount || !status.unlocked) return;
+
+    const onMessage = (msg: { type?: string }) => {
+      if (msg?.type === "OV_VAULT_UPDATED") {
+        void loadVault(false, true);
+      }
+    };
+    chrome.runtime.onMessage.addListener(onMessage);
+
+    const intervalId = window.setInterval(() => {
+      void loadVault(false, true);
+    }, 25_000);
+
+    return () => {
+      chrome.runtime.onMessage.removeListener(onMessage);
+      window.clearInterval(intervalId);
+    };
+  }, [status.hasAccount, status.unlocked, loadVault]);
 
   const matchingLogins = useMemo(
     () => (currentTabUrl ? findMatchingLogins(ciphers, currentTabUrl) : []),
@@ -290,16 +322,16 @@ export function App() {
         void sendBg({ type: "SCHEDULE_CLIPBOARD_CLEAR" }).catch(() => undefined);
         void sendBg({ type: "TOUCH_ACTIVITY" }).catch(() => undefined);
       } catch {
-        showToast("Không thể ghi vào bộ nhớ tạm", "error");
+        showToast(s.isVi ? "Không thể ghi vào bộ nhớ tạm" : "Clipboard access denied", "error");
       }
     },
-    [showToast],
+    [showToast, s.isVi],
   );
 
   const handleAutofill = useCallback(
     async (cipherId: string) => {
       if (currentTabId === null) {
-        showToast("Không tìm thấy tab đang mở", "error");
+        showToast(s.isVi ? "Không tìm thấy tab đang mở" : "No active tab found", "error");
         return;
       }
       try {
@@ -309,16 +341,19 @@ export function App() {
           cipherId,
         });
         if (res.filled) {
-          showToast("Đã tự động điền vào trang web", "success");
+          showToast(s.isVi ? "Đã tự động điền vào trang web" : "Autofilled on current page", "success");
           if (isPopup) window.close();
         } else {
-          showToast("Không tìm thấy ô nhập mật khẩu trên trang này", "error");
+          showToast(
+            s.isVi ? "Không tìm thấy ô nhập mật khẩu trên trang này" : "No fillable login inputs found on this page",
+            "error",
+          );
         }
       } catch (err) {
-        showToast(err instanceof Error ? err.message : "Tự động điền thất bại", "error");
+        showToast(err instanceof Error ? err.message : "Autofill failed", "error");
       }
     },
-    [currentTabId, isPopup, showToast],
+    [currentTabId, isPopup, showToast, s.isVi],
   );
 
   const handleSaveCipher = useCallback(
@@ -328,9 +363,12 @@ export function App() {
       setEditingCipher(null);
       setSelectedCipherId(saved.id ?? null);
       setRightMode("detail");
-      showToast("Đã mã hóa và đồng bộ lên Cloudflare D1", "success");
+      showToast(
+        s.isVi ? "Đã mã hóa và đồng bộ tự động!" : "Encrypted & synced automatically!",
+        "success",
+      );
     },
-    [loadVault, showToast],
+    [loadVault, showToast, s.isVi],
   );
 
   const handleToggleFavorite = useCallback(
@@ -350,18 +388,27 @@ export function App() {
       setSelectedCipherId(null);
       setMobileShowDetail(false);
       await loadVault(false);
-      showToast(permanent ? "Đã xóa vĩnh viễn" : "Đã chuyển vào Thùng rác", "info");
+      showToast(
+        permanent
+          ? s.isVi
+            ? "Đã xóa vĩnh viễn"
+            : "Permanently deleted"
+          : s.isVi
+            ? "Đã chuyển vào Thùng rác"
+            : "Moved to Trash",
+        "info",
+      );
     },
-    [loadVault, showToast],
+    [loadVault, showToast, s.isVi],
   );
 
   const handleRestoreCipher = useCallback(
     async (id: string) => {
       await sendBg({ type: "RESTORE_CIPHER", id });
       await loadVault(false);
-      showToast("Đã khôi phục mục từ Thùng rác", "success");
+      showToast(s.isVi ? "Đã khôi phục mục từ Thùng rác" : "Restored from Trash", "success");
     },
-    [loadVault, showToast],
+    [loadVault, showToast, s.isVi],
   );
 
   const handleLock = useCallback(async () => {
@@ -373,9 +420,9 @@ export function App() {
     async (allDevices: boolean) => {
       await sendBg({ type: "LOGOUT", allDevices });
       await loadStatus();
-      showToast("Đã đăng xuất khỏi OpenVault", "info");
+      showToast(s.isVi ? "Đã đăng xuất khỏi OpenVault" : "Signed out of OpenVault", "info");
     },
-    [loadStatus, showToast],
+    [loadStatus, showToast, s.isVi],
   );
 
   const handleOpenSidePanel = useCallback(async () => {
@@ -383,15 +430,15 @@ export function App() {
       await openSidePanelFromCurrentWindow();
       if (isPopup) window.close();
     } catch {
-      showToast("Không thể mở Side Panel trên cửa sổ này", "error");
+      showToast(s.isVi ? "Không thể mở Side Panel trên cửa sổ này" : "Could not open Side Panel", "error");
     }
-  }, [isPopup, showToast]);
+  }, [isPopup, showToast, s.isVi]);
 
   const handleUpdateSettings = useCallback(
     async (partial: Partial<ExtensionSettings>) => {
       const next = await sendBg<ExtensionSettings>({ type: "UPDATE_SETTINGS", settings: partial });
       setStatus((prev) => ({ ...prev, settings: next }));
-      showToast("Đã lưu cài đặt", "success");
+      showToast(next.language === "vi" ? "Đã lưu cài đặt" : "Settings saved", "success");
     },
     [showToast],
   );
@@ -400,8 +447,8 @@ export function App() {
     await sendBg({ type: "SAVE_PENDING_CREDENTIAL" });
     setStatus((prev) => ({ ...prev, pendingSave: null }));
     await loadVault(false);
-    showToast("Đã lưu tài khoản mới vào OpenVault!", "success");
-  }, [loadVault, showToast]);
+    showToast(s.isVi ? "Đã lưu tài khoản mới vào OpenVault!" : "Saved new login to OpenVault!", "success");
+  }, [loadVault, showToast, s.isVi]);
 
   const handleDismissPendingSave = useCallback(async () => {
     await sendBg({ type: "DISMISS_PENDING_SAVE" });
@@ -411,7 +458,7 @@ export function App() {
   if (booting) {
     return (
       <div className="flex-1 flex items-center justify-center text-[13px] text-[var(--text-secondary)]">
-        Đang khởi động OpenVault...
+        {s.loadingApp}
       </div>
     );
   }
@@ -431,13 +478,14 @@ export function App() {
     );
   }
 
-  // Keep the beloved atmospheric 3 + 3 auto-unlock PIN UnlockScreen untouched!
+  // Keep the beloved atmospheric 3 + 3 auto-unlock PIN UnlockScreen + rotating keyhole animation!
   if (!status.unlocked) {
     return (
       <div className="flex-1 flex flex-col bg-[var(--bg)] overflow-hidden">
         <UnlockScreen
           email={status.email ?? ""}
-          serverUrl={status.serverUrl}
+          accountAvatarBase64={status.settings.accountAvatarBase64}
+          language={lang}
           pinEnabled={status.pinEnabled}
           pinAvailableNow={status.pinAvailableNow}
           pinRemainingAttempts={status.pinRemainingAttempts}
@@ -471,10 +519,10 @@ export function App() {
   );
 
   const currentFilterLabel = selectedFolderId
-    ? folders.find((f) => f.id === selectedFolderId)?.name ?? "Thư mục"
+    ? folders.find((f) => f.id === selectedFolderId)?.name ?? s.folders
     : filterKind === "weak"
-      ? "Mật khẩu yếu / trùng"
-      : FILTER_CATEGORIES.find((c) => c.id === filterKind)?.label ?? "Tất cả mục";
+      ? s.weakOrReused
+      : filterCategories.find((c) => c.id === filterKind)?.label ?? s.allItems;
 
   const favoriteItems =
     !query && filterKind === "all" && selectedFolderId === null
@@ -499,13 +547,13 @@ export function App() {
         : item.type === CipherType.Card
           ? item.card?.number
             ? `•••• ${item.card.number.slice(-4)}`
-            : item.card?.brand || "Thẻ thanh toán"
+            : item.card?.brand || s.creditCards
           : item.type === CipherType.SecureNote
-            ? "Ghi chú bảo mật"
+            ? s.secureNotes
             : item.identity?.email ||
               item.identity?.phone ||
               [item.identity?.firstName, item.identity?.lastName].filter(Boolean).join(" ") ||
-              "Danh tính";
+              s.identities;
 
     return (
       <button
@@ -520,6 +568,7 @@ export function App() {
             name={item.name}
             type={item.type}
             uri={item.login?.uris?.[0]?.uri}
+            fields={item.fields}
             showFavicon={status.settings.showFavicons}
             size="md"
             inverted={isSelected}
@@ -555,13 +604,13 @@ export function App() {
     rightMode === "editor" || rightMode === "watchtower" || rightMode === "settings";
   const showLeftPane = !narrowWidth || (!mobileShowDetail && !isOverlayPanel);
   const showRightPane = !narrowWidth || mobileShowDetail || isOverlayPanel;
-  const accountLabel = status.email?.split("@")[0] || "Tài khoản";
+  const accountLabel = status.email?.split("@")[0] || "Account";
+  const accountAvatarUrl = normalizeAvatarDataUrl(status.settings.accountAvatarBase64);
 
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-[var(--surface)] relative">
-      {/* Exact Image 1 1Password 8 Clean Top Bar (Left Account Picker | Search + Watchtower + Generator + '+ Mục mới') */}
+      {/* Clean 1Password 8 Top Bar */}
       <header className="h-[46px] shrink-0 border-b border-[var(--border)] bg-[var(--surface)] flex items-center">
-        {/* Left Account Selector matching the 228px Master Column */}
         <div
           className={`${
             narrowWidth ? "px-2.5" : "w-[228px] shrink-0 px-3 border-r border-[var(--border)]"
@@ -571,9 +620,17 @@ export function App() {
             type="button"
             popoverTarget={accountPopoverId}
             className="h-8 px-1.5 rounded-[8px] border-0 bg-transparent hover:bg-[var(--surface-subtle)] text-[var(--text-primary)] inline-flex items-center gap-2 cursor-pointer transition-colors max-w-full"
-            title="Tài khoản, Cài đặt & Công cụ"
+            title={s.settingsAndImport}
           >
-            <img src="/icons/icon-32.png" alt="OpenVault" className="w-5 h-5 rounded-full shrink-0" />
+            {accountAvatarUrl ? (
+              <img
+                src={accountAvatarUrl}
+                alt="Account"
+                className="w-5 h-5 rounded-full object-cover shrink-0"
+              />
+            ) : (
+              <img src="/icons/icon-32.png" alt="OpenVault" className="w-5 h-5 rounded-full shrink-0" />
+            )}
             {!narrowWidth ? (
               <span className="text-[12.5px] font-semibold truncate">{accountLabel}</span>
             ) : null}
@@ -591,7 +648,7 @@ export function App() {
                 {status.email}
               </div>
               <div className="text-[10.5px] text-[var(--text-muted)] truncate">
-                {status.serverUrl.replace(/^https?:\/\//, "")}
+                {s.autoSyncActive}
               </div>
             </div>
 
@@ -604,7 +661,7 @@ export function App() {
               }}
             >
               <RefreshCw size={13} className={syncing ? "animate-spin text-[var(--accent)]" : ""} />
-              <span>Đồng bộ Cloudflare D1</span>
+              <span>{s.syncNow}</span>
             </button>
             <button
               type="button"
@@ -615,7 +672,7 @@ export function App() {
               }}
             >
               <Dices size={13} />
-              <span>Trình tạo mật khẩu</span>
+              <span>{s.passwordGenerator}</span>
             </button>
             <button
               type="button"
@@ -626,7 +683,7 @@ export function App() {
               }}
             >
               <ShieldCheck size={13} />
-              <span>Watchtower ({weakOrReusedIds.size} cảnh báo)</span>
+              <span>{s.watchtowerAlerts(weakOrReusedIds.size)}</span>
             </button>
             {isPopup ? (
               <button
@@ -638,7 +695,7 @@ export function App() {
                 }}
               >
                 <PanelRightOpen size={13} />
-                <span>Mở ở Side Panel</span>
+                <span>{s.openSidePanel}</span>
               </button>
             ) : null}
             <button
@@ -650,7 +707,7 @@ export function App() {
               }}
             >
               <Settings size={13} />
-              <span>Cài đặt & Import</span>
+              <span>{s.settingsAndImport}</span>
             </button>
 
             <hr className="my-1 border-0 border-t border-[var(--border)]" />
@@ -663,12 +720,12 @@ export function App() {
               }}
             >
               <Lock size={13} />
-              <span>Khóa OpenVault</span>
+              <span>{s.lockVault}</span>
             </button>
           </div>
         </div>
 
-        {/* Right Top Bar: Clean Search + Watchtower Badge + Generator + "+ Mục mới" */}
+        {/* Right Top Bar */}
         <div className="flex-1 min-w-0 px-3 flex items-center gap-2">
           <div className="relative flex-1 min-w-0">
             <Search
@@ -683,30 +740,29 @@ export function App() {
                 setQuery(e.target.value);
                 if (rightMode !== "detail") setRightMode("detail");
               }}
-              placeholder="Tìm trong OpenVault"
+              placeholder={s.searchPlaceholder}
               className="ov-search-input"
-              aria-label="Tìm trong OpenVault"
+              aria-label={s.searchPlaceholder}
             />
             {query ? (
               <button
                 type="button"
                 onClick={() => setQuery("")}
                 className="ov-icon-btn w-5 h-5 absolute right-1.5 top-1/2 -translate-y-1/2"
-                aria-label="Xóa tìm kiếm"
+                aria-label={s.clearSearch}
               >
                 <X size={12} />
               </button>
             ) : null}
           </div>
 
-          {/* Watchtower button with notification dot (exact Image 1!) */}
           <button
             type="button"
             data-active={rightMode === "watchtower"}
             onClick={() => setRightMode((m) => (m === "watchtower" ? "detail" : "watchtower"))}
             className="ov-icon-btn w-7 h-7 relative shrink-0"
-            title="Watchtower — Điểm bảo mật"
-            aria-label="Watchtower"
+            title={s.watchtowerTitle}
+            aria-label={s.watchtower}
           >
             <ShieldCheck size={16} />
             {weakOrReusedIds.size > 0 ? (
@@ -717,19 +773,17 @@ export function App() {
             ) : null}
           </button>
 
-          {/* Password Generator Slide-over Drawer button (exact Image 2!) */}
           <button
             type="button"
             data-active={generatorDrawerOpen}
             onClick={() => setGeneratorDrawerOpen((v) => !v)}
             className="ov-icon-btn w-7 h-7 shrink-0"
-            title="Trình tạo mật khẩu"
-            aria-label="Trình tạo mật khẩu"
+            title={s.passwordGenerator}
+            aria-label={s.passwordGenerator}
           >
             <Dices size={15} />
           </button>
 
-          {/* Signature 1Password Primary Blue "+ Mục mới" CTA */}
           <button
             type="button"
             onClick={() => {
@@ -739,21 +793,19 @@ export function App() {
             className="ov-btn-primary h-[30px] px-3 inline-flex items-center gap-1 shrink-0"
           >
             <Plus size={14} strokeWidth={2.6} />
-            <span>Mục mới</span>
+            <span>{s.newItem}</span>
           </button>
         </div>
       </header>
 
       {/* Main Split Workspace */}
       <div className="flex-1 flex min-h-0 relative overflow-hidden">
-        {/* Left Master Item List Pane */}
         {showLeftPane ? (
           <div
             className={`${
               narrowWidth ? "flex-1" : "w-[228px] shrink-0 border-r border-[var(--border)]"
             } flex flex-col min-h-0 bg-[var(--surface)]`}
           >
-            {/* Exact Image 1 "All Items ↕" Category/Folder Selector Row (38px aligned with DetailPane header!) */}
             <div className="h-[38px] shrink-0 px-2.5 border-b border-[var(--border)] flex items-center justify-between gap-1">
               <button
                 type="button"
@@ -773,7 +825,7 @@ export function App() {
                 popover="auto"
                 className="ov-popover"
               >
-                {FILTER_CATEGORIES.map((cat) => {
+                {filterCategories.map((cat) => {
                   const Icon = cat.icon;
                   const active = filterKind === cat.id && selectedFolderId === null;
                   return (
@@ -799,7 +851,7 @@ export function App() {
                   <>
                     <hr className="my-1 border-0 border-t border-[var(--border)]" />
                     <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                      Thư mục
+                      {s.folders}
                     </div>
                     {folders.map((folder) => {
                       const active = selectedFolderId === folder.id;
@@ -827,12 +879,11 @@ export function App() {
             </div>
 
             <div className="flex-1 overflow-y-auto ov-scroll p-1.5 flex flex-col gap-1.5">
-              {/* Pending Save Banner */}
               {status.pendingSave ? (
                 <div className="p-2.5 rounded-[9px] border border-[var(--accent-border)] bg-[var(--accent-soft)]">
                   <div className="flex items-center gap-1.5 text-[11.5px] font-bold text-[var(--accent)]">
                     <Sparkles size={13} />
-                    <span>Lưu đăng nhập mới?</span>
+                    <span>{s.pendingSaveTitle}</span>
                   </div>
                   <div className="text-[11px] text-[var(--text-secondary)] truncate mt-0.5 mb-2">
                     {status.pendingSave.username || extractDisplayDomain(status.pendingSave.url)}
@@ -845,7 +896,7 @@ export function App() {
                       }}
                       className="ov-btn-ghost px-2 py-1 text-[11px]"
                     >
-                      Bỏ
+                      {s.dismiss}
                     </button>
                     <button
                       type="button"
@@ -854,17 +905,18 @@ export function App() {
                       }}
                       className="ov-btn-primary px-2.5 py-1 text-[11px]"
                     >
-                      Lưu
+                      {s.save}
                     </button>
                   </div>
                 </div>
               ) : null}
 
-              {/* Suggested for current website */}
               {!query && filterKind === "all" && selectedFolderId === null && matchingLogins.length > 0 ? (
                 <div>
                   <div className="px-2 py-1 text-[11px] font-semibold text-[var(--accent)] flex items-center justify-between">
-                    <span className="truncate">Gợi ý · {extractDisplayDomain(currentTabUrl)}</span>
+                    <span className="truncate">
+                      {s.suggestedFor} · {extractDisplayDomain(currentTabUrl)}
+                    </span>
                     <span>{matchingLogins.length}</span>
                   </div>
                   <div className="flex flex-col gap-0.5">
@@ -876,7 +928,6 @@ export function App() {
                 </div>
               ) : null}
 
-              {/* Collapsible Favorites */}
               {favoriteItems.length > 0 ? (
                 <div>
                   <button
@@ -886,7 +937,7 @@ export function App() {
                   >
                     <span className="inline-flex items-center gap-1.5">
                       <Star size={11} className="fill-[var(--warning)] text-[var(--warning)]" />
-                      <span>Yêu thích</span>
+                      <span>{s.favorites}</span>
                     </span>
                     {favoritesOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                   </button>
@@ -896,12 +947,11 @@ export function App() {
                 </div>
               ) : null}
 
-              {/* All / Remaining Items */}
               {otherItems.length > 0 ? (
                 <div>
                   {favoriteItems.length > 0 || matchingLogins.length > 0 ? (
                     <div className="px-2 py-1 text-[11px] font-semibold text-[var(--text-muted)]">
-                      {query ? "Kết quả" : "Tất cả mục"}
+                      {query ? s.results : s.allItems}
                     </div>
                   ) : null}
                   <div className="flex flex-col gap-0.5">{otherItems.map(renderListRow)}</div>
@@ -914,12 +964,10 @@ export function App() {
                     <KeyRound size={18} />
                   </div>
                   <div className="text-[13px] font-semibold text-[var(--text-primary)]">
-                    {query ? "Không tìm thấy mục nào" : "Chưa có mục nào"}
+                    {query ? s.noMatchingItems : s.emptyVaultTitle}
                   </div>
                   <p className="text-[11.5px] text-[var(--text-secondary)] mt-1 mb-3">
-                    {query
-                      ? "Thử từ khóa khác."
-                      : "Nhấn + Mục mới hoặc mở Cài đặt để Import dữ liệu."}
+                    {query ? s.tryOtherKeyword : s.emptyVaultHint}
                   </p>
                   {!query && filterKind !== "trash" ? (
                     <button
@@ -930,7 +978,7 @@ export function App() {
                       }}
                       className="ov-btn-primary px-3 py-1.5 text-[12px]"
                     >
-                      + Thêm tài khoản
+                      {s.addAccount}
                     </button>
                   ) : null}
                 </div>
@@ -947,6 +995,8 @@ export function App() {
                 initialCipher={editingCipher}
                 folders={folders}
                 currentTabUrl={currentTabUrl}
+                language={lang}
+                showFavicons={status.settings.showFavicons}
                 autoCopyGeneratedPassword={status.settings.autoCopyGeneratedPassword}
                 onCancel={() => {
                   setEditingCipher(null);
@@ -958,6 +1008,7 @@ export function App() {
             ) : rightMode === "watchtower" ? (
               <WatchtowerPanel
                 ciphers={ciphers}
+                language={lang}
                 onFilterWeak={() => {
                   setFilterKind("weak");
                   setSelectedFolderId(null);
@@ -975,7 +1026,6 @@ export function App() {
             ) : rightMode === "settings" ? (
               <SettingsScreen
                 email={status.email ?? ""}
-                serverUrl={status.serverUrl}
                 lastSyncAt={status.lastSyncAt}
                 settings={status.settings}
                 pinEnabled={status.pinEnabled}
@@ -998,6 +1048,8 @@ export function App() {
               <DetailPane
                 cipher={selectedCipher}
                 accountEmail={status.email ?? ""}
+                accountAvatarBase64={status.settings.accountAvatarBase64}
+                language={lang}
                 folder={selectedFolder}
                 showFavicons={status.settings.showFavicons}
                 canAutofill={canAutofillSelected}
@@ -1022,10 +1074,10 @@ export function App() {
                   className="w-14 h-14 rounded-[16px] shadow-md mb-3 opacity-90"
                 />
                 <h2 className="text-[15px] font-bold m-0 text-[var(--text-primary)]">
-                  Chào mừng đến OpenVault
+                  {s.welcomeTitle}
                 </h2>
                 <p className="text-[12.5px] text-[var(--text-secondary)] max-w-[260px] mt-1 mb-4">
-                  Chọn một mục bên trái để xem chi tiết, hoặc thêm tài khoản mới được mã hóa Zero-Knowledge.
+                  {s.welcomeSubtitle}
                 </p>
                 <div className="flex gap-2">
                   <button
@@ -1037,14 +1089,14 @@ export function App() {
                     className="ov-btn-primary px-3.5 py-2 inline-flex items-center gap-1.5"
                   >
                     <Plus size={14} />
-                    <span>Thêm mục mới</span>
+                    <span>{s.newItem}</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setRightMode("settings")}
                     className="ov-btn-ghost px-3.5 py-2"
                   >
-                    Import Proton / Bitwarden
+                    {s.importBtn}
                   </button>
                 </div>
               </div>
@@ -1052,7 +1104,7 @@ export function App() {
           </main>
         ) : null}
 
-        {/* Exact Image 2: Right Slide-Over Password Generator Drawer dimming the Vault */}
+        {/* Right Slide-Over Password Generator Drawer */}
         {generatorDrawerOpen ? (
           <div
             className="ov-gen-backdrop"
@@ -1060,8 +1112,9 @@ export function App() {
               if (e.target === e.currentTarget) setGeneratorDrawerOpen(false);
             }}
           >
-            <div className="ov-gen-drawer" role="dialog" aria-label="Trình tạo mật khẩu">
+            <div className="ov-gen-drawer" role="dialog" aria-label={s.passwordGenerator}>
               <GeneratorScreen
+                language={lang}
                 autoCopyOnGenerate={status.settings.autoCopyGeneratedPassword}
                 onCopyText={handleCopyText}
                 onClose={() => setGeneratorDrawerOpen(false)}

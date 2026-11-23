@@ -1,5 +1,6 @@
 import {
   CipherType,
+  FieldType,
   estimatePasswordStrength,
   type CipherPayload,
   type FolderPayload,
@@ -20,6 +21,8 @@ import {
   Trash2,
 } from "lucide-react";
 import { useId, useRef, useState } from "react";
+import { formatLocalTimestamp, getStrings, type AppLanguage } from "../../shared/i18n.js";
+import { getVisibleCustomFields, normalizeAvatarDataUrl } from "../../shared/media.js";
 import { BrandAvatar } from "../components/BrandAvatar.js";
 import { ColorPassword } from "../components/ColorPassword.js";
 import { ConfirmDialog } from "../components/ConfirmDialog.js";
@@ -28,6 +31,8 @@ import { TotpRing } from "../components/TotpRing.js";
 interface DetailPaneProps {
   cipher: CipherPayload;
   accountEmail: string;
+  accountAvatarBase64?: string | null;
+  language?: AppLanguage;
   folder: FolderPayload | null;
   showFavicons: boolean;
   canAutofill: boolean;
@@ -42,17 +47,19 @@ interface DetailPaneProps {
   onCopyText: (text: string, label: string) => Promise<void>;
 }
 
-const STRENGTH_META: Record<number, { label: string; color: string }> = {
-  0: { label: "Yếu", color: "var(--danger)" },
-  1: { label: "Trung bình", color: "var(--warning)" },
-  2: { label: "Khá tốt", color: "var(--accent)" },
-  3: { label: "Mạnh", color: "var(--success)" },
-  4: { label: "Tuyệt vời", color: "var(--success)" },
+const STRENGTH_COLOR: Record<number, string> = {
+  0: "var(--danger)",
+  1: "var(--warning)",
+  2: "var(--accent)",
+  3: "var(--success)",
+  4: "var(--success)",
 };
 
 export function DetailPane({
   cipher,
   accountEmail,
+  accountAvatarBase64,
+  language = "en",
   folder,
   showFavicons,
   canAutofill,
@@ -66,20 +73,25 @@ export function DetailPane({
   onRestore,
   onCopyText,
 }: DetailPaneProps) {
+  const s = getStrings(language);
   const [revealPassword, setRevealPassword] = useState(false);
   const [largeType, setLargeType] = useState(false);
+  const [revealedHiddenFields, setRevealedHiddenFields] = useState<Record<number, boolean>>({});
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
   const morePopoverId = useId();
   const morePopoverRef = useRef<HTMLDivElement>(null);
 
   const isTrashed = Boolean(cipher.deletedDate);
-  const accountLabel = accountEmail.split("@")[0] || "Cá nhân";
+  const accountLabel = accountEmail.split("@")[0] || s.personalVault;
+  const avatarDataUrl = normalizeAvatarDataUrl(accountAvatarBase64);
   const primaryUri = cipher.login?.uris?.find((u) => u.uri)?.uri ?? null;
+  const visibleCustomFields = getVisibleCustomFields(cipher.fields);
   const pwStrength = cipher.login?.password
     ? estimatePasswordStrength(cipher.login.password)
     : null;
-  const strengthBadge = pwStrength ? STRENGTH_META[pwStrength.score] : null;
+  const strengthLabel = pwStrength ? s.strengthLabels[pwStrength.score] : null;
+  const strengthColor = pwStrength ? STRENGTH_COLOR[pwStrength.score] : null;
 
   const closeMorePopover = () => {
     morePopoverRef.current?.hidePopover?.();
@@ -104,7 +116,7 @@ export function DetailPane({
 
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-[var(--surface)]">
-      {/* Authentic 1Password 8 Detail Context Bar (38px aligned with left "All Items" header) */}
+      {/* Authentic 1Password 8 Detail Context Bar */}
       <div className="h-[38px] shrink-0 px-4 border-b border-[var(--border)] flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           {showBackButton ? (
@@ -112,19 +124,27 @@ export function DetailPane({
               type="button"
               onClick={onBack}
               className="ov-icon-btn w-6 h-6 shrink-0"
-              aria-label="Quay lại danh sách"
+              aria-label={s.back}
             >
               <ArrowLeft size={14} />
             </button>
           ) : null}
 
           <span className="inline-flex items-center gap-1.5 text-[11.5px] font-medium text-[var(--text-secondary)] truncate">
-            <span
-              className="w-4 h-4 rounded-full text-[9px] font-bold text-white inline-flex items-center justify-center shrink-0"
-              style={{ background: "linear-gradient(135deg, #0A84FF, #0455BF)" }}
-            >
-              {accountLabel[0]?.toUpperCase() ?? "O"}
-            </span>
+            {avatarDataUrl ? (
+              <img
+                src={avatarDataUrl}
+                alt=""
+                className="w-4 h-4 rounded-full object-cover shrink-0"
+              />
+            ) : (
+              <span
+                className="w-4 h-4 rounded-full text-[9px] font-bold text-white inline-flex items-center justify-center shrink-0"
+                style={{ background: "linear-gradient(135deg, #0A84FF, #0455BF)" }}
+              >
+                {accountLabel[0]?.toUpperCase() ?? "O"}
+              </span>
+            )}
             <span className="truncate max-w-[82px]">{accountLabel}</span>
           </span>
 
@@ -132,7 +152,7 @@ export function DetailPane({
 
           <span className="inline-flex items-center gap-1 text-[11.5px] font-medium text-[var(--text-secondary)] truncate">
             <Folder size={12} className="shrink-0 text-[var(--text-muted)]" />
-            <span className="truncate max-w-[96px]">{folder?.name ?? "Cá nhân"}</span>
+            <span className="truncate max-w-[96px]">{folder?.name ?? s.personalVault}</span>
           </span>
         </div>
 
@@ -148,17 +168,16 @@ export function DetailPane({
               onClick={handleOpenAndFill}
               className="ov-btn-autofill h-[26px] px-2.5 text-[11.5px] leading-none"
             >
-              {isCurrentSiteMatch || !primaryUri ? "Điền ngay" : "Mở & Điền"}
+              {isCurrentSiteMatch || !primaryUri ? s.fillNow : s.openAndFill}
             </button>
           ) : null}
 
-          {/* Native Popover More Actions Button (modern-web-guidance: viewport-aware-dropdowns) */}
           <button
             type="button"
             popoverTarget={morePopoverId}
             className="ov-icon-btn w-7 h-7"
-            title="Tùy chọn mục"
-            aria-label="Tùy chọn mục"
+            title={s.itemOptions}
+            aria-label={s.itemOptions}
           >
             <MoreVertical size={15} />
           </button>
@@ -179,7 +198,7 @@ export function DetailPane({
                   }}
                 >
                   <Edit3 size={13} />
-                  <span>Chỉnh sửa mục</span>
+                  <span>{s.editItem}</span>
                 </button>
                 <button
                   type="button"
@@ -193,7 +212,7 @@ export function DetailPane({
                     size={13}
                     className={cipher.favorite ? "fill-[var(--warning)] text-[var(--warning)]" : ""}
                   />
-                  <span>{cipher.favorite ? "Bỏ yêu thích" : "Thêm vào yêu thích"}</span>
+                  <span>{cipher.favorite ? s.removeFavorite : s.addFavorite}</span>
                 </button>
                 {canAutofill && cipher.id ? (
                   <button
@@ -205,7 +224,7 @@ export function DetailPane({
                     }}
                   >
                     <ExternalLink size={13} />
-                    <span>Điền vào tab hiện tại</span>
+                    <span>{s.fillCurrentTab}</span>
                   </button>
                 ) : null}
               </>
@@ -219,7 +238,7 @@ export function DetailPane({
                 }}
               >
                 <RotateCcw size={13} />
-                <span>Khôi phục từ thùng rác</span>
+                <span>{s.restoreFromTrash}</span>
               </button>
             )}
 
@@ -234,7 +253,7 @@ export function DetailPane({
               }}
             >
               <Trash2 size={13} />
-              <span>{isTrashed ? "Xóa vĩnh viễn" : "Chuyển vào thùng rác"}</span>
+              <span>{isTrashed ? s.deletePermanently : s.moveToTrash}</span>
             </button>
           </div>
         </div>
@@ -242,20 +261,20 @@ export function DetailPane({
 
       {/* Scrollable Clean 1Password 8 Detail Body */}
       <div className="flex-1 overflow-y-auto ov-scroll px-5 py-4 flex flex-col gap-4">
-        {/* Hero with large rounded-square icon + optional gold star corner badge */}
         <div className="flex items-center gap-3.5">
           <div className="relative shrink-0">
             <BrandAvatar
               name={cipher.name}
               type={cipher.type}
               uri={primaryUri ?? undefined}
+              fields={cipher.fields}
               showFavicon={showFavicons}
               size="lg"
             />
             {cipher.favorite ? (
               <span
                 className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-[var(--surface)] flex items-center justify-center shadow-sm"
-                title="Yêu thích"
+                title={s.favorites}
               >
                 <Star size={11} className="fill-[var(--warning)] text-[var(--warning)]" />
               </span>
@@ -267,13 +286,13 @@ export function DetailPane({
             </h2>
             {cipher.deletedDate ? (
               <span className="inline-block mt-0.5 text-[11px] font-semibold text-[var(--danger)]">
-                Trong thùng rác
+                {s.inTrash}
               </span>
             ) : null}
           </div>
         </div>
 
-        {/* Exact Image 1 Grouped Bordered Field Card */}
+        {/* Login Fields */}
         {cipher.type === CipherType.Login && cipher.login ? (
           <>
             {(cipher.login.username || cipher.login.password || cipher.login.totp) ? (
@@ -283,7 +302,10 @@ export function DetailPane({
                     <div
                       className="min-w-0 flex-1 cursor-pointer"
                       onClick={() => {
-                        void onCopyText(cipher.login!.username!, "Đã sao chép tên đăng nhập");
+                        void onCopyText(
+                          cipher.login!.username!,
+                          s.isVi ? "Đã sao chép tên đăng nhập" : "Copied username",
+                        );
                       }}
                     >
                       <div className="text-[11px] font-medium" style={{ color: "var(--field-label)" }}>
@@ -296,11 +318,14 @@ export function DetailPane({
                     <button
                       type="button"
                       onClick={() => {
-                        void onCopyText(cipher.login!.username!, "Đã sao chép tên đăng nhập");
+                        void onCopyText(
+                          cipher.login!.username!,
+                          s.isVi ? "Đã sao chép tên đăng nhập" : "Copied username",
+                        );
                       }}
                       className="ov-icon-btn w-7 h-7 opacity-0 group-hover:opacity-100 focus:opacity-100 shrink-0"
-                      title="Sao chép username"
-                      aria-label="Sao chép username"
+                      title={s.copy}
+                      aria-label={s.copy}
                     >
                       <Copy size={13} />
                     </button>
@@ -321,8 +346,8 @@ export function DetailPane({
                             setLargeType((v) => !v);
                           }}
                           className="ov-icon-btn w-6 h-6"
-                          title="Phóng to mật khẩu"
-                          aria-label="Phóng to mật khẩu"
+                          title={s.largeType}
+                          aria-label={s.largeType}
                         >
                           <Maximize2 size={12} />
                         </button>
@@ -333,19 +358,22 @@ export function DetailPane({
                             if (revealPassword) setLargeType(false);
                           }}
                           className="ov-icon-btn w-6 h-6"
-                          title={revealPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
-                          aria-label={revealPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+                          title={revealPassword ? s.hidePassword : s.showPassword}
+                          aria-label={revealPassword ? s.hidePassword : s.showPassword}
                         >
                           {revealPassword ? <EyeOff size={13} /> : <Eye size={13} />}
                         </button>
                         <button
                           type="button"
                           onClick={() => {
-                            void onCopyText(cipher.login!.password!, "Đã sao chép mật khẩu");
+                            void onCopyText(
+                              cipher.login!.password!,
+                              s.isVi ? "Đã sao chép mật khẩu" : "Copied password",
+                            );
                           }}
                           className="ov-icon-btn w-6 h-6"
-                          title="Sao chép mật khẩu"
-                          aria-label="Sao chép mật khẩu"
+                          title={s.copy}
+                          aria-label={s.copy}
                         >
                           <Copy size={13} />
                         </button>
@@ -355,7 +383,10 @@ export function DetailPane({
                       <div
                         className="min-w-0 flex-1 cursor-pointer"
                         onClick={() => {
-                          void onCopyText(cipher.login!.password!, "Đã sao chép mật khẩu");
+                          void onCopyText(
+                            cipher.login!.password!,
+                            s.isVi ? "Đã sao chép mật khẩu" : "Copied password",
+                          );
                         }}
                       >
                         <ColorPassword
@@ -364,13 +395,13 @@ export function DetailPane({
                           large={largeType}
                         />
                       </div>
-                      {strengthBadge ? (
+                      {strengthLabel && strengthColor ? (
                         <span
                           className="inline-flex items-center gap-1.5 text-[11.5px] font-medium shrink-0"
                           style={{ color: "var(--text-secondary)" }}
                         >
-                          <span>{strengthBadge.label}</span>
-                          <span className="ov-strength-ring" style={{ color: strengthBadge.color }} />
+                          <span>{strengthLabel}</span>
+                          <span className="ov-strength-ring" style={{ color: strengthColor }} />
                         </span>
                       ) : null}
                     </div>
@@ -385,7 +416,7 @@ export function DetailPane({
                     <TotpRing
                       secretOrUri={cipher.login.totp}
                       onCopy={(code) => {
-                        void onCopyText(code, "Đã sao chép mã 2FA");
+                        void onCopyText(code, s.isVi ? "Đã sao chép mã 2FA" : "Copied 2FA code");
                       }}
                     />
                   </div>
@@ -425,7 +456,7 @@ export function DetailPane({
               </div>
             ) : null}
 
-            {/* Clean unboxed Website links below the card (exact Image 1!) */}
+            {/* Single-line truncated website links */}
             {cipher.login.uris && cipher.login.uris.some((u) => u.uri) ? (
               <div className="flex flex-col gap-2 px-1">
                 {cipher.login.uris
@@ -438,6 +469,7 @@ export function DetailPane({
                         </div>
                         <button
                           type="button"
+                          title={u.uri!}
                           onClick={() => {
                             const target = /^https?:\/\//i.test(u.uri!)
                               ? u.uri!
@@ -458,8 +490,8 @@ export function DetailPane({
                           void chrome.tabs.create({ url: target });
                         }}
                         className="ov-icon-btn w-7 h-7 shrink-0"
-                        title="Mở trang web"
-                        aria-label="Mở trang web"
+                        title={s.openWebsite}
+                        aria-label={s.openWebsite}
                       >
                         <ExternalLink size={13} />
                       </button>
@@ -495,7 +527,7 @@ export function DetailPane({
                   <div
                     className="min-w-0 flex-1 cursor-pointer"
                     onClick={() => {
-                      void onCopyText(field.value!, `Đã sao chép ${field.label}`);
+                      void onCopyText(field.value!, `${s.copy}: ${field.label}`);
                     }}
                   >
                     <div className="text-[11px] font-medium" style={{ color: "var(--field-label)" }}>
@@ -508,10 +540,10 @@ export function DetailPane({
                   <button
                     type="button"
                     onClick={() => {
-                      void onCopyText(field.value!, `Đã sao chép ${field.label}`);
+                      void onCopyText(field.value!, `${s.copy}: ${field.label}`);
                     }}
                     className="ov-icon-btn w-7 h-7 opacity-0 group-hover:opacity-100"
-                    aria-label={`Sao chép ${field.label}`}
+                    aria-label={s.copy}
                   >
                     <Copy size={13} />
                   </button>
@@ -525,7 +557,7 @@ export function DetailPane({
           <div className="ov-detail-card divide-y divide-[var(--border)]">
             {[
               {
-                label: "họ và tên",
+                label: s.isVi ? "họ và tên" : "full name",
                 value: [
                   cipher.identity.firstName,
                   cipher.identity.middleName,
@@ -535,10 +567,10 @@ export function DetailPane({
                   .join(" "),
               },
               { label: "email", value: cipher.identity.email },
-              { label: "điện thoại", value: cipher.identity.phone },
-              { label: "công ty", value: cipher.identity.company },
+              { label: s.isVi ? "điện thoại" : "phone", value: cipher.identity.phone },
+              { label: s.isVi ? "công ty" : "company", value: cipher.identity.company },
               {
-                label: "địa chỉ",
+                label: s.isVi ? "địa chỉ" : "address",
                 value: [
                   cipher.identity.address1,
                   cipher.identity.address2,
@@ -560,7 +592,7 @@ export function DetailPane({
                   <div
                     className="min-w-0 flex-1 cursor-pointer"
                     onClick={() => {
-                      void onCopyText(field.value!, `Đã sao chép ${field.label}`);
+                      void onCopyText(field.value!, `${s.copy}: ${field.label}`);
                     }}
                   >
                     <div className="text-[11px] font-medium" style={{ color: "var(--field-label)" }}>
@@ -573,15 +605,93 @@ export function DetailPane({
                   <button
                     type="button"
                     onClick={() => {
-                      void onCopyText(field.value!, `Đã sao chép ${field.label}`);
+                      void onCopyText(field.value!, `${s.copy}: ${field.label}`);
                     }}
                     className="ov-icon-btn w-7 h-7 opacity-0 group-hover:opacity-100 shrink-0"
-                    aria-label={`Sao chép ${field.label}`}
+                    aria-label={s.copy}
                   >
                     <Copy size={13} />
                   </button>
                 </div>
               ))}
+          </div>
+        ) : null}
+
+        {/* Visible Custom Fields (excluding internal `_ov_icon`) */}
+        {visibleCustomFields.length > 0 ? (
+          <div className="ov-detail-card divide-y divide-[var(--border)]">
+            {visibleCustomFields.map((field, idx) => {
+              const isHidden = field.type === FieldType.Hidden;
+              const isRevealed = Boolean(revealedHiddenFields[idx]);
+              const val = field.value ?? "";
+              const isOtp = val.toLowerCase().startsWith("otpauth://");
+              return (
+                <div
+                  key={`${field.name ?? "f"}-${idx}`}
+                  className="px-3.5 py-2.5 group flex items-center justify-between gap-2 hover:bg-[var(--surface-subtle)]"
+                >
+                  <div
+                    className="min-w-0 flex-1 cursor-pointer"
+                    onClick={() => {
+                      if (!isOtp && val) {
+                        void onCopyText(val, `${s.copy}: ${field.name || "field"}`);
+                      }
+                    }}
+                  >
+                    <div className="text-[11px] font-medium" style={{ color: "var(--field-label)" }}>
+                      {field.name || "field"}
+                    </div>
+                    {isOtp ? (
+                      <div className="mt-0.5">
+                        <TotpRing
+                          secretOrUri={val}
+                          compact
+                          onCopy={(code) => {
+                            void onCopyText(code, s.isVi ? "Đã sao chép mã 2FA" : "Copied 2FA code");
+                          }}
+                        />
+                      </div>
+                    ) : (
+                      <div
+                        className={`text-[13.5px] font-medium mt-0.5 break-words text-[var(--text-primary)] ${
+                          isHidden ? "font-mono-code" : ""
+                        }`}
+                      >
+                        {isHidden && !isRevealed ? "••••••••••••" : val}
+                      </div>
+                    )}
+                  </div>
+                  {!isOtp ? (
+                    <div className="flex items-center gap-0.5 shrink-0">
+                      {isHidden ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setRevealedHiddenFields((prev) => ({ ...prev, [idx]: !prev[idx] }))
+                          }
+                          className="ov-icon-btn w-6 h-6"
+                          aria-label={isRevealed ? s.hidePassword : s.showPassword}
+                        >
+                          {isRevealed ? <EyeOff size={13} /> : <Eye size={13} />}
+                        </button>
+                      ) : null}
+                      {val ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void onCopyText(val, `${s.copy}: ${field.name || "field"}`);
+                          }}
+                          className="ov-icon-btn w-6 h-6 opacity-0 group-hover:opacity-100"
+                          aria-label={s.copy}
+                        >
+                          <Copy size={12} />
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
           </div>
         ) : null}
 
@@ -595,10 +705,10 @@ export function DetailPane({
               <button
                 type="button"
                 onClick={() => {
-                  void onCopyText(cipher.notes!, "Đã sao chép ghi chú");
+                  void onCopyText(cipher.notes!, s.isVi ? "Đã sao chép ghi chú" : "Copied notes");
                 }}
                 className="ov-icon-btn w-6 h-6"
-                aria-label="Sao chép ghi chú"
+                aria-label={s.copy}
               >
                 <Copy size={12} />
               </button>
@@ -609,22 +719,28 @@ export function DetailPane({
           </div>
         ) : null}
 
-        {cipher.revisionDate ? (
-          <div className="text-[11px] text-[var(--text-muted)] px-1 pt-1">
-            Cập nhật: {new Date(cipher.revisionDate).toLocaleString("vi-VN")}
+        {/* Local Device Timezone Timestamps (#5) */}
+        {(cipher.revisionDate || cipher.creationDate) ? (
+          <div className="text-[11px] text-[var(--text-muted)] px-1 pt-1 flex flex-col gap-0.5">
+            {cipher.revisionDate ? (
+              <div>
+                {s.lastEdited}: {formatLocalTimestamp(cipher.revisionDate, language)}
+              </div>
+            ) : null}
+            {cipher.creationDate ? (
+              <div>
+                {s.added}: {formatLocalTimestamp(cipher.creationDate, language)}
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>
 
       <ConfirmDialog
         open={confirmDeleteOpen}
-        title={isTrashed ? "Xóa vĩnh viễn mục này?" : "Chuyển vào thùng rác?"}
-        description={
-          isTrashed
-            ? `"${cipher.name}" sẽ bị xóa hoàn toàn khỏi Cloudflare D1 và không thể khôi phục.`
-            : `"${cipher.name}" sẽ được chuyển vào Thùng rác. Bạn vẫn có thể khôi phục lại sau.`
-        }
-        confirmLabel={isTrashed ? "Xóa vĩnh viễn" : "Chuyển vào thùng rác"}
+        title={isTrashed ? s.deletePermTitle : s.moveTrashTitle}
+        description={isTrashed ? s.deletePermDesc(cipher.name) : s.moveTrashDesc(cipher.name)}
+        confirmLabel={isTrashed ? s.deletePermanently : s.moveToTrash}
         onConfirm={() => {
           void handleConfirmDelete();
         }}
