@@ -31,7 +31,6 @@ import androidx.credentials.provider.PublicKeyCredentialEntry
 import io.openvault.app.OpenVaultApplication
 import io.openvault.app.R
 import io.openvault.app.core.crypto.PasskeyCryptoEngine
-import io.openvault.app.core.security.VaultLockState
 import io.openvault.app.data.VaultRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -123,7 +122,7 @@ class VaultCredentialProviderService : CredentialProviderService() {
 
         val job = serviceScope.launch {
             try {
-                if (container.sessionManager.lockState.value != VaultLockState.UNLOCKED) {
+                if (!container.sessionManager.enforceAutoLockIfExpired()) {
                     val unlockPendingIntent = createPendingIntent(
                         context = this@VaultCredentialProviderService,
                         intent = PasskeyAuthActivity.createUnlockForGetIntent(this@VaultCredentialProviderService),

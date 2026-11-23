@@ -67,16 +67,23 @@ class VaultSessionManager(
         }
     }
 
-    override fun onStart(owner: LifecycleOwner) {
+    fun enforceAutoLockIfExpired(): Boolean {
         val bgAt = backgroundedAtMs
-        backgroundedAtMs = 0L
-        if (!isUnlocked() || bgAt == 0L) return
+        if (!isUnlocked() || bgAt == 0L) return isUnlocked()
         val timeoutMinutes = preferences.settings.value.autoLockMinutes
         if (timeoutMinutes > 0) {
             val elapsedMs = System.currentTimeMillis() - bgAt
             if (elapsedMs >= timeoutMinutes * 60_000L) {
+                backgroundedAtMs = 0L
                 lock()
+                return false
             }
         }
+        return true
+    }
+
+    override fun onStart(owner: LifecycleOwner) {
+        enforceAutoLockIfExpired()
+        backgroundedAtMs = 0L
     }
 }

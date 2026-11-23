@@ -44,8 +44,9 @@
             android:name=".service.passkey.PasskeyAuthActivity"
             android:excludeFromRecents="true"
             android:exported="false"
+            android:noHistory="true"
             android:taskAffinity=""
-            android:theme="@style/Theme.OpenVault.Dialog" />
+            android:theme="@style/Theme.OpenVault.PasskeySilent" />
 
         <service
             android:name=".service.autofill.VaultAutofillService"
