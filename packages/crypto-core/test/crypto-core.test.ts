@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import zlib from "node:zlib";
 import { describe, expect, it } from "vitest";
 import {
   CipherType,
@@ -25,6 +26,7 @@ import {
   encryptFolder,
   encryptString,
   estimatePasswordStrength,
+  extractVaultTextFromZip,
   generatePassphrase,
   generatePassword,
   generateProtectedRsaKeyPair,
@@ -34,7 +36,9 @@ import {
   hkdfExpandSha256,
   p1363ToDer,
   parseTotpInput,
+  parseUniversalVaultImport,
   prepareBitwardenImport,
+  prepareUniversalVaultImport,
   protectSymmetricKey,
   signPasskeyAssertion,
   splitSymmetricKey,
@@ -347,5 +351,141 @@ describe("@openvault/crypto-core — Vault, RSA, Generator, Passkey", () => {
     // HKDF-Expand 64-byte multi-block sanity check
     const okm = await hkdfExpandSha256(new Uint8Array(32).fill(7), utf8ToBytes("multi"), 64);
     expect(okm.byteLength).toBe(64);
+  });
+
+  it("imports Proton Pass data.json (login + TOTP + passkey + card + note), Proton Pass CSV, and DEFLATE ZIP", async () => {
+    const userKey = generateUserSymmetricKey();
+
+    // 1. Proton Pass data.json
+    const protonJson = JSON.stringify({
+      version: "1.43.0",
+      vaults: {
+        "vault-personal": {
+          name: "Personal",
+          items: [
+            {
+              itemId: "i1",
+              state: 1,
+              pinned: true,
+              data: {
+                type: "login",
+                metadata: { name: "GitHub", note: "Main dev account" },
+                content: {
+                  itemEmail: "me@example.com",
+                  itemUsername: "bryant-bui",
+                  password: "ProtonSecret!99",
+                  urls: ["https://github.com/login"],
+                  totpUri: "otpauth://totp/GitHub:bryant?secret=JBSWY3DPEHPK3PXP&issuer=GitHub",
+                  passkeys: [
+                    {
+                      credentialId: "cred-123",
+                      domain: "github.com",
+                      rpName: "GitHub",
+                      userName: "bryant-bui",
+                      content: "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg",
+                      createTime: 1719000000,
+                    },
+                  ],
+                },
+                extraFields: [{ fieldName: "Recovery", type: "hidden", data: { content: "ABC-123" } }],
+              },
+            },
+            {
+              itemId: "i2",
+              state: 1,
+              data: {
+                type: "creditCard",
+                metadata: { name: "Visa Personal" },
+                content: {
+                  cardholderName: "HOANG PHI",
+                  number: "4111222233334444",
+                  verificationNumber: "321",
+                  expirationDate: "12/28",
+                  pin: "9988",
+                },
+              },
+            },
+            {
+              itemId: "i3",
+              state: 2, // Trashed -> must be skipped
+              data: { type: "note", metadata: { name: "Deleted Note", note: "skip me" }, content: {} },
+            },
+          ],
+        },
+      },
+    });
+
+    const prepared = await prepareUniversalVaultImport(protonJson, userKey);
+    expect(prepared.format).toBe("proton-pass-json");
+    expect(prepared.skippedCount).toBe(1);
+    expect(prepared.payload.folders).toHaveLength(1);
+    expect(prepared.payload.ciphers).toHaveLength(2);
+    expect(prepared.payload.folderRelationships).toEqual([
+      { key: 0, value: 0 },
+      { key: 1, value: 0 },
+    ]);
+
+    const decLogin = await decryptCipher(prepared.payload.ciphers[0]!, userKey);
+    expect(decLogin.name).toBe("GitHub");
+    expect(decLogin.favorite).toBe(true);
+    expect(decLogin.login?.username).toBe("bryant-bui");
+    expect(decLogin.login?.password).toBe("ProtonSecret!99");
+    expect(decLogin.login?.totp).toContain("JBSWY3DPEHPK3PXP");
+    expect(decLogin.login?.fido2Credentials?.[0]?.rpId).toBe("github.com");
+    expect(decLogin.fields?.find((f) => f.name === "Email")?.value).toBe("me@example.com");
+
+    const decCard = await decryptCipher(prepared.payload.ciphers[1]!, userKey);
+    expect(decCard.type).toBe(CipherType.Card);
+    expect(decCard.card?.expMonth).toBe("12");
+    expect(decCard.card?.expYear).toBe("2028");
+    expect(decCard.fields?.find((f) => f.name === "PIN")?.value).toBe("9988");
+
+    // 2. Proton Pass CSV with multiline note and BOM
+    const csv = `\uFEFFtype,name,url,email,username,password,note,totp,createTime,modifyTime,vault\r\nlogin,Cloudflare,https://dash.cloudflare.com,alex@example.com,,CfPass#2026,"Line 1\nLine ""2""",JBSWY3DPEHPK3PXP,1700000000,1700000000,Personal\r\nnote,Backup Codes,,,,"" ,"Code A\nCode B",,1700000000,1700000000,Personal`;
+    const parsedCsv = parseUniversalVaultImport(csv);
+    expect(parsedCsv.format).toBe("proton-pass-csv");
+    expect(parsedCsv.exportData.folders).toHaveLength(1);
+    expect(parsedCsv.exportData.items).toHaveLength(2);
+    expect(parsedCsv.exportData.items![0]!.login?.username).toBe("alex@example.com");
+    expect(parsedCsv.exportData.items![0]!.notes).toBe('Line 1\nLine "2"');
+    expect(parsedCsv.exportData.items![1]!.type).toBe(CipherType.SecureNote);
+
+    // 3. Real DEFLATE-compressed ZIP archive containing `Proton Pass/data.json`
+    const entryName = Buffer.from("Proton Pass/data.json", "utf8");
+    const rawData = Buffer.from(protonJson, "utf8");
+    const deflated = zlib.deflateRawSync(rawData);
+
+    const lh = Buffer.alloc(30 + entryName.length);
+    lh.writeUInt32LE(0x04034b50, 0);
+    lh.writeUInt16LE(20, 4);
+    lh.writeUInt16LE(8, 8); // DEFLATE
+    lh.writeUInt32LE(deflated.length, 18);
+    lh.writeUInt32LE(rawData.length, 22);
+    lh.writeUInt16LE(entryName.length, 26);
+    entryName.copy(lh, 30);
+
+    const cdOffset = lh.length + deflated.length;
+    const cd = Buffer.alloc(46 + entryName.length);
+    cd.writeUInt32LE(0x02014b50, 0);
+    cd.writeUInt16LE(20, 4);
+    cd.writeUInt16LE(20, 6);
+    cd.writeUInt16LE(8, 10); // DEFLATE
+    cd.writeUInt32LE(deflated.length, 20);
+    cd.writeUInt32LE(rawData.length, 24);
+    cd.writeUInt16LE(entryName.length, 28);
+    cd.writeUInt32LE(0, 42);
+    entryName.copy(cd, 46);
+
+    const eocd = Buffer.alloc(22);
+    eocd.writeUInt32LE(0x06054b50, 0);
+    eocd.writeUInt16LE(1, 8);
+    eocd.writeUInt16LE(1, 10);
+    eocd.writeUInt32LE(cd.length, 12);
+    eocd.writeUInt32LE(cdOffset, 16);
+
+    const zipBytes = Buffer.concat([lh, deflated, cd, eocd]);
+    const extracted = await extractVaultTextFromZip(new Uint8Array(zipBytes));
+    expect(extracted.filename).toBe("Proton Pass/data.json");
+    expect(JSON.parse(extracted.text).version).toBe("1.43.0");
   });
 });

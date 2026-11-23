@@ -970,7 +970,7 @@ export function App() {
                     onClick={() => setRightMode("settings")}
                     className="ov-btn-ghost px-3.5 py-2"
                   >
-                    Import Bitwarden
+                    Import Proton / Bitwarden
                   </button>
                 </div>
               </div>

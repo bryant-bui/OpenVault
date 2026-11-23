@@ -565,10 +565,20 @@ vaultRoutes.post("/api/ciphers/import", async (c) => {
     }
   }
 
+  // Load existing folder IDs owned by user so chunked imports can reference pre-created folders safely
+  const existingFoldersRes = await c.env.DB.prepare("SELECT id FROM folders WHERE user_id = ?")
+    .bind(user.id)
+    .all<{ id: string }>();
+  const ownedFolderIds = new Set<string>([
+    ...(existingFoldersRes.results ?? []).map((f) => f.id),
+    ...createdFolderIds,
+  ]);
+
   for (let i = 0; i < ciphers.length; i++) {
     const cipher = ciphers[i]!;
     const cipherId = crypto.randomUUID();
-    const folderId = cipherFolderMap.get(i) ?? null;
+    const candidateFolder = cipherFolderMap.get(i) ?? cipher.folderId ?? null;
+    const folderId = candidateFolder && ownedFolderIds.has(candidateFolder) ? candidateFolder : null;
     statements.push(
       c.env.DB.prepare(
         `INSERT INTO ciphers (id, user_id, folder_id, type, data_json, favorite, reprompt, deleted_at, revision_date, created_at)

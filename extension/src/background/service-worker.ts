@@ -12,12 +12,11 @@ import {
   generatePassword,
   generateProtectedRsaKeyPair,
   generateUserSymmetricKey,
-  prepareBitwardenImport,
+  prepareUniversalVaultImport,
   protectSymmetricKey,
   splitSymmetricKey,
   stretchMasterKey,
   unprotectSymmetricKey,
-  type BitwardenExportJson,
   type CipherPayload,
   type SymmetricKey,
 } from "@openvault/crypto-core";
@@ -634,14 +633,55 @@ async function handleMessage(
 
     case "IMPORT_BITWARDEN_JSON": {
       const { key } = await getUnlockedKey();
-      const parsed = JSON.parse(request.rawJson) as BitwardenExportJson;
-      const encryptedPayload = await prepareBitwardenImport(parsed, key);
-      const res = await withValidAccessToken((url, token) =>
-        apiImportVault(url, token, encryptedPayload),
-      );
+      const prepared = await prepareUniversalVaultImport(request.rawJson, key);
+      const { folders: encFolders, ciphers: encCiphers, folderRelationships } = prepared.payload;
+
+      // 1. Create folders first so large imports can be safely chunked within Cloudflare Workers CPU budget
+      const createdFolderIds: string[] = [];
+      for (const folder of encFolders) {
+        const created = await withValidAccessToken((url, token) =>
+          apiCreateFolder(url, token, folder.name),
+        );
+        createdFolderIds.push(created.id ?? "");
+      }
+
+      const relMap = new Map<number, string>();
+      for (const rel of folderRelationships) {
+        const fid = createdFolderIds[rel.value];
+        if (fid) relMap.set(rel.key, fid);
+      }
+
+      const ciphersWithFolders: CipherPayload[] = encCiphers.map((cipher, idx) => ({
+        ...cipher,
+        folderId: relMap.get(idx) ?? null,
+      }));
+
+      // 2. Upload ciphers in chunks of 40 per Worker request (fast & safe under 10ms Workers Free CPU)
+      const CHUNK_SIZE = 40;
+      let importedCiphers = 0;
+      for (let i = 0; i < ciphersWithFolders.length; i += CHUNK_SIZE) {
+        const chunk = ciphersWithFolders.slice(i, i + CHUNK_SIZE);
+        const res = await withValidAccessToken((url, token) =>
+          apiImportVault(url, token, {
+            folders: [],
+            ciphers: chunk,
+            folderRelationships: [],
+          }),
+        );
+        importedCiphers += res.importedCiphers;
+      }
+
       await syncEncryptedVaultFromServer(true);
       await refreshActiveTabBadge();
-      return { ok: true, data: res };
+      return {
+        ok: true,
+        data: {
+          format: prepared.format,
+          importedFolders: encFolders.length,
+          importedCiphers,
+          skippedCount: prepared.skippedCount,
+        },
+      };
     }
 
     case "EXPORT_ENCRYPTED_BACKUP": {

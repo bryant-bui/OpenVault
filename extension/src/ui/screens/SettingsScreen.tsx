@@ -1,3 +1,4 @@
+import { extractVaultTextFromZip } from "@openvault/crypto-core";
 import {
   CloudUpload,
   Download,
@@ -121,18 +122,42 @@ export function SettingsScreen({
     if (!file) return;
     setImporting(true);
     try {
-      const rawJson = await file.text();
-      const res = await sendBg<{ importedFolders: number; importedCiphers: number }>({
+      let rawText: string;
+      const isZip = file.name.toLowerCase().endsWith(".zip");
+      if (isZip) {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const extracted = await extractVaultTextFromZip(bytes);
+        rawText = extracted.text;
+      } else {
+        rawText = await file.text();
+      }
+
+      const res = await sendBg<{
+        format: string;
+        importedFolders: number;
+        importedCiphers: number;
+        skippedCount: number;
+      }>({
         type: "IMPORT_BITWARDEN_JSON",
-        rawJson,
+        rawJson: rawText,
       });
+
+      const sourceLabel =
+        res.format === "proton-pass-json"
+          ? isZip
+            ? "Proton Pass (ZIP)"
+            : "Proton Pass (JSON)"
+          : res.format === "proton-pass-csv"
+            ? "Proton Pass (CSV)"
+            : "Bitwarden (JSON)";
+
       onToast(
-        `Đã mã hóa & nhập ${res.importedCiphers} mục, ${res.importedFolders} thư mục từ Bitwarden!`,
+        `Đã mã hóa & nhập ${res.importedCiphers} mục (${res.importedFolders} thư mục) từ ${sourceLabel}!`,
         "success",
       );
       await onImported();
     } catch (err) {
-      onToast(err instanceof Error ? err.message : "File JSON không hợp lệ", "error");
+      onToast(err instanceof Error ? err.message : "Tệp nhập liệu không hợp lệ", "error");
     } finally {
       setImporting(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -316,7 +341,7 @@ export function SettingsScreen({
             <input
               ref={fileInputRef}
               type="file"
-              accept="application/json,.json"
+              accept=".json,.csv,.zip,application/json,text/csv,application/zip"
               className="sr-only"
               onChange={(e) => {
                 void handleImportFile(e);
@@ -329,7 +354,7 @@ export function SettingsScreen({
               className="ov-btn-ghost py-2 inline-flex items-center justify-center gap-1.5 text-[12px]"
             >
               <Upload size={13} />
-              <span>{importing ? "Đang nhập..." : "Import Bitwarden"}</span>
+              <span>{importing ? "Đang mã hóa & nhập..." : "Import Proton / BW"}</span>
             </button>
             <button
               type="button"
@@ -342,6 +367,9 @@ export function SettingsScreen({
               <span>Xuất JSON mã hóa</span>
             </button>
           </div>
+          <p className="text-[11px] text-[var(--text-muted)] m-0 leading-snug">
+            Hỗ trợ trực tiếp file <strong>ZIP (&quot;Mã bưu chính&quot;)</strong>, <strong>data.json</strong>, <strong>CSV</strong> xuất từ Proton Pass và <strong>JSON</strong> từ Bitwarden.
+          </p>
         </div>
 
         {/* Actions */}
