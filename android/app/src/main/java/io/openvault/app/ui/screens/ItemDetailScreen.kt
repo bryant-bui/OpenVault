@@ -206,6 +206,7 @@ fun ItemDetailScreen(
             // LOGIN GROUPED CARD (Exact 1Password 8 Amazon Detail layout!)
             if (item.type == CipherType.LOGIN && item.login != null) {
                 val login = item.login
+                if (login.username.isNotBlank() || login.password.isNotBlank() || liveTotp != null) {
                 OnePassCard(modifier = Modifier.fillMaxWidth(), padding = PaddingValues(0.dp)) {
                     Column {
                         var hasPrev = false
@@ -338,6 +339,7 @@ fun ItemDetailScreen(
                             }
                         }
                     }
+                }
                 }
 
                 // Websites card

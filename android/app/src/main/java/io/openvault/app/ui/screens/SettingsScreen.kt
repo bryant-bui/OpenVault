@@ -2,6 +2,7 @@ package io.openvault.app.ui.screens
 
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
@@ -28,6 +29,7 @@ import androidx.compose.material.icons.rounded.AutoFixHigh
 import androidx.compose.material.icons.rounded.Backup
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Fingerprint
+import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Pin
 import androidx.compose.material.icons.rounded.Refresh
@@ -210,6 +212,53 @@ fun SettingsScreen(
                         Text("Thiết lập Tự động điền Android", color = c.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                         Text(
                             "Chọn OpenVault làm trình điền mật khẩu & gợi ý bàn phím",
+                            color = c.textSecondary,
+                            fontSize = 12.5.sp,
+                        )
+                    }
+                    Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = c.textMuted)
+                }
+            }
+
+            // Passkey System Provider Setup Row (Android 14+)
+            OnePassCard(
+                modifier = Modifier.fillMaxWidth(),
+                padding = PaddingValues(14.dp),
+                onClick = {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                        val intent = Intent(Settings.ACTION_CREDENTIAL_PROVIDER).apply {
+                            data = Uri.parse("package:${context.packageName}")
+                        }
+                        runCatching { context.startActivity(intent) }
+                            .onFailure {
+                                runCatching {
+                                    context.startActivity(
+                                        Intent(Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE).apply {
+                                            data = Uri.parse("package:${context.packageName}")
+                                        },
+                                    )
+                                }.onFailure {
+                                    runCatching { context.startActivity(Intent(Settings.ACTION_SETTINGS)) }
+                                }
+                            }
+                    } else {
+                        onShowMessage("Passkey hệ thống yêu cầu Android 14 trở lên.")
+                    }
+                },
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    CategoryIconBadge(Icons.Rounded.Key, Color.White, Color(0xFF7253ED), size = 34.dp)
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Nhà cung cấp Passkey (Android 14+)", color = c.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                                "Bật OpenVault trong Mật khẩu, mã khóa và tự động điền"
+                            } else {
+                                "Thiết bị đang chạy Android dưới 14 (chỉ hỗ trợ Autofill)"
+                            },
                             color = c.textSecondary,
                             fontSize = 12.5.sp,
                         )

@@ -2,14 +2,18 @@ package io.openvault.app.data
 
 import android.os.Build
 import io.openvault.app.core.crypto.BitwardenCryptoEngine
+import io.openvault.app.core.crypto.CipherType
 import io.openvault.app.core.crypto.DomainMatcher
 import io.openvault.app.core.crypto.KdfConfig
 import io.openvault.app.core.crypto.MacVerificationException
 import io.openvault.app.core.crypto.PinCrypto
 import io.openvault.app.core.crypto.SymmetricKey
 import io.openvault.app.core.crypto.VaultCipherCodec
+import io.openvault.app.core.crypto.VaultFido2Credential
 import io.openvault.app.core.crypto.VaultFolder
 import io.openvault.app.core.crypto.VaultItem
+import io.openvault.app.core.crypto.VaultLogin
+import io.openvault.app.core.crypto.VaultUri
 import io.openvault.app.core.crypto.WatchtowerAnalyzer
 import io.openvault.app.core.crypto.WatchtowerReport
 import io.openvault.app.core.database.EncryptedCipherEntity
@@ -419,6 +423,133 @@ class VaultRepository(
                 .sortedByDescending { it.second }
                 .map { it.first }
         }
+
+    /**
+     * Returns all decrypted Passkeys matching the requested RP ID (and optional allowCredentials filter).
+     */
+    suspend fun findPasskeysForRp(
+        rpId: String,
+        allowCredentialIds: List<String> = emptyList(),
+    ): List<Pair<VaultItem, VaultFido2Credential>> = withContext(Dispatchers.Default) {
+        val key = session.getActiveKey() ?: return@withContext emptyList()
+        val cleanRp = rpId.trim().lowercase().trimEnd('.')
+        val allowSet = allowCredentialIds.takeIf { it.isNotEmpty() }?.toSet()
+
+        val matches = mutableListOf<Pair<VaultItem, VaultFido2Credential>>()
+        for (entity in dao.getAllCiphersOnce()) {
+            val item = runCatching {
+                val dto = json.decodeFromString<CipherDto>(entity.encryptedJson)
+                VaultCipherCodec.decryptCipher(dto, key)
+            }.getOrNull() ?: continue
+            if (item.isDeleted || item.type != CipherType.LOGIN) continue
+            val creds = item.login?.fido2Credentials.orEmpty()
+            for (cred in creds) {
+                if (cred.rpId.trim().lowercase().trimEnd('.') != cleanRp) continue
+                if (allowSet != null && cred.credentialId !in allowSet) continue
+                matches += (item to cred)
+            }
+        }
+        matches.sortedWith(
+            compareByDescending<Pair<VaultItem, VaultFido2Credential>> { it.first.favorite }
+                .thenByDescending { it.second.creationDate },
+        )
+    }
+
+    suspend fun findPasskeyByIds(
+        cipherId: String,
+        credentialId: String,
+    ): Pair<VaultItem, VaultFido2Credential>? = withContext(Dispatchers.Default) {
+        val key = session.getActiveKey() ?: return@withContext null
+        for (entity in dao.getAllCiphersOnce()) {
+            if (entity.id != cipherId) continue
+            val item = runCatching {
+                val dto = json.decodeFromString<CipherDto>(entity.encryptedJson)
+                VaultCipherCodec.decryptCipher(dto, key)
+            }.getOrNull() ?: return@withContext null
+            if (item.isDeleted) return@withContext null
+            val cred = item.login?.fido2Credentials?.firstOrNull { it.credentialId == credentialId }
+                ?: return@withContext null
+            return@withContext (item to cred)
+        }
+        null
+    }
+
+    suspend fun findItemById(cipherId: String): VaultItem? = withContext(Dispatchers.Default) {
+        val key = session.getActiveKey() ?: return@withContext null
+        val entity = dao.getAllCiphersOnce().firstOrNull { it.id == cipherId } ?: return@withContext null
+        runCatching {
+            val dto = json.decodeFromString<CipherDto>(entity.encryptedJson)
+            VaultCipherCodec.decryptCipher(dto, key)
+        }.getOrNull()?.takeIf { !it.isDeleted }
+    }
+
+    /**
+     * Attaches a newly created Passkey to an existing matching Login item (same domain/RP + username),
+     * or creates a new Login item, then encrypts and syncs to Cloudflare D1.
+     */
+    suspend fun savePasskeyCredential(
+        rpId: String,
+        rpName: String,
+        origin: String,
+        packageName: String?,
+        userName: String,
+        credential: VaultFido2Credential,
+    ): VaultItem = withContext(Dispatchers.IO) {
+        val cleanRp = rpId.trim().lowercase().trimEnd('.')
+        val normalizedUser = userName.trim().lowercase()
+        val key = session.getActiveKey() ?: error("Kho đang bị khóa.")
+
+        val allItems = dao.getAllCiphersOnce().mapNotNull { entity ->
+            runCatching {
+                val dto = json.decodeFromString<CipherDto>(entity.encryptedJson)
+                VaultCipherCodec.decryptCipher(dto, key)
+            }.getOrNull()
+        }.filter { !it.isDeleted && it.type == CipherType.LOGIN && it.login != null }
+
+        val webDomain = if (origin.startsWith("http", ignoreCase = true)) origin else "https://$cleanRp"
+        val existing = allItems.firstOrNull { item ->
+            val login = item.login ?: return@firstOrNull false
+            val matchesSite = login.uris.any { DomainMatcher.scoreMatch(it.uri, webDomain, packageName) > 0 } ||
+                login.fido2Credentials.any { it.rpId.lowercase() == cleanRp }
+            val userMatches = normalizedUser.isNotEmpty() &&
+                (login.username.trim().lowercase() == normalizedUser ||
+                    login.fido2Credentials.any { it.userName?.trim()?.lowercase() == normalizedUser })
+            matchesSite && userMatches
+        }
+
+        val targetItem = if (existing != null && existing.login != null) {
+            val filtered = existing.login.fido2Credentials.filterNot {
+                it.rpId.lowercase() == cleanRp &&
+                    !it.userHandle.isNullOrBlank() &&
+                    it.userHandle == credential.userHandle
+            }
+            existing.copy(
+                login = existing.login.copy(
+                    username = existing.login.username.ifBlank { userName },
+                    fido2Credentials = filtered + credential,
+                ),
+            )
+        } else {
+            val uris = buildList {
+                add(VaultUri(uri = if (origin.startsWith("http", ignoreCase = true)) origin else "https://$cleanRp"))
+                if (!packageName.isNullOrBlank() && origin.startsWith("android:apk-key-hash:", ignoreCase = true)) {
+                    add(VaultUri(uri = "androidapp://$packageName"))
+                }
+            }
+            VaultItem(
+                type = CipherType.LOGIN,
+                name = rpName.ifBlank { cleanRp },
+                login = VaultLogin(
+                    uris = uris,
+                    username = userName,
+                    password = "",
+                    fido2Credentials = listOf(credential),
+                ),
+            )
+        }
+
+        saveItem(targetItem)
+    }
 
     private fun CipherDto.toEntity(): EncryptedCipherEntity = EncryptedCipherEntity(
         id = id,

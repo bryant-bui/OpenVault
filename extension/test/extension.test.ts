@@ -10,6 +10,7 @@ import {
   scoreUriMatch,
 } from "../src/shared/domain-match.js";
 import { classifyField, formatTotpCode, maskCardNumber } from "../src/shared/field-classifier.js";
+import { isValidRpIdForOrigin } from "../src/shared/passkey-bridge.js";
 
 const EXT_ROOT = path.resolve(import.meta.dirname, "..");
 
@@ -86,6 +87,12 @@ describe("OpenVault Extension — Manifest V3 & Asset Integrity", () => {
       side_panel: { default_path: string };
       background: { service_worker: string };
       permissions: string[];
+      content_scripts: Array<{
+        js: string[];
+        run_at?: string;
+        world?: string;
+        all_frames?: boolean;
+      }>;
       content_security_policy: { extension_pages: string };
     };
 
@@ -100,6 +107,20 @@ describe("OpenVault Extension — Manifest V3 & Asset Integrity", () => {
     expect(manifest.permissions).toContain("webRequest");
     expect(manifest.permissions).toContain("webRequestAuthProvider");
     expect(manifest.content_security_policy.extension_pages).toContain("wasm-unsafe-eval");
+
+    // Verify MAIN-world WebAuthn Passkey interceptor + ISOLATED document_start bridge
+    const mainScript = manifest.content_scripts.find(
+      (cs) => cs.world === "MAIN" && cs.js.includes("webauthn-main.js"),
+    );
+    expect(mainScript).toBeDefined();
+    expect(mainScript?.run_at).toBe("document_start");
+    expect(mainScript?.all_frames).toBe(false);
+
+    const isolatedScript = manifest.content_scripts.find((cs) =>
+      cs.js.includes("content-autofill.js"),
+    );
+    expect(isolatedScript).toBeDefined();
+    expect(isolatedScript?.run_at).toBe("document_start");
 
     // Verify offscreen document exists with zero inline scripts
     const offscreenHtml = fs.readFileSync(path.join(EXT_ROOT, "public/offscreen.html"), "utf8");
@@ -179,5 +200,29 @@ describe("OpenVault Extension — Smart Field Classifier (Login, 2FA, Card, Iden
     expect(
       classifyField({ ...base, autocomplete: "street-address", formHasPasswordField: true }),
     ).toBeNull();
+  });
+});
+
+describe("OpenVault Extension — WebAuthn Passkey RP ID Security Validation", () => {
+  it("allows exact host, valid registrable parent domain on HTTPS, and localhost", () => {
+    expect(isValidRpIdForOrigin("github.com", "https://github.com")).toBe(true);
+    expect(isValidRpIdForOrigin("github.com", "https://gist.github.com")).toBe(true);
+    expect(isValidRpIdForOrigin("webauthn.io", "https://webauthn.io")).toBe(true);
+    expect(isValidRpIdForOrigin("vietcombank.com.vn", "https://ebanking.vietcombank.com.vn")).toBe(
+      true,
+    );
+    expect(isValidRpIdForOrigin("localhost", "http://localhost:3000")).toBe(true);
+    expect(isValidRpIdForOrigin("127.0.0.1", "http://127.0.0.1:8787")).toBe(true);
+  });
+
+  it("rejects HTTP non-local origins, public suffixes, and cross-domain RP ID spoofing", () => {
+    expect(isValidRpIdForOrigin("github.com", "http://github.com")).toBe(false);
+    expect(isValidRpIdForOrigin("com", "https://github.com")).toBe(false);
+    expect(isValidRpIdForOrigin("com.vn", "https://ebanking.vietcombank.com.vn")).toBe(false);
+    expect(isValidRpIdForOrigin("co.uk", "https://portal.bbc.co.uk")).toBe(false);
+    expect(isValidRpIdForOrigin("github.com", "https://evilgithub.com")).toBe(false);
+    expect(isValidRpIdForOrigin("google.com", "https://github.com")).toBe(false);
+    expect(isValidRpIdForOrigin("sub.github.com", "https://github.com")).toBe(false);
+    expect(isValidRpIdForOrigin("", "https://github.com")).toBe(false);
   });
 });

@@ -10,6 +10,7 @@ lifecycle = "2.8.7"
 room = "2.7.1"
 biometric = "1.1.0"
 autofill = "1.1.0"
+credentials = "1.5.0"
 cameraX = "1.4.2"
 zxing = "3.5.3"
 okhttp = "4.12.0"
@@ -39,6 +40,7 @@ androidx-compose-material-icons = { group = "androidx.compose.material", name = 
 
 androidx-biometric = { group = "androidx.biometric", name = "biometric", version.ref = "biometric" }
 androidx-autofill = { group = "androidx.autofill", name = "autofill", version.ref = "autofill" }
+androidx-credentials = { group = "androidx.credentials", name = "credentials", version.ref = "credentials" }
 
 androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
 androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }

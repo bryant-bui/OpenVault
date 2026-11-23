@@ -430,6 +430,30 @@ export function SettingsScreen({
           />
         </div>
 
+        {/* Passkeys (WebAuthn / FIDO2) */}
+        <div className="ov-card p-3 flex flex-col gap-3">
+          <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+            Mã khóa (Passkeys)
+          </div>
+
+          <ToggleRow
+            title="Lưu mã khóa"
+            description="OpenVault sẽ gợi ý tạo và lưu mã khóa (ECDSA P-256) đồng bộ sang Android."
+            checked={settings.passkeySaveEnabled}
+            onChange={(v) => {
+              void onUpdateSettings({ passkeySaveEnabled: v });
+            }}
+          />
+          <ToggleRow
+            title="Xác thực bằng mã khóa"
+            description="OpenVault sẽ gợi ý đăng nhập bằng các mã khóa đã lưu trong kho."
+            checked={settings.passkeyAuthEnabled}
+            onChange={(v) => {
+              void onUpdateSettings({ passkeyAuthEnabled: v });
+            }}
+          />
+        </div>
+
         {/* Browser Settings */}
         <div className="ov-card p-3 flex flex-col gap-2.5">
           <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">

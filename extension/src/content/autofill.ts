@@ -4,6 +4,19 @@ import {
   maskCardNumber,
   type FieldDescriptor,
 } from "../shared/field-classifier.js";
+import {
+  WEBAUTHN_BRIDGE_CHANNEL,
+  type PasskeyPrepareCreateResponse,
+  type PasskeyPrepareGetResponse,
+  type SerializedCreateRequest,
+  type SerializedCreateResponseData,
+  type SerializedGetRequest,
+  type SerializedGetResponseData,
+  type SerializedWebAuthnRequest,
+  type SerializedWebAuthnResponse,
+  type WebAuthnBridgeRequestEnvelope,
+  type WebAuthnBridgeResponseEnvelope,
+} from "../shared/passkey-bridge.js";
 import type {
   AutofillCandidate,
   AutofillContextResponse,
@@ -843,7 +856,209 @@ function ensureOverlay(): ShadowOverlay {
       animation: ovPop 140ms ease;
     }
 
+    /* 1Password Slide-3 Passkey Prompt Card */
+    .ov-pk-card {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      width: 356px;
+      max-width: calc(100vw - 24px);
+      pointer-events: auto;
+      background: #ffffff;
+      color: #0a1a33;
+      border: 1px solid #e2e8f0;
+      border-radius: 14px;
+      padding: 13px 14px 12px;
+      box-shadow: 0 20px 48px rgba(10, 26, 51, 0.2), 0 4px 12px rgba(10, 26, 51, 0.08);
+      animation: ovPop 160ms cubic-bezier(0.16, 1, 0.3, 1);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .ov-pk-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .ov-pk-brand {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      min-width: 0;
+    }
+    .ov-pk-logo {
+      width: 24px;
+      height: 24px;
+      border-radius: 999px;
+      background: linear-gradient(135deg, #0A84FF, #0455BF);
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      box-shadow: 0 2px 6px rgba(5, 114, 236, 0.3);
+    }
+    .ov-pk-title {
+      font-size: 13.5px;
+      font-weight: 700;
+      color: inherit;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .ov-pk-head-actions {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      flex-shrink: 0;
+    }
+    .ov-pk-icon-btn {
+      width: 26px;
+      height: 26px;
+      border: 0;
+      border-radius: 7px;
+      background: transparent;
+      color: #64748b;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 15px;
+      line-height: 1;
+    }
+    .ov-pk-icon-btn:hover { background: #f1f5f9; color: #0a1a33; }
+    .ov-pk-list {
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+      max-height: 230px;
+      overflow-y: auto;
+    }
+    .ov-pk-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 11px;
+      border-radius: 11px;
+      background: linear-gradient(135deg, #fbfaff, #f3efff);
+      border: 1px solid #e6ddff;
+    }
+    .ov-pk-site-icon {
+      width: 34px;
+      height: 34px;
+      border-radius: 9px;
+      background: #111827;
+      color: #ffffff;
+      font-size: 14px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .ov-pk-meta {
+      min-width: 0;
+      flex: 1;
+    }
+    .ov-pk-rp {
+      font-size: 13px;
+      font-weight: 700;
+      color: #0f172a;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .ov-pk-user {
+      font-size: 11.5px;
+      color: #64748b;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-top: 1px;
+    }
+    .ov-pk-btn {
+      border: 0;
+      border-radius: 8px;
+      padding: 7px 12px;
+      background: #7253ED;
+      color: #ffffff;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      flex-shrink: 0;
+      transition: background 110ms ease, transform 80ms ease;
+    }
+    .ov-pk-btn:hover:not(:disabled) { background: #5E3EE0; }
+    .ov-pk-btn:active:not(:disabled) { transform: scale(0.98); }
+    .ov-pk-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .ov-pk-warn {
+      font-size: 11.5px;
+      color: #b45309;
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      border-radius: 8px;
+      padding: 7px 10px;
+      line-height: 1.4;
+    }
+    .ov-pk-err {
+      font-size: 11.5px;
+      color: #e11d48;
+      background: #fff1f2;
+      border: 1px solid #fecdd3;
+      border-radius: 8px;
+      padding: 7px 10px;
+      line-height: 1.4;
+    }
+    .ov-pk-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding-top: 2px;
+    }
+    .ov-pk-domain {
+      font-size: 11px;
+      color: #64748b;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .ov-pk-fallback-link {
+      border: 0;
+      background: transparent;
+      color: #64748b;
+      font-size: 11.5px;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 3px 6px;
+      border-radius: 6px;
+      flex-shrink: 0;
+    }
+    .ov-pk-fallback-link:hover { background: #f1f5f9; color: #0a1a33; }
+
     @media (prefers-color-scheme: dark) {
+      .ov-pk-card {
+        background: #161b24;
+        color: #f1f5f9;
+        border-color: #263144;
+        box-shadow: 0 22px 52px rgba(0, 0, 0, 0.62);
+      }
+      .ov-pk-icon-btn { color: #94a3b8; }
+      .ov-pk-icon-btn:hover { background: #222a3a; color: #f1f5f9; }
+      .ov-pk-row {
+        background: linear-gradient(135deg, #1d1a2e, #241f3d);
+        border-color: #3a3066;
+      }
+      .ov-pk-site-icon { background: #2b3447; }
+      .ov-pk-rp { color: #f8fafc; }
+      .ov-pk-user, .ov-pk-domain, .ov-pk-fallback-link { color: #94a3b8; }
+      .ov-pk-fallback-link:hover { background: #222a3a; color: #f8fafc; }
+      .ov-pk-warn { background: #2b2111; border-color: #78350f; color: #fcd34d; }
+      .ov-pk-err { background: #2c141c; border-color: #881337; color: #fda4af; }
       .ov-dropdown {
         background: #161b24;
         color: #f1f5f9;
@@ -938,18 +1153,28 @@ function createKeyholeSvg(size = 13): SVGSVGElement {
   return svg;
 }
 
-function buildInlineUnlockPanel(
-  input: HTMLInputElement,
-  ctx: AutofillContextResponse,
-  autoFocusField: boolean,
-): HTMLDivElement {
+interface UnlockWidgetOptions {
+  hasAccount: boolean;
+  email: string | null;
+  pinAvailableNow: boolean;
+  pinLength: number;
+  autoFocusField: boolean;
+  showHeader?: boolean;
+  onClose?: () => void;
+  onUnlocked: () => Promise<void>;
+}
+
+function createUnlockWidget(opts: UnlockWidgetOptions): HTMLDivElement {
   const box = document.createElement("div");
   box.className = "ov-unlock-box";
+  if (opts.showHeader === false) {
+    box.style.padding = "4px 2px 2px";
+  }
   box.addEventListener("pointerdown", () => {
     interactingWithOverlay = true;
   });
 
-  if (!ctx.hasAccount) {
+  if (!opts.hasAccount) {
     const empty = document.createElement("div");
     empty.className = "ov-empty";
     empty.textContent =
@@ -958,66 +1183,57 @@ function buildInlineUnlockPanel(
     return box;
   }
 
-  let mode: "pin" | "master" = ctx.pinAvailableNow ? "pin" : "master";
-  let pinAvailable = ctx.pinAvailableNow;
-  const pinLen = Math.min(12, Math.max(4, ctx.pinLength || 6));
+  let mode: "pin" | "master" = opts.pinAvailableNow ? "pin" : "master";
+  let pinAvailable = opts.pinAvailableNow;
+  const pinLen = Math.min(12, Math.max(4, opts.pinLength || 6));
   let busy = false;
   let errorText = "";
 
-  const head = document.createElement("div");
-  head.className = "ov-unlock-head";
+  if (opts.showHeader !== false) {
+    const head = document.createElement("div");
+    head.className = "ov-unlock-head";
 
-  const brand = document.createElement("div");
-  brand.className = "ov-unlock-brand";
-  const logo = document.createElement("div");
-  logo.className = "ov-unlock-logo";
-  logo.appendChild(createKeyholeSvg(13));
-  const titleWrap = document.createElement("div");
-  const titleEl = document.createElement("div");
-  titleEl.className = "ov-unlock-title";
-  titleEl.textContent = "Mở khóa OpenVault";
-  const emailEl = document.createElement("div");
-  emailEl.className = "ov-unlock-email";
-  emailEl.textContent = ctx.email ?? "";
-  titleWrap.appendChild(titleEl);
-  if (ctx.email) titleWrap.appendChild(emailEl);
-  brand.appendChild(logo);
-  brand.appendChild(titleWrap);
+    const brand = document.createElement("div");
+    brand.className = "ov-unlock-brand";
+    const logo = document.createElement("div");
+    logo.className = "ov-unlock-logo";
+    logo.appendChild(createKeyholeSvg(13));
+    const titleWrap = document.createElement("div");
+    const titleEl = document.createElement("div");
+    titleEl.className = "ov-unlock-title";
+    titleEl.textContent = "Mở khóa OpenVault";
+    const emailEl = document.createElement("div");
+    emailEl.className = "ov-unlock-email";
+    emailEl.textContent = opts.email ?? "";
+    titleWrap.appendChild(titleEl);
+    if (opts.email) titleWrap.appendChild(emailEl);
+    brand.appendChild(logo);
+    brand.appendChild(titleWrap);
 
-  const closeBtn = document.createElement("button");
-  closeBtn.type = "button";
-  closeBtn.className = "ov-unlock-close";
-  closeBtn.setAttribute("aria-label", "Đóng");
-  closeBtn.textContent = "×";
-  closeBtn.addEventListener("click", () => hideDropdown());
+    const closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.className = "ov-unlock-close";
+    closeBtn.setAttribute("aria-label", "Đóng");
+    closeBtn.textContent = "×";
+    closeBtn.addEventListener("click", () => {
+      if (opts.onClose) {
+        opts.onClose();
+      } else {
+        hideDropdown();
+      }
+    });
 
-  head.appendChild(brand);
-  head.appendChild(closeBtn);
-  box.appendChild(head);
+    head.appendChild(brand);
+    head.appendChild(closeBtn);
+    box.appendChild(head);
+  }
 
   const bodySlot = document.createElement("div");
   bodySlot.style.cssText = "display:flex;flex-direction:column;gap:8px;";
   box.appendChild(bodySlot);
 
   async function onUnlockSucceeded(): Promise<void> {
-    showToast("Đã mở khóa OpenVault");
-    try {
-      const refreshed = (await chrome.runtime.sendMessage({
-        type: "GET_AUTOFILL_CONTEXT",
-        url: window.location.href,
-        fieldKind: ctx.fieldKind,
-      })) as BgResponse<AutofillContextResponse>;
-      if (refreshed?.ok && !refreshed.data.disabled) {
-        if (input.maxLength !== 1) {
-          showInlineTriggerForContext(input, refreshed.data);
-        }
-        showDropdownForContext(input, refreshed.data, false);
-        return;
-      }
-    } catch {
-      // Fallback
-    }
-    hideDropdown();
+    await opts.onUnlocked();
   }
 
   function renderBody(shouldFocus: boolean): void {
@@ -1279,8 +1495,44 @@ function buildInlineUnlockPanel(
     }
   }
 
-  renderBody(autoFocusField);
+  renderBody(opts.autoFocusField);
   return box;
+}
+
+function buildInlineUnlockPanel(
+  input: HTMLInputElement,
+  ctx: AutofillContextResponse,
+  autoFocusField: boolean,
+): HTMLDivElement {
+  return createUnlockWidget({
+    hasAccount: ctx.hasAccount,
+    email: ctx.email,
+    pinAvailableNow: ctx.pinAvailableNow,
+    pinLength: ctx.pinLength,
+    autoFocusField,
+    showHeader: true,
+    onClose: () => hideDropdown(),
+    onUnlocked: async () => {
+      showToast("Đã mở khóa OpenVault");
+      try {
+        const refreshed = (await chrome.runtime.sendMessage({
+          type: "GET_AUTOFILL_CONTEXT",
+          url: window.location.href,
+          fieldKind: ctx.fieldKind,
+        })) as BgResponse<AutofillContextResponse>;
+        if (refreshed?.ok && !refreshed.data.disabled) {
+          if (input.maxLength !== 1) {
+            showInlineTriggerForContext(input, refreshed.data);
+          }
+          showDropdownForContext(input, refreshed.data, false);
+          return;
+        }
+      } catch {
+        // Fallback
+      }
+      hideDropdown();
+    },
+  });
 }
 
 function hideTrigger(): void {
@@ -1823,14 +2075,501 @@ function captureFormSubmission(form: HTMLFormElement): void {
     .catch(() => undefined);
 }
 
+// --- WebAuthn / Passkeys Bridge (ISOLATED <-> MAIN) & 1Password Slide-3 Prompt ---
+
+function postWebAuthnResponse(payload: SerializedWebAuthnResponse): void {
+  const envelope: WebAuthnBridgeResponseEnvelope = {
+    channel: WEBAUTHN_BRIDGE_CHANNEL,
+    direction: "isolated-to-main",
+    payload,
+  };
+  const targetOrigin =
+    window.location.origin && window.location.origin !== "null" ? window.location.origin : "*";
+  window.postMessage(envelope, targetOrigin);
+}
+
+function createPasskeyGlyphSvg(): SVGSVGElement {
+  const svgNS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNS, "svg");
+  svg.setAttribute("width", "14");
+  svg.setAttribute("height", "14");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "#ffffff");
+  svg.setAttribute("stroke-width", "2.1");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+
+  const head = document.createElementNS(svgNS, "circle");
+  head.setAttribute("cx", "9");
+  head.setAttribute("cy", "7");
+  head.setAttribute("r", "3.5");
+  const body = document.createElementNS(svgNS, "path");
+  body.setAttribute("d", "M3 19c0-3 2.7-5 6-5s6 2 6 5");
+  const keyRing = document.createElementNS(svgNS, "circle");
+  keyRing.setAttribute("cx", "18");
+  keyRing.setAttribute("cy", "11");
+  keyRing.setAttribute("r", "2.5");
+  const keyStem = document.createElementNS(svgNS, "path");
+  keyStem.setAttribute("d", "M18 13.5V19l2-1.5");
+
+  svg.appendChild(head);
+  svg.appendChild(body);
+  svg.appendChild(keyRing);
+  svg.appendChild(keyStem);
+  return svg;
+}
+
+function createHardwareKeySvg(): SVGSVGElement {
+  const svgNS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNS, "svg");
+  svg.setAttribute("width", "15");
+  svg.setAttribute("height", "15");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "2");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+
+  const rect = document.createElementNS(svgNS, "rect");
+  rect.setAttribute("x", "6");
+  rect.setAttribute("y", "8");
+  rect.setAttribute("width", "12");
+  rect.setAttribute("height", "12");
+  rect.setAttribute("rx", "2.5");
+  const usb = document.createElementNS(svgNS, "path");
+  usb.setAttribute("d", "M9 8V4h6v4");
+  const dot = document.createElementNS(svgNS, "circle");
+  dot.setAttribute("cx", "12");
+  dot.setAttribute("cy", "14");
+  dot.setAttribute("r", "1.5");
+
+  svg.appendChild(rect);
+  svg.appendChild(usb);
+  svg.appendChild(dot);
+  return svg;
+}
+
+function removePasskeyPrompt(): void {
+  overlayRef?.container.querySelector(".ov-pk-card")?.remove();
+}
+
+function buildPasskeyCardShell(
+  titleText: string,
+  rpId: string,
+  onFallback: () => void,
+  onCancel: () => void,
+): { card: HTMLDivElement; body: HTMLDivElement; errBox: HTMLDivElement } {
+  const { container } = ensureOverlay();
+  removePasskeyPrompt();
+
+  const card = document.createElement("div");
+  card.className = "ov-pk-card";
+  card.setAttribute("role", "dialog");
+  card.setAttribute("aria-label", titleText);
+
+  const head = document.createElement("div");
+  head.className = "ov-pk-head";
+
+  const brand = document.createElement("div");
+  brand.className = "ov-pk-brand";
+  const logo = document.createElement("div");
+  logo.className = "ov-pk-logo";
+  logo.appendChild(createKeyholeSvg(13));
+  const title = document.createElement("div");
+  title.className = "ov-pk-title";
+  title.textContent = titleText;
+  brand.appendChild(logo);
+  brand.appendChild(title);
+
+  const actions = document.createElement("div");
+  actions.className = "ov-pk-head-actions";
+
+  const hwBtn = document.createElement("button");
+  hwBtn.type = "button";
+  hwBtn.className = "ov-pk-icon-btn";
+  hwBtn.title = "Dùng trình duyệt / khóa bảo mật thiết bị";
+  hwBtn.setAttribute("aria-label", "Dùng trình duyệt / thiết bị");
+  hwBtn.appendChild(createHardwareKeySvg());
+  hwBtn.addEventListener("click", onFallback);
+
+  const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
+  closeBtn.className = "ov-pk-icon-btn";
+  closeBtn.title = "Hủy";
+  closeBtn.setAttribute("aria-label", "Hủy");
+  closeBtn.textContent = "×";
+  closeBtn.addEventListener("click", onCancel);
+
+  actions.appendChild(hwBtn);
+  actions.appendChild(closeBtn);
+  head.appendChild(brand);
+  head.appendChild(actions);
+
+  const body = document.createElement("div");
+  body.style.cssText = "display:flex;flex-direction:column;gap:8px;";
+
+  const errBox = document.createElement("div");
+  errBox.className = "ov-pk-err";
+  errBox.style.display = "none";
+
+  const footer = document.createElement("div");
+  footer.className = "ov-pk-footer";
+  const domainEl = document.createElement("span");
+  domainEl.className = "ov-pk-domain";
+  domainEl.textContent = rpId;
+  const fallbackLink = document.createElement("button");
+  fallbackLink.type = "button";
+  fallbackLink.className = "ov-pk-fallback-link";
+  fallbackLink.textContent = "Dùng trình duyệt / thiết bị";
+  fallbackLink.addEventListener("click", onFallback);
+  footer.appendChild(domainEl);
+  footer.appendChild(fallbackLink);
+
+  card.appendChild(head);
+  card.appendChild(body);
+  card.appendChild(errBox);
+  card.appendChild(footer);
+  container.appendChild(card);
+
+  return { card, body, errBox };
+}
+
+async function handleWebAuthnCreate(req: SerializedCreateRequest): Promise<void> {
+  const prepareRes = (await chrome.runtime
+    .sendMessage({
+      type: "PASSKEY_PREPARE_CREATE",
+      origin: req.origin,
+      rpId: req.rpId,
+      excludeCredentialIds: req.excludeCredentialIds,
+    })
+    .catch(() => null)) as BgResponse<PasskeyPrepareCreateResponse> | null;
+
+  if (
+    !prepareRes?.ok ||
+    !prepareRes.data.enabled ||
+    !prepareRes.data.validOrigin ||
+    !prepareRes.data.hasAccount
+  ) {
+    postWebAuthnResponse({ requestId: req.requestId, action: "fallback" });
+    return;
+  }
+
+  let settled = false;
+  const finish = (response: SerializedWebAuthnResponse) => {
+    if (settled) return;
+    settled = true;
+    removePasskeyPrompt();
+    postWebAuthnResponse(response);
+  };
+
+  const renderState = (prep: PasskeyPrepareCreateResponse) => {
+    const { body, errBox } = buildPasskeyCardShell(
+      "Lưu mã khóa (Passkey)",
+      req.rpId,
+      () => finish({ requestId: req.requestId, action: "fallback" }),
+      () => finish({ requestId: req.requestId, action: "cancel", reason: "Người dùng đã hủy" }),
+    );
+
+    if (!prep.unlocked) {
+      const unlockWidget = createUnlockWidget({
+        hasAccount: prep.hasAccount,
+        email: prep.email,
+        pinAvailableNow: prep.pinAvailableNow,
+        pinLength: prep.pinLength,
+        autoFocusField: true,
+        showHeader: false,
+        onUnlocked: async () => {
+          showToast("Đã mở khóa OpenVault");
+          const next = (await chrome.runtime
+            .sendMessage({
+              type: "PASSKEY_PREPARE_CREATE",
+              origin: req.origin,
+              rpId: req.rpId,
+              excludeCredentialIds: req.excludeCredentialIds,
+            })
+            .catch(() => null)) as BgResponse<PasskeyPrepareCreateResponse> | null;
+          if (!next?.ok || !next.data.unlocked) {
+            finish({ requestId: req.requestId, action: "fallback" });
+            return;
+          }
+          renderState(next.data);
+        },
+      });
+      body.appendChild(unlockWidget);
+      return;
+    }
+
+    if (prep.alreadyExcluded) {
+      const warn = document.createElement("div");
+      warn.className = "ov-pk-warn";
+      warn.textContent =
+        "Trang web báo đã có mã khóa tương tự trong OpenVault. Bạn vẫn có thể lưu mã khóa mới hoặc chuyển sang thiết bị khác.";
+      body.appendChild(warn);
+    }
+
+    const row = document.createElement("div");
+    row.className = "ov-pk-row";
+
+    const siteIcon = document.createElement("div");
+    siteIcon.className = "ov-pk-site-icon";
+    siteIcon.textContent = (req.rpName.trim()[0] || req.rpId[0] || "P").toUpperCase();
+
+    const meta = document.createElement("div");
+    meta.className = "ov-pk-meta";
+    const rpEl = document.createElement("div");
+    rpEl.className = "ov-pk-rp";
+    rpEl.textContent = req.rpName || req.rpId;
+    const userEl = document.createElement("div");
+    userEl.className = "ov-pk-user";
+    userEl.textContent = req.userName || req.userDisplayName || req.rpId;
+    meta.appendChild(rpEl);
+    meta.appendChild(userEl);
+
+    const saveBtn = document.createElement("button");
+    saveBtn.type = "button";
+    saveBtn.className = "ov-pk-btn";
+    saveBtn.appendChild(createPasskeyGlyphSvg());
+    const btnText = document.createElement("span");
+    btnText.textContent = "Lưu mã khóa";
+    saveBtn.appendChild(btnText);
+
+    saveBtn.addEventListener("click", () => {
+      saveBtn.disabled = true;
+      btnText.textContent = "Đang tạo...";
+      errBox.style.display = "none";
+
+      void (async () => {
+        const execRes = (await chrome.runtime
+          .sendMessage({
+            type: "PASSKEY_EXECUTE_CREATE",
+            origin: req.origin,
+            rpId: req.rpId,
+            rpName: req.rpName,
+            challengeB64Url: req.challengeB64Url,
+            userIdB64Url: req.userIdB64Url,
+            userName: req.userName,
+            userDisplayName: req.userDisplayName,
+            discoverable: req.discoverable,
+          })
+          .catch(() => null)) as BgResponse<SerializedCreateResponseData> | null;
+
+        if (execRes?.ok) {
+          showToast(`Đã lưu mã khóa cho ${req.rpName || req.rpId}`);
+          finish({
+            requestId: req.requestId,
+            action: "ok",
+            kind: "create",
+            data: execRes.data,
+          });
+          return;
+        }
+        saveBtn.disabled = false;
+        btnText.textContent = "Lưu mã khóa";
+        errBox.textContent = execRes?.error || "Không thể tạo mã khóa Passkey.";
+        errBox.style.display = "block";
+      })();
+    });
+
+    row.appendChild(siteIcon);
+    row.appendChild(meta);
+    row.appendChild(saveBtn);
+    body.appendChild(row);
+  };
+
+  renderState(prepareRes.data);
+}
+
+async function handleWebAuthnGet(req: SerializedGetRequest): Promise<void> {
+  const prepareRes = (await chrome.runtime
+    .sendMessage({
+      type: "PASSKEY_PREPARE_GET",
+      origin: req.origin,
+      rpId: req.rpId,
+      allowCredentialIds: req.allowCredentialIds,
+    })
+    .catch(() => null)) as BgResponse<PasskeyPrepareGetResponse> | null;
+
+  if (
+    !prepareRes?.ok ||
+    !prepareRes.data.enabled ||
+    !prepareRes.data.validOrigin ||
+    !prepareRes.data.hasAccount
+  ) {
+    postWebAuthnResponse({ requestId: req.requestId, action: "fallback" });
+    return;
+  }
+
+  // Zero interruption when vault is already unlocked and no passkey matches this RP ID
+  if (prepareRes.data.unlocked && prepareRes.data.matches.length === 0) {
+    postWebAuthnResponse({ requestId: req.requestId, action: "fallback" });
+    return;
+  }
+
+  let settled = false;
+  const finish = (response: SerializedWebAuthnResponse) => {
+    if (settled) return;
+    settled = true;
+    removePasskeyPrompt();
+    postWebAuthnResponse(response);
+  };
+
+  const renderState = (prep: PasskeyPrepareGetResponse) => {
+    if (prep.unlocked && prep.matches.length === 0) {
+      finish({ requestId: req.requestId, action: "fallback" });
+      return;
+    }
+
+    const { body, errBox } = buildPasskeyCardShell(
+      "Đăng nhập bằng mã khóa",
+      req.rpId,
+      () => finish({ requestId: req.requestId, action: "fallback" }),
+      () => finish({ requestId: req.requestId, action: "cancel", reason: "Người dùng đã hủy" }),
+    );
+
+    if (!prep.unlocked) {
+      const unlockWidget = createUnlockWidget({
+        hasAccount: prep.hasAccount,
+        email: prep.email,
+        pinAvailableNow: prep.pinAvailableNow,
+        pinLength: prep.pinLength,
+        autoFocusField: true,
+        showHeader: false,
+        onUnlocked: async () => {
+          showToast("Đã mở khóa OpenVault");
+          const next = (await chrome.runtime
+            .sendMessage({
+              type: "PASSKEY_PREPARE_GET",
+              origin: req.origin,
+              rpId: req.rpId,
+              allowCredentialIds: req.allowCredentialIds,
+            })
+            .catch(() => null)) as BgResponse<PasskeyPrepareGetResponse> | null;
+          if (!next?.ok || !next.data.unlocked || next.data.matches.length === 0) {
+            finish({ requestId: req.requestId, action: "fallback" });
+            return;
+          }
+          renderState(next.data);
+        },
+      });
+      body.appendChild(unlockWidget);
+      return;
+    }
+
+    const list = document.createElement("div");
+    list.className = "ov-pk-list";
+
+    for (const match of prep.matches) {
+      const row = document.createElement("div");
+      row.className = "ov-pk-row";
+
+      const siteIcon = document.createElement("div");
+      siteIcon.className = "ov-pk-site-icon";
+      siteIcon.textContent = (match.cipherName.trim()[0] || match.rpId[0] || "P").toUpperCase();
+
+      const meta = document.createElement("div");
+      meta.className = "ov-pk-meta";
+      const rpEl = document.createElement("div");
+      rpEl.className = "ov-pk-rp";
+      rpEl.textContent = match.cipherName || match.rpName || match.rpId;
+      const userEl = document.createElement("div");
+      userEl.className = "ov-pk-user";
+      userEl.textContent = match.userName || match.userDisplayName || match.rpId;
+      meta.appendChild(rpEl);
+      meta.appendChild(userEl);
+
+      const signInBtn = document.createElement("button");
+      signInBtn.type = "button";
+      signInBtn.className = "ov-pk-btn";
+      signInBtn.appendChild(createPasskeyGlyphSvg());
+      const btnText = document.createElement("span");
+      btnText.textContent = "Đăng nhập";
+      signInBtn.appendChild(btnText);
+
+      signInBtn.addEventListener("click", () => {
+        signInBtn.disabled = true;
+        btnText.textContent = "Đang ký...";
+        errBox.style.display = "none";
+
+        void (async () => {
+          const execRes = (await chrome.runtime
+            .sendMessage({
+              type: "PASSKEY_EXECUTE_GET",
+              origin: req.origin,
+              rpId: req.rpId,
+              challengeB64Url: req.challengeB64Url,
+              cipherId: match.cipherId,
+              credentialId: match.credentialId,
+            })
+            .catch(() => null)) as BgResponse<SerializedGetResponseData> | null;
+
+          if (execRes?.ok) {
+            showToast(`Đã xác thực Passkey cho ${match.cipherName || match.rpId}`);
+            finish({
+              requestId: req.requestId,
+              action: "ok",
+              kind: "get",
+              data: execRes.data,
+            });
+            return;
+          }
+          signInBtn.disabled = false;
+          btnText.textContent = "Đăng nhập";
+          errBox.textContent = execRes?.error || "Không thể ký xác thực Passkey.";
+          errBox.style.display = "block";
+        })();
+      });
+
+      row.appendChild(siteIcon);
+      row.appendChild(meta);
+      row.appendChild(signInBtn);
+      list.appendChild(row);
+    }
+
+    body.appendChild(list);
+  };
+
+  renderState(prepareRes.data);
+}
+
+// Register WebAuthn bridge synchronously at document_start before page scripts run
+window.addEventListener("message", (event: MessageEvent) => {
+  if (event.source !== window) return;
+  const msg = event.data as Partial<WebAuthnBridgeRequestEnvelope> | null | undefined;
+  if (
+    !msg ||
+    msg.channel !== WEBAUTHN_BRIDGE_CHANNEL ||
+    msg.direction !== "main-to-isolated" ||
+    !msg.payload
+  ) {
+    return;
+  }
+  const req = msg.payload as SerializedWebAuthnRequest;
+  if (req.kind === "create") {
+    void handleWebAuthnCreate(req);
+  } else if (req.kind === "get") {
+    void handleWebAuthnGet(req);
+  }
+});
+
 // --- Initialization & Listeners ---
 
-bindCandidateInputs();
+function initDomAutofillObservers(): void {
+  bindCandidateInputs();
+  if (document.documentElement) {
+    const observer = new MutationObserver(() => {
+      scheduleScan();
+    });
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+  }
+}
 
-const observer = new MutationObserver(() => {
-  scheduleScan();
-});
-observer.observe(document.documentElement, { childList: true, subtree: true });
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initDomAutofillObservers, { once: true });
+} else {
+  initDomAutofillObservers();
+}
 
 window.addEventListener(
   "scroll",

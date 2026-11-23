@@ -40,6 +40,13 @@
             android:taskAffinity=""
             android:theme="@style/Theme.OpenVault.Dialog" />
 
+        <activity
+            android:name=".service.passkey.PasskeyAuthActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:taskAffinity=""
+            android:theme="@style/Theme.OpenVault.Dialog" />
+
         <service
             android:name=".service.autofill.VaultAutofillService"
             android:exported="true"
@@ -51,6 +58,20 @@
             <meta-data
                 android:name="android.autofill"
                 android:resource="@xml/autofill_service_config" />
+        </service>
+
+        <service
+            android:name=".service.passkey.VaultCredentialProviderService"
+            android:enabled="true"
+            android:exported="true"
+            android:label="@string/credential_provider_label"
+            android:permission="android.permission.BIND_CREDENTIAL_PROVIDER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.credentials.CredentialProviderService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.credentials.provider"
+                android:resource="@xml/credential_provider_config" />
         </service>
     </application>
 </manifest>

@@ -39,6 +39,8 @@ export const DEFAULT_SETTINGS = {
   autofillBasicAuth: true,
   autosuggestPassword: true,
   autoCopyGeneratedPassword: false,
+  passkeySaveEnabled: true,
+  passkeyAuthEnabled: true,
   defaultBrowserPasswordManager: false,
   promptSaveCredentials: true,
   showFavicons: true,

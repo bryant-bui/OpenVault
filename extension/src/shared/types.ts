@@ -38,6 +38,10 @@ export interface ExtensionSettings {
   autosuggestPassword: boolean;
   autoCopyGeneratedPassword: boolean;
 
+  // Passkeys (WebAuthn / FIDO2)
+  passkeySaveEnabled: boolean;
+  passkeyAuthEnabled: boolean;
+
   // Browser integration
   defaultBrowserPasswordManager: boolean;
 
@@ -234,6 +238,37 @@ export type BgRequest =
   | { type: "CAPTURE_LOGIN_SUBMIT"; payload: Omit<PendingSaveCredential, "detectedAt"> }
   | { type: "DISMISS_PENDING_SAVE" }
   | { type: "SAVE_PENDING_CREDENTIAL" }
+  | {
+      type: "PASSKEY_PREPARE_CREATE";
+      origin: string;
+      rpId: string;
+      excludeCredentialIds: string[];
+    }
+  | {
+      type: "PASSKEY_EXECUTE_CREATE";
+      origin: string;
+      rpId: string;
+      rpName: string;
+      challengeB64Url: string;
+      userIdB64Url: string;
+      userName: string;
+      userDisplayName: string;
+      discoverable: boolean;
+    }
+  | {
+      type: "PASSKEY_PREPARE_GET";
+      origin: string;
+      rpId: string;
+      allowCredentialIds: string[];
+    }
+  | {
+      type: "PASSKEY_EXECUTE_GET";
+      origin: string;
+      rpId: string;
+      challengeB64Url: string;
+      cipherId: string;
+      credentialId: string;
+    }
   | { type: "TOUCH_ACTIVITY" };
 
 export type BgResponse<T = unknown> =

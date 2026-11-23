@@ -3,7 +3,10 @@ import {
   DEFAULT_ARGON2ID_CONFIG,
   MAX_PIN_ATTEMPTS,
   base64ToBytes,
+  base64UrlToBytes,
   bytesToBase64,
+  bytesToBase64Url,
+  createPasskeyCredential,
   decryptCipher,
   decryptFolder,
   decryptString,
@@ -18,11 +21,14 @@ import {
   prepareUniversalVaultImport,
   protectSymmetricKey,
   protectUserKeyWithPin,
+  signPasskeyAssertion,
   splitSymmetricKey,
   stretchMasterKey,
   unprotectSymmetricKey,
   unprotectUserKeyWithPin,
+  utf8ToBytes,
   type CipherPayload,
+  type Fido2Credential,
   type PinProtectedRecord,
   type SymmetricKey,
 } from "@openvault/crypto-core";
@@ -57,6 +63,14 @@ import {
   SESSION_KEYS,
 } from "../shared/constants.js";
 import { findMatchingLogins } from "../shared/domain-match.js";
+import {
+  isValidRpIdForOrigin,
+  type PasskeyMatchSummary,
+  type PasskeyPrepareCreateResponse,
+  type PasskeyPrepareGetResponse,
+  type SerializedCreateResponseData,
+  type SerializedGetResponseData,
+} from "../shared/passkey-bridge.js";
 import type {
   AutofillContextResponse,
   BgRequest,
@@ -569,6 +583,51 @@ async function autofillCandidateInTab(tabId: number, cipherId?: string): Promise
     itemName: target.name,
   })) as { ok?: boolean } | undefined;
   return Boolean(res?.ok ?? true);
+}
+
+function verifySenderPasskeyOrigin(
+  rpId: string,
+  claimedOrigin: string,
+  sender: chrome.runtime.MessageSender,
+): boolean {
+  if (!isValidRpIdForOrigin(rpId, claimedOrigin)) return false;
+  if (sender.url) {
+    try {
+      const senderOrigin = new URL(sender.url).origin;
+      if (senderOrigin !== claimedOrigin) return false;
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
+function findMatchingPasskeys(
+  ciphers: CipherPayload[],
+  rpId: string,
+  allowCredentialIds: string[] = [],
+): Array<{ cipher: CipherPayload; credential: Fido2Credential }> {
+  const cleanRp = rpId.trim().toLowerCase().replace(/\.$/, "");
+  const allowSet = allowCredentialIds.length > 0 ? new Set(allowCredentialIds) : null;
+  const results: Array<{ cipher: CipherPayload; credential: Fido2Credential }> = [];
+
+  for (const cipher of ciphers) {
+    if (cipher.deletedDate || cipher.type !== CipherType.Login || !cipher.id) continue;
+    const creds = cipher.login?.fido2Credentials;
+    if (!creds || creds.length === 0) continue;
+    for (const credential of creds) {
+      if (credential.rpId.trim().toLowerCase().replace(/\.$/, "") !== cleanRp) continue;
+      if (allowSet && !allowSet.has(credential.credentialId)) continue;
+      results.push({ cipher, credential });
+    }
+  }
+
+  results.sort((a, b) => {
+    const favDiff = Number(Boolean(b.cipher.favorite)) - Number(Boolean(a.cipher.favorite));
+    if (favDiff !== 0) return favDiff;
+    return (b.credential.creationDate ?? "").localeCompare(a.credential.creationDate ?? "");
+  });
+  return results;
 }
 
 // --- Message Handler ---
@@ -1334,6 +1393,252 @@ async function handleMessage(
       await syncEncryptedVaultFromServer(true);
       await refreshActiveTabBadge();
       return { ok: true, data: { saved: true } };
+    }
+
+    case "PASSKEY_PREPARE_CREATE": {
+      const [account, secrets, settings, cache, pinInfo] = await Promise.all([
+        getAccount(),
+        getSessionSecrets(),
+        getSettings(),
+        getVaultCache(),
+        getPinState(),
+      ]);
+
+      const validOrigin = verifySenderPasskeyOrigin(request.rpId, request.origin, sender);
+      const pinLocal = pinInfo.localState;
+      const pinAvailableNow = Boolean(
+        account &&
+          pinLocal &&
+          (pinLocal.requireMasterOnRestart ? pinInfo.sessionRecord : pinLocal.record) &&
+          pinLocal.failedAttempts < pinLocal.maxAttempts,
+      );
+
+      let alreadyExcluded = false;
+      if (
+        validOrigin &&
+        settings.passkeySaveEnabled &&
+        account &&
+        secrets &&
+        cache &&
+        request.excludeCredentialIds.length > 0
+      ) {
+        const key = splitSymmetricKey(base64ToBytes(secrets.userKeyB64));
+        const decrypted = await decryptVaultCache(cache, key, account.lastSyncAt);
+        const excludedMatches = findMatchingPasskeys(
+          decrypted.ciphers,
+          request.rpId,
+          request.excludeCredentialIds,
+        );
+        alreadyExcluded = excludedMatches.length > 0;
+      }
+
+      const data: PasskeyPrepareCreateResponse = {
+        enabled: settings.passkeySaveEnabled,
+        validOrigin,
+        hasAccount: Boolean(account),
+        email: account?.email ?? null,
+        unlocked: Boolean(account && secrets && cache),
+        pinAvailableNow,
+        pinLength: pinLocal?.pinLength ?? 6,
+        alreadyExcluded,
+      };
+      return { ok: true, data };
+    }
+
+    case "PASSKEY_EXECUTE_CREATE": {
+      if (!verifySenderPasskeyOrigin(request.rpId, request.origin, sender)) {
+        return { ok: false, error: "Tên miền RP ID không hợp lệ cho trang web hiện tại." };
+      }
+      const { key, account } = await getUnlockedKey();
+      const cache = (await getVaultCache()) ?? (await syncEncryptedVaultFromServer(true));
+      const decrypted = await decryptVaultCache(cache, key, account.lastSyncAt);
+
+      const cleanRpId = request.rpId.trim().toLowerCase().replace(/\.$/, "");
+      const clientDataJson = JSON.stringify({
+        type: "webauthn.create",
+        challenge: request.challengeB64Url,
+        origin: request.origin,
+        crossOrigin: false,
+      });
+
+      const created = await createPasskeyCredential({
+        rpId: cleanRpId,
+        rpName: request.rpName || cleanRpId,
+        userHandle: base64UrlToBytes(request.userIdB64Url),
+        userName: request.userName,
+        userDisplayName: request.userDisplayName || request.userName,
+        discoverable: request.discoverable,
+      });
+
+      // Attach passkey to an existing matching Login cipher if username matches, otherwise create a new Login item
+      const normalizedUser = request.userName.trim().toLowerCase();
+      const domainMatches = findMatchingLogins(decrypted.ciphers, request.origin);
+      let existingCipher: CipherPayload | undefined;
+
+      for (const m of domainMatches) {
+        const candidate = decrypted.ciphers.find((c) => c.id === m.id && !c.deletedDate);
+        if (!candidate?.login) continue;
+        const candUser = (candidate.login.username ?? "").trim().toLowerCase();
+        if (normalizedUser && candUser === normalizedUser) {
+          existingCipher = candidate;
+          break;
+        }
+      }
+
+      if (!existingCipher) {
+        existingCipher = decrypted.ciphers.find(
+          (c) =>
+            !c.deletedDate &&
+            c.type === CipherType.Login &&
+            c.login?.fido2Credentials?.some(
+              (f) =>
+                f.rpId.toLowerCase() === cleanRpId &&
+                (f.userName ?? "").trim().toLowerCase() === normalizedUser,
+            ),
+        );
+      }
+
+      if (existingCipher?.id && existingCipher.login) {
+        const existingCreds = (existingCipher.login.fido2Credentials ?? []).filter(
+          (f) =>
+            !(
+              f.rpId.toLowerCase() === cleanRpId &&
+              f.userHandle === created.credential.userHandle
+            ),
+        );
+        const updatedCipher: CipherPayload = {
+          ...existingCipher,
+          login: {
+            ...existingCipher.login,
+            username: existingCipher.login.username || request.userName,
+            fido2Credentials: [...existingCreds, created.credential],
+          },
+        };
+        const encrypted = await encryptCipher(updatedCipher, key);
+        await withValidAccessToken((url, token) =>
+          apiUpdateCipher(url, token, existingCipher.id!, encrypted),
+        );
+      } else {
+        const newCipher: CipherPayload = {
+          type: CipherType.Login,
+          name: request.rpName || cleanRpId,
+          favorite: false,
+          login: {
+            uris: [{ uri: request.origin, match: null }],
+            username: request.userName || null,
+            password: null,
+            totp: null,
+            fido2Credentials: [created.credential],
+          },
+        };
+        const encrypted = await encryptCipher(newCipher, key);
+        await withValidAccessToken((url, token) => apiCreateCipher(url, token, encrypted));
+      }
+
+      await syncEncryptedVaultFromServer(true);
+      await refreshActiveTabBadge();
+
+      const data: SerializedCreateResponseData = {
+        credentialIdB64Url: created.credential.credentialId,
+        clientDataJsonB64Url: bytesToBase64Url(utf8ToBytes(clientDataJson)),
+        attestationObjectB64Url: bytesToBase64Url(created.attestationObject),
+        authenticatorDataB64Url: bytesToBase64Url(created.authenticatorData),
+        publicKeySpkiB64Url: bytesToBase64Url(created.publicKeySpki),
+      };
+      return { ok: true, data };
+    }
+
+    case "PASSKEY_PREPARE_GET": {
+      const [account, secrets, settings, cache, pinInfo] = await Promise.all([
+        getAccount(),
+        getSessionSecrets(),
+        getSettings(),
+        getVaultCache(),
+        getPinState(),
+      ]);
+
+      const validOrigin = verifySenderPasskeyOrigin(request.rpId, request.origin, sender);
+      const pinLocal = pinInfo.localState;
+      const pinAvailableNow = Boolean(
+        account &&
+          pinLocal &&
+          (pinLocal.requireMasterOnRestart ? pinInfo.sessionRecord : pinLocal.record) &&
+          pinLocal.failedAttempts < pinLocal.maxAttempts,
+      );
+
+      const matches: PasskeyMatchSummary[] = [];
+      if (validOrigin && settings.passkeyAuthEnabled && account && secrets && cache) {
+        const key = splitSymmetricKey(base64ToBytes(secrets.userKeyB64));
+        const decrypted = await decryptVaultCache(cache, key, account.lastSyncAt);
+        const found = findMatchingPasskeys(
+          decrypted.ciphers,
+          request.rpId,
+          request.allowCredentialIds,
+        );
+        for (const { cipher, credential } of found) {
+          matches.push({
+            cipherId: cipher.id!,
+            cipherName: cipher.name,
+            credentialId: credential.credentialId,
+            rpId: credential.rpId,
+            rpName: credential.rpName || cipher.name,
+            userName: credential.userName || cipher.login?.username || "",
+            userDisplayName: credential.userDisplayName || credential.userName || cipher.name,
+          });
+        }
+      }
+
+      const data: PasskeyPrepareGetResponse = {
+        enabled: settings.passkeyAuthEnabled,
+        validOrigin,
+        hasAccount: Boolean(account),
+        email: account?.email ?? null,
+        unlocked: Boolean(account && secrets && cache),
+        pinAvailableNow,
+        pinLength: pinLocal?.pinLength ?? 6,
+        matches,
+      };
+      return { ok: true, data };
+    }
+
+    case "PASSKEY_EXECUTE_GET": {
+      if (!verifySenderPasskeyOrigin(request.rpId, request.origin, sender)) {
+        return { ok: false, error: "Tên miền RP ID không hợp lệ cho trang web hiện tại." };
+      }
+      const { key, account } = await getUnlockedKey();
+      const cache = (await getVaultCache()) ?? (await syncEncryptedVaultFromServer(true));
+      const decrypted = await decryptVaultCache(cache, key, account.lastSyncAt);
+
+      const cleanRpId = request.rpId.trim().toLowerCase().replace(/\.$/, "");
+      const cipher = decrypted.ciphers.find(
+        (c) => c.id === request.cipherId && !c.deletedDate && c.type === CipherType.Login,
+      );
+      const credential = cipher?.login?.fido2Credentials?.find(
+        (f) =>
+          f.credentialId === request.credentialId &&
+          f.rpId.trim().toLowerCase().replace(/\.$/, "") === cleanRpId,
+      );
+
+      if (!credential) {
+        return { ok: false, error: "Không tìm thấy mã khóa (Passkey) khớp trong kho." };
+      }
+
+      const clientDataJson = JSON.stringify({
+        type: "webauthn.get",
+        challenge: request.challengeB64Url,
+        origin: request.origin,
+        crossOrigin: false,
+      });
+
+      const signed = await signPasskeyAssertion(credential, utf8ToBytes(clientDataJson));
+      const data: SerializedGetResponseData = {
+        credentialIdB64Url: credential.credentialId,
+        clientDataJsonB64Url: bytesToBase64Url(utf8ToBytes(clientDataJson)),
+        authenticatorDataB64Url: bytesToBase64Url(signed.authenticatorData),
+        signatureDerB64Url: bytesToBase64Url(signed.signatureDer),
+        userHandleB64Url: credential.userHandle || null,
+      };
+      return { ok: true, data };
     }
 
     case "TOUCH_ACTIVITY": {

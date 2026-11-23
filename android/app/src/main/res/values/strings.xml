@@ -2,4 +2,5 @@
 <resources>
     <string name="app_name">OpenVault</string>
     <string name="autofill_service_label">OpenVault — Trình điền mật khẩu</string>
+    <string name="credential_provider_label">OpenVault — Passkeys &amp; Mật khẩu</string>
 </resources>
