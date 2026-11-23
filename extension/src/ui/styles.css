@@ -397,6 +397,139 @@ dialog.ov-dialog::backdrop {
   border: 0;
 }
 
+/* --- Atmospheric PIN Unlock Screen (Proton Pass x OpenVault Cobalt) --- */
+.ov-unlock-canvas {
+  position: relative;
+  overflow: hidden;
+  background: light-dark(
+    radial-gradient(110% 72% at 50% -10%, rgba(5, 114, 236, 0.14) 0%, #f7f8fa 58%, #f1f4f9 100%),
+    radial-gradient(110% 72% at 50% -10%, rgba(79, 134, 255, 0.24) 0%, #151722 52%, #11131d 100%)
+  );
+}
+
+.ov-unlock-emblem {
+  position: absolute;
+  top: -78px;
+  left: 50%;
+  transform: translateX(-50%) rotate(45deg);
+  width: 152px;
+  height: 152px;
+  border-radius: 34px;
+  background: light-dark(
+    linear-gradient(135deg, #0a84ff 0%, #6366f1 55%, #93c5fd 100%),
+    linear-gradient(135deg, #2563eb 0%, #7c3aed 52%, #a5b4fc 100%)
+  );
+  box-shadow: light-dark(
+    0 18px 48px rgba(5, 114, 236, 0.25),
+    0 22px 58px rgba(99, 102, 241, 0.34)
+  );
+  pointer-events: none;
+  opacity: light-dark(0.92, 0.95);
+}
+
+.ov-pin-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: text;
+}
+
+.ov-pin-native-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: text;
+  z-index: 2;
+  font-size: 16px;
+}
+
+.ov-pin-slots {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.ov-pin-gap {
+  width: 10px;
+}
+
+.ov-pin-slot {
+  width: 42px;
+  height: 48px;
+  border-radius: 12px;
+  border: 1.5px solid light-dark(#d4dde9, #2b3044);
+  background: light-dark(rgba(255, 255, 255, 0.92), rgba(30, 33, 47, 0.86));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 130ms ease, box-shadow 130ms ease, background 130ms ease, transform 120ms ease;
+}
+
+.ov-pin-slot[data-active="true"] {
+  border-color: light-dark(#0572ec, #818cf8);
+  background: light-dark(#ffffff, rgba(36, 40, 58, 0.96));
+  box-shadow: light-dark(
+    0 0 0 3px rgba(5, 114, 236, 0.2),
+    0 0 0 3px rgba(129, 140, 248, 0.28)
+  );
+}
+
+.ov-pin-slot[data-filled="true"] {
+  border-color: light-dark(#94bfff, #434b6b);
+}
+
+.ov-pin-slot[data-error="true"] {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 2.5px var(--danger-soft);
+}
+
+.ov-pin-slot[data-loading="true"] {
+  border-color: light-dark(#0572ec, #818cf8);
+  opacity: 0.78;
+}
+
+.ov-pin-caret {
+  width: 1.5px;
+  height: 20px;
+  border-radius: 999px;
+  background: light-dark(#0a1a33, #f1f5f9);
+  animation: ovCaretBlink 1s steps(1, end) infinite;
+}
+
+.ov-pin-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: light-dark(#0a1a33, #f8fafc);
+  animation: ovDotPop 120ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.ov-pin-shake {
+  animation: ovShake 340ms cubic-bezier(0.36, 0.07, 0.19, 0.97);
+}
+
+@keyframes ovCaretBlink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+@keyframes ovDotPop {
+  from { transform: scale(0.45); opacity: 0.35; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+@keyframes ovShake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-7px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-5px); }
+  80% { transform: translateX(3px); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

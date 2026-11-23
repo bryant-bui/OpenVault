@@ -609,6 +609,7 @@ async function handleMessage(
         pinRequireMasterOnRestart: pinState?.requireMasterOnRestart ?? true,
         pinRemainingAttempts: remainingAttempts,
         pinMaxAttempts: pinState?.maxAttempts ?? settings.pinMaxAttempts,
+        pinLength: pinState?.pinLength ?? 6,
       };
       return { ok: true, data };
     }
@@ -815,6 +816,7 @@ async function handleMessage(
         requireMasterOnRestart: request.requireMasterOnRestart,
         failedAttempts: 0,
         maxAttempts,
+        pinLength: request.pin.length,
       };
       await chrome.storage.local.set({ [LOCAL_KEYS.PIN_LOCAL]: nextLocalState });
       if (request.requireMasterOnRestart) {
@@ -873,10 +875,14 @@ async function handleMessage(
         };
       }
 
-      // Reset failure counter on success
-      if (localState.failedAttempts > 0) {
+      // Reset failure counter & remember PIN length on success (for seamless auto-unlock)
+      if (localState.failedAttempts > 0 || localState.pinLength !== request.pin.length) {
         await chrome.storage.local.set({
-          [LOCAL_KEYS.PIN_LOCAL]: { ...localState, failedAttempts: 0 },
+          [LOCAL_KEYS.PIN_LOCAL]: {
+            ...localState,
+            failedAttempts: 0,
+            pinLength: request.pin.length,
+          },
         });
       }
 

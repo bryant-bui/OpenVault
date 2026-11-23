@@ -496,7 +496,7 @@ export function SettingsScreen({
                     type="password"
                     inputMode="numeric"
                     className="ov-input font-mono-code text-[12.5px]"
-                    placeholder="Mã PIN (≥ 4 số)"
+                    placeholder="Mã PIN (khuyên dùng 6 số)"
                     value={pinValue}
                     onChange={(e) => setPinValue(e.target.value)}
                     required

@@ -75,6 +75,7 @@ export function App() {
     pinRequireMasterOnRestart: true,
     pinRemainingAttempts: 5,
     pinMaxAttempts: 5,
+    pinLength: 6,
   });
 
   const [ciphers, setCiphers] = useState<CipherPayload[]>([]);
@@ -403,17 +404,16 @@ export function App() {
   if (!status.unlocked) {
     return (
       <div className="flex-1 flex flex-col bg-[var(--bg)] overflow-hidden">
-        <div className="flex-1 flex flex-col max-w-[390px] w-full mx-auto min-h-0">
-          <UnlockScreen
-            email={status.email ?? ""}
-            serverUrl={status.serverUrl}
-            pinEnabled={status.pinEnabled}
-            pinAvailableNow={status.pinAvailableNow}
-            pinRemainingAttempts={status.pinRemainingAttempts}
-            onUnlocked={loadStatus}
-            onLoggedOut={loadStatus}
-          />
-        </div>
+        <UnlockScreen
+          email={status.email ?? ""}
+          serverUrl={status.serverUrl}
+          pinEnabled={status.pinEnabled}
+          pinAvailableNow={status.pinAvailableNow}
+          pinRemainingAttempts={status.pinRemainingAttempts}
+          pinLength={status.pinLength}
+          onUnlocked={loadStatus}
+          onLoggedOut={loadStatus}
+        />
         <Toast toast={toast} onDismiss={() => setToast(null)} />
       </div>
     );

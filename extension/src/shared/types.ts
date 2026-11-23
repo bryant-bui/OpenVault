@@ -16,6 +16,8 @@ export interface StoredPinState {
   requireMasterOnRestart: boolean;
   failedAttempts: number;
   maxAttempts: number;
+  /** Length of the user's PIN (e.g., 6) so the segmented PIN box auto-unlocks on the final digit */
+  pinLength?: number;
 }
 
 export interface ExtensionSettings {
@@ -170,6 +172,7 @@ export interface VaultStatusResponse {
   pinRequireMasterOnRestart: boolean;
   pinRemainingAttempts: number;
   pinMaxAttempts: number;
+  pinLength: number;
 }
 
 export type BgRequest =
