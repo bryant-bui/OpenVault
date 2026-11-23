@@ -1,5 +1,7 @@
 import { CipherType } from "@openvault/crypto-core";
 import { CreditCard, FileText, UserSquare2 } from "lucide-react";
+import { useState } from "react";
+import { parseHostname } from "../../shared/domain-match.js";
 
 const PALETTE: [string, string][] = [
   ["#0A84FF", "#0455BF"],
@@ -23,24 +25,68 @@ function hashIndex(text: string): number {
 interface BrandAvatarProps {
   name: string;
   type: CipherType;
+  uri?: string | null;
+  showFavicon?: boolean;
   size?: "sm" | "md" | "lg";
+  inverted?: boolean;
 }
 
-export function BrandAvatar({ name, type, size = "md" }: BrandAvatarProps) {
-  const [from, to] = PALETTE[hashIndex(name || "O")]!;
+export function BrandAvatar({
+  name,
+  type,
+  uri,
+  showFavicon = true,
+  size = "md",
+  inverted = false,
+}: BrandAvatarProps) {
+  const [faviconFailed, setFaviconFailed] = useState(false);
+
   const dims =
     size === "sm"
-      ? "w-8 h-8 rounded-[9px] text-[13px]"
+      ? "w-7 h-7 rounded-[7px] text-[12px]"
       : size === "lg"
-        ? "w-12 h-12 rounded-[14px] text-[19px]"
-        : "w-9 h-9 rounded-[11px] text-[14px]";
+        ? "w-11 h-11 rounded-[12px] text-[18px]"
+        : "w-8 h-8 rounded-[8px] text-[13px]";
 
-  const iconSize = size === "lg" ? 20 : size === "sm" ? 15 : 17;
+  const iconSize = size === "lg" ? 20 : size === "sm" ? 14 : 16;
+  const host = type === CipherType.Login && showFavicon ? parseHostname(uri) : null;
+  const faviconUrl =
+    host && host !== "localhost" && !/^\d+\.\d+\.\d+\.\d+$/.test(host)
+      ? `https://icons.duckduckgo.com/ip3/${encodeURIComponent(host)}.ico`
+      : null;
+
+  if (faviconUrl && !faviconFailed) {
+    return (
+      <div
+        className={`${dims} shrink-0 flex items-center justify-center overflow-hidden border select-none`}
+        style={{
+          background: "#ffffff",
+          borderColor: inverted ? "rgba(255,255,255,0.35)" : "var(--border)",
+        }}
+        aria-hidden="true"
+      >
+        <img
+          src={faviconUrl}
+          alt=""
+          className={size === "lg" ? "w-7 h-7 object-contain" : "w-5 h-5 object-contain"}
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          onError={() => setFaviconFailed(true)}
+        />
+      </div>
+    );
+  }
+
+  const [from, to] = PALETTE[hashIndex(name || "O")]!;
 
   return (
     <div
-      className={`${dims} shrink-0 flex items-center justify-center font-bold text-white select-none shadow-xs`}
-      style={{ background: `linear-gradient(135deg, ${from}, ${to})` }}
+      className={`${dims} shrink-0 flex items-center justify-center font-bold text-white select-none`}
+      style={{
+        background: inverted
+          ? "rgba(255, 255, 255, 0.2)"
+          : `linear-gradient(135deg, ${from}, ${to})`,
+      }}
       aria-hidden="true"
     >
       {type === CipherType.SecureNote ? (

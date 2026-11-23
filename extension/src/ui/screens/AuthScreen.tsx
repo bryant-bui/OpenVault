@@ -90,7 +90,7 @@ export function AuthScreen({ initialServerUrl, onAuthenticated, onToast }: AuthS
       </div>
 
       {/* Mode segmented switch */}
-      <div className="grid grid-cols-2 p-1 rounded-[11px] bg-[var(--surface-elevated)] border border-[var(--border)] mb-4">
+      <div className="grid grid-cols-2 p-1 rounded-[11px] bg-[var(--surface-subtle)] border border-[var(--border)] mb-4">
         <button
           type="button"
           onClick={() => {
@@ -179,7 +179,7 @@ export function AuthScreen({ initialServerUrl, onAuthenticated, onToast }: AuthS
 
           {mode === "register" && masterPassword.length > 0 ? (
             <div className="mt-1.5 flex items-center gap-2">
-              <div className="flex-1 h-1.5 rounded-full bg-[var(--surface-elevated)] overflow-hidden">
+              <div className="flex-1 h-1.5 rounded-full bg-[var(--surface-subtle)] overflow-hidden">
                 <div
                   className="h-full rounded-full transition-all duration-200"
                   style={{

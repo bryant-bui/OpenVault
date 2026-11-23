@@ -8,6 +8,7 @@ import {
   PanelRightOpen,
   Sun,
   Upload,
+  X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -32,6 +33,7 @@ interface SettingsScreenProps {
   onLock: () => Promise<void>;
   onLogout: (allDevices: boolean) => Promise<void>;
   onOpenSidePanel: () => Promise<void>;
+  onClose?: () => void;
   onToast: (text: string, tone?: "info" | "success" | "error") => void;
 }
 
@@ -46,6 +48,7 @@ export function SettingsScreen({
   onLock,
   onLogout,
   onOpenSidePanel,
+  onClose,
   onToast,
 }: SettingsScreenProps) {
   const [schemePref, setSchemePref] = useState<ColorSchemePreference>(() =>
@@ -137,9 +140,19 @@ export function SettingsScreen({
   };
 
   return (
-    <div className="flex-1 flex flex-col min-h-0">
-      <header className="px-3.5 py-3 border-b border-[var(--border)] bg-[var(--surface)]">
-        <h1 className="text-[15px] font-bold m-0">Cài đặt OpenVault</h1>
+    <div className="flex-1 flex flex-col min-h-0 bg-[var(--bg)]">
+      <header className="px-4 py-2.5 border-b border-[var(--border)] bg-[var(--surface)] flex items-center justify-between">
+        <h2 className="text-[14px] font-bold m-0">Cài đặt OpenVault</h2>
+        {onClose ? (
+          <button
+            type="button"
+            onClick={onClose}
+            className="ov-icon-btn w-7 h-7"
+            aria-label="Đóng Cài đặt"
+          >
+            <X size={15} />
+          </button>
+        ) : null}
       </header>
 
       <div className="flex-1 overflow-y-auto ov-scroll p-3.5 flex flex-col gap-3">
@@ -181,7 +194,7 @@ export function SettingsScreen({
                   className={`py-2 px-1.5 rounded-[10px] border text-[11px] font-semibold flex flex-col items-center gap-1 cursor-pointer transition-colors ${
                     active
                       ? "bg-[var(--accent-soft)] text-[var(--accent)] border-[var(--accent-border)]"
-                      : "bg-[var(--surface-elevated)] text-[var(--text-secondary)] border-transparent"
+                      : "bg-[var(--surface-subtle)] text-[var(--text-secondary)] border-transparent"
                   }`}
                 >
                   <Icon size={14} />
@@ -219,27 +232,47 @@ export function SettingsScreen({
             </select>
           </div>
 
-          <label className="flex items-center justify-between text-[12.5px] cursor-pointer">
+          <div className="flex items-center justify-between text-[12.5px]">
             <span>Hiện gợi ý điền trực tiếp trên ô nhập</span>
-            <input
-              type="checkbox"
-              checked={settings.showInlineAutofill}
-              onChange={(e) => {
-                void onUpdateSettings({ showInlineAutofill: e.target.checked });
-              }}
-            />
-          </label>
+            <label className="ov-switch">
+              <input
+                type="checkbox"
+                checked={settings.showInlineAutofill}
+                onChange={(e) => {
+                  void onUpdateSettings({ showInlineAutofill: e.target.checked });
+                }}
+              />
+              <span className="ov-switch-track" />
+            </label>
+          </div>
 
-          <label className="flex items-center justify-between text-[12.5px] cursor-pointer">
+          <div className="flex items-center justify-between text-[12.5px]">
             <span>Gợi ý lưu khi đăng nhập tài khoản mới</span>
-            <input
-              type="checkbox"
-              checked={settings.promptSaveCredentials}
-              onChange={(e) => {
-                void onUpdateSettings({ promptSaveCredentials: e.target.checked });
-              }}
-            />
-          </label>
+            <label className="ov-switch">
+              <input
+                type="checkbox"
+                checked={settings.promptSaveCredentials}
+                onChange={(e) => {
+                  void onUpdateSettings({ promptSaveCredentials: e.target.checked });
+                }}
+              />
+              <span className="ov-switch-track" />
+            </label>
+          </div>
+
+          <div className="flex items-center justify-between text-[12.5px]">
+            <span>Hiển thị biểu tượng (favicon) website</span>
+            <label className="ov-switch">
+              <input
+                type="checkbox"
+                checked={settings.showFavicons}
+                onChange={(e) => {
+                  void onUpdateSettings({ showFavicons: e.target.checked });
+                }}
+              />
+              <span className="ov-switch-track" />
+            </label>
+          </div>
         </div>
 
         {/* Cloudflare R2 Backups & Bitwarden Import/Export */}
@@ -261,7 +294,7 @@ export function SettingsScreen({
           </button>
 
           {r2Backups.length > 0 ? (
-            <div className="rounded-[10px] bg-[var(--surface-elevated)] p-2 flex flex-col gap-1.5">
+            <div className="rounded-[10px] bg-[var(--surface-subtle)] p-2 flex flex-col gap-1.5">
               <div className="text-[10.5px] font-semibold text-[var(--text-muted)]">
                 Bản sao lưu R2 gần nhất (tự động hằng ngày 03:00 UTC)
               </div>

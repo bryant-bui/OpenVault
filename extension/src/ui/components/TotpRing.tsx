@@ -75,7 +75,7 @@ export function TotpRing({ secretOrUri, onCopy, compact = false }: TotpRingProps
       type="button"
       onClick={handleCopy}
       className={`group flex items-center justify-between w-full text-left rounded-[10px] transition-colors cursor-pointer ${
-        compact ? "gap-2.5 py-1" : "gap-3 px-2.5 py-2 hover:bg-[var(--surface-elevated)]"
+        compact ? "gap-2.5 py-1" : "gap-3 px-2.5 py-2 hover:bg-[var(--surface-subtle)]"
       }`}
       title="Bấm để sao chép mã 2FA"
     >

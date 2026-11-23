@@ -25,6 +25,7 @@ import {
   encryptFolder,
   encryptString,
   estimatePasswordStrength,
+  generatePassphrase,
   generatePassword,
   generateProtectedRsaKeyPair,
   generateTotp,
@@ -326,6 +327,10 @@ describe("@openvault/crypto-core — Vault, RSA, Generator, Passkey", () => {
     expect(pw).toHaveLength(24);
     expect(/[lIO01]/.test(pw)).toBe(false);
     expect(estimatePasswordStrength(pw).score).toBe(4);
+
+    const phrase = generatePassphrase({ wordCount: 4, separator: "-", capitalize: true, includeNumber: true });
+    expect(phrase.split("-")).toHaveLength(4);
+    expect(/\d{2}/.test(phrase)).toBe(true);
 
     const parsed = parseTotpInput("JBSW Y3DP EHPK 3PXP");
     expect(parsed.algorithm).toBe("SHA-1");

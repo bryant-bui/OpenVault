@@ -88,6 +88,56 @@ export function generatePassword(options: PasswordGeneratorOptions): string {
   return secureShuffle(chars).join("");
 }
 
+const PASSPHRASE_WORDS = [
+  "anchor", "apricot", "atlas", "aurora", "bamboo", "beacon", "berry", "bison",
+  "breeze", "bridge", "cactus", "canyon", "cedar", "cipher", "cloud", "clover",
+  "cobalt", "comet", "compass", "coral", "crane", "crystal", "cypress", "delta",
+  "dolphin", "eclipse", "ember", "emerald", "falcon", "fern", "fjord", "flame",
+  "forest", "frost", "galaxy", "garden", "glacier", "granite", "harbor", "hazel",
+  "horizon", "indigo", "island", "ivory", "jasper", "jungle", "kayak", "kestrel",
+  "lagoon", "lantern", "laurel", "lemon", "lilac", "lotus", "lunar", "magnet",
+  "mango", "maple", "marble", "meadow", "meteor", "mint", "monarch", "moss",
+  "nebula", "nectar", "nimbus", "north", "oak", "oasis", "ocean", "olive",
+  "onyx", "opal", "orbit", "orchid", "osprey", "otter", "palm", "panda",
+  "pebble", "pelican", "pepper", "phoenix", "pine", "planet", "plaza", "plum",
+  "polar", "prism", "quartz", "quiver", "radish", "raven", "reef", "ridge",
+  "river", "robin", "rocket", "ruby", "saffron", "sage", "sailor", "salmon",
+  "sapphire", "saturn", "scarlet", "sequoia", "shadow", "silver", "solstice", "sparrow",
+  "spruce", "starlight", "summit", "sunset", "timber", "topaz", "tulip", "tundra",
+  "valley", "velvet", "verbena", "violet", "voyage", "walnut", "willow", "zephyr",
+];
+
+export interface PassphraseOptions {
+  wordCount?: number;
+  separator?: string;
+  capitalize?: boolean;
+  includeNumber?: boolean;
+}
+
+export function generatePassphrase(options: PassphraseOptions = {}): string {
+  const {
+    wordCount = 4,
+    separator = "-",
+    capitalize = true,
+    includeNumber = true,
+  } = options;
+
+  const count = Math.min(Math.max(3, wordCount), 10);
+  const words: string[] = [];
+  for (let i = 0; i < count; i++) {
+    let w = PASSPHRASE_WORDS[secureRandomInt(PASSPHRASE_WORDS.length)]!;
+    if (capitalize) {
+      w = w[0]!.toUpperCase() + w.slice(1);
+    }
+    words.push(w);
+  }
+  if (includeNumber) {
+    const idx = secureRandomInt(words.length);
+    words[idx] = `${words[idx]}${secureRandomInt(90) + 10}`;
+  }
+  return words.join(separator);
+}
+
 export interface PasswordStrength {
   entropyBits: number;
   score: 0 | 1 | 2 | 3 | 4;

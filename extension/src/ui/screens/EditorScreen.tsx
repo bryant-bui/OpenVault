@@ -289,7 +289,7 @@ export function EditorScreen({
                   onChange={(e) => setTotp(e.target.value)}
                 />
                 {totp.trim().length >= 8 ? (
-                  <div className="mt-2 px-2 py-1 rounded-[10px] bg-[var(--surface-elevated)]">
+                  <div className="mt-2 px-2 py-1 rounded-[10px] bg-[var(--surface-subtle)]">
                     <TotpRing
                       secretOrUri={totp}
                       compact

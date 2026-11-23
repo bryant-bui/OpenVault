@@ -16,7 +16,7 @@ export function Toast({ toast, onDismiss }: ToastProps) {
     <div
       role="region"
       aria-label="Thông báo"
-      className="pointer-events-none fixed inset-x-3 bottom-[64px] z-50 flex justify-center"
+      className="pointer-events-none fixed inset-x-3 bottom-3 z-50 flex justify-center"
     >
       <p className="sr-only">Thông báo trạng thái OpenVault</p>
       <div aria-live="polite" className="w-full max-w-[356px]">

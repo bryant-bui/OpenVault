@@ -11,35 +11,41 @@
     color-scheme: light;
   }
 
-  /* 1Password-inspired high-craft palette via CSS light-dark() */
-  --bg: light-dark(#f4f6fa, #0d1118);
-  --surface: light-dark(#ffffff, #151b26);
-  --surface-elevated: light-dark(#eef2f7, #1d2534);
-  --surface-hover: light-dark(#e7edf6, #232d3f);
-  --border: light-dark(#dfe6f0, #263144);
-  --border-strong: light-dark(#cbd5e1, #36455f);
+  /* Authentic 1Password 8 Desktop/Extension Palette via light-dark() */
+  --bg: light-dark(#f7f8fa, #0f131a);
+  --surface: light-dark(#ffffff, #161b24);
+  --surface-subtle: light-dark(#f3f5f8, #1c2230);
+  --surface-hover: light-dark(#edf1f7, #222a3a);
+  --border: light-dark(#e5e9f0, #252e3f);
+  --border-strong: light-dark(#d0d8e4, #344158);
 
-  --text-primary: light-dark(#0f172a, #f1f5f9);
-  --text-secondary: light-dark(#52627a, #94a3b8);
-  --text-muted: light-dark(#7c8ba1, #64748b);
+  --text-primary: light-dark(#0a1a33, #f1f5f9);
+  --text-secondary: light-dark(#5b687c, #94a3b8);
+  --text-muted: light-dark(#8492a6, #69788f);
 
-  --accent: light-dark(#0572ec, #3b8bff);
-  --accent-hover: light-dark(#045dc2, #5ca0ff);
-  --accent-soft: light-dark(#e8f2ff, #172b4d);
-  --accent-border: light-dark(#bfdbfe, #224378);
+  /* Signature 1Password Brand Cobalt & Passkey Indigo */
+  --accent: light-dark(#0572ec, #2f85ff);
+  --accent-hover: light-dark(#045dc2, #529bff);
+  --accent-soft: light-dark(#ebf4ff, #172a4a);
+  --accent-border: light-dark(#bddbff, #254880);
 
-  --danger: light-dark(#dc2626, #f87171);
-  --danger-soft: light-dark(#fee2e2, #3c181d);
-  --success: light-dark(#15803d, #4ade80);
-  --success-soft: light-dark(#dcfce7, #133122);
-  --warning: light-dark(#c2410c, #fbbf24);
-  --warning-soft: light-dark(#ffedd5, #3a2711);
+  --passkey: light-dark(#7253ed, #8b6eff);
+  --passkey-soft: light-dark(#f3efff, #281f47);
 
+  /* Semantic Status (Watchtower & Strength Badges) */
+  --success: light-dark(#16a34a, #4ade80);
+  --success-soft: light-dark(#ecfdf3, #122e1f);
+  --warning: light-dark(#d97706, #fbbf24);
+  --warning-soft: light-dark(#fff7ed, #362510);
+  --danger: light-dark(#e11d48, #fb7185);
+  --danger-soft: light-dark(#fff1f2, #3c1822);
+
+  /* 1Password Password Syntax Coloring */
   --pw-digit: light-dark(#0572ec, #60a5fa);
-  --pw-symbol: light-dark(#c2410c, #fbbf24);
+  --pw-symbol: light-dark(#e04f33, #fb923c);
 
-  --scrollbar-thumb: light-dark(#94a3b8, #475569);
-  --scrollbar-track: light-dark(#edf1f7, #111722);
+  --scrollbar-thumb: light-dark(#b7c2d0, #475569);
+  --scrollbar-track: light-dark(#f4f6fa, #131822);
 }
 
 * {
@@ -50,16 +56,17 @@ html,
 body {
   margin: 0;
   padding: 0;
-  background: var(--bg);
+  background: var(--surface);
   color: var(--text-primary);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, "SF Pro Text", system-ui, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   accent-color: var(--accent);
 }
 
+/* Signature 1Password wide Master-Detail desktop extension popup */
 body[data-surface="popup"] {
-  width: 396px;
-  height: 590px;
+  width: 660px;
+  height: 496px;
   overflow: hidden;
 }
 
@@ -74,6 +81,7 @@ body[data-surface="sidepanel"] {
   height: 100%;
   display: flex;
   flex-direction: column;
+  background: var(--surface);
 }
 
 /* --- Custom Scrollbars (modern-web-guidance: customize-scrollbar-color-and-thickness) --- */
@@ -87,8 +95,8 @@ body[data-surface="sidepanel"] {
     scrollbar-width: auto;
   }
   .ov-scroll::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 7px;
+    height: 7px;
   }
   .ov-scroll::-webkit-scrollbar-thumb {
     background: var(--scrollbar-thumb);
@@ -103,12 +111,12 @@ body[data-surface="sidepanel"] {
 dialog.ov-dialog {
   padding: 0;
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: 14px;
   background: var(--surface);
   color: var(--text-primary);
   max-width: calc(100% - 32px);
-  width: 340px;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+  width: 360px;
+  box-shadow: 0 24px 60px rgba(10, 26, 51, 0.28);
 }
 
 dialog.ov-dialog[open] {
@@ -121,15 +129,15 @@ dialog.ov-dialog:modal {
 }
 
 dialog.ov-dialog::backdrop {
-  background: rgba(6, 10, 18, 0.58);
+  background: rgba(10, 20, 38, 0.45);
   backdrop-filter: blur(4px);
   overflow: hidden;
   overscroll-behavior: contain;
 }
 
-/* --- Monospace Password Highlighting (1Password signature) --- */
+/* --- Password Syntax Highlighting --- */
 .font-mono-code {
-  font-family: "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, ui-monospace, monospace;
+  font-family: "JetBrains Mono", "SF Mono", "Cascadia Code", Consolas, ui-monospace, monospace;
   font-variant-ligatures: none;
 }
 
@@ -143,20 +151,43 @@ dialog.ov-dialog::backdrop {
   font-weight: 600;
 }
 
-/* --- Reusable Surfaces & Controls --- */
+/* --- 1Password Surfaces, Inputs & Controls --- */
 .ov-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(10, 26, 51, 0.04);
+}
+
+.ov-search-input {
+  width: 100%;
+  background: var(--surface-subtle);
+  border: 1px solid transparent;
+  color: var(--text-primary);
+  border-radius: 8px;
+  padding: 6px 28px 6px 30px;
+  font-size: 13px;
+  outline: none;
+  transition: background 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.ov-search-input:focus {
+  background: var(--surface);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.ov-search-input::placeholder {
+  color: var(--text-muted);
 }
 
 .ov-input {
   width: 100%;
-  background: var(--surface-elevated);
+  background: var(--surface-subtle);
   border: 1px solid var(--border);
   color: var(--text-primary);
-  border-radius: 10px;
-  padding: 9px 12px;
+  border-radius: 8px;
+  padding: 8px 11px;
   font-size: 13px;
   outline: none;
   transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
@@ -164,7 +195,7 @@ dialog.ov-dialog::backdrop {
 
 .ov-input:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
   background: var(--surface);
 }
 
@@ -176,11 +207,11 @@ dialog.ov-dialog::backdrop {
   background: var(--accent);
   color: #ffffff;
   border: 0;
-  border-radius: 10px;
+  border-radius: 8px;
   font-weight: 600;
-  font-size: 13px;
+  font-size: 12.5px;
   cursor: pointer;
-  transition: background 140ms ease, transform 100ms ease, opacity 140ms ease;
+  transition: background 130ms ease, transform 90ms ease, opacity 130ms ease;
 }
 
 .ov-btn-primary:hover:not(:disabled) {
@@ -196,11 +227,28 @@ dialog.ov-dialog::backdrop {
   cursor: not-allowed;
 }
 
+.ov-btn-autofill {
+  background: var(--surface);
+  color: var(--accent);
+  border: 1px solid var(--accent-border);
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 130ms ease, border-color 130ms ease, color 130ms ease;
+}
+
+.ov-btn-autofill:hover:not(:disabled) {
+  background: var(--accent);
+  color: #ffffff;
+  border-color: var(--accent);
+}
+
 .ov-btn-ghost {
-  background: var(--surface-elevated);
+  background: var(--surface-subtle);
   color: var(--text-primary);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 8px;
   font-weight: 600;
   font-size: 12.5px;
   cursor: pointer;
@@ -216,7 +264,7 @@ dialog.ov-dialog::backdrop {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 9px;
+  border-radius: 8px;
   border: 1px solid transparent;
   background: transparent;
   color: var(--text-secondary);
@@ -225,8 +273,116 @@ dialog.ov-dialog::backdrop {
 }
 
 .ov-icon-btn:hover {
-  background: var(--surface-elevated);
+  background: var(--surface-subtle);
   color: var(--text-primary);
+}
+
+.ov-icon-btn[data-active="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* Signature 1Password Selected Row (Solid Cobalt Fill + Inverted White Text) */
+.ov-list-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 9px;
+  border-radius: 9px;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: background 110ms ease;
+}
+
+.ov-list-row:hover {
+  background: var(--surface-subtle);
+}
+
+.ov-list-row[data-selected="true"] {
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.ov-list-row[data-selected="true"] .ov-row-sub {
+  color: rgba(255, 255, 255, 0.84);
+}
+
+/* 1Password / Apple Pill Toggle Switch (for Generator & Settings) */
+.ov-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 36px;
+  height: 21px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.ov-switch input {
+  position: absolute;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+}
+
+.ov-switch-track {
+  width: 36px;
+  height: 21px;
+  border-radius: 999px;
+  background: var(--border-strong);
+  transition: background 160ms ease;
+  position: relative;
+}
+
+.ov-switch-track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 17px;
+  height: 17px;
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: transform 160ms cubic-bezier(0.2, 0.9, 0.3, 1.1);
+}
+
+.ov-switch input:checked + .ov-switch-track {
+  background: var(--accent);
+}
+
+.ov-switch input:checked + .ov-switch-track::after {
+  transform: translateX(15px);
+}
+
+.ov-switch input:focus-visible + .ov-switch-track {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* 1Password Detail Field Hover Row */
+.ov-detail-field {
+  padding: 10px 14px;
+  border-radius: 10px;
+  transition: background 120ms ease;
+}
+
+.ov-detail-field:hover {
+  background: var(--surface-subtle);
+}
+
+/* Elevated 1Password Generator Pop-out Strip (Slide 4) */
+.ov-gen-strip {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(10, 26, 51, 0.09);
 }
 
 .sr-only {
