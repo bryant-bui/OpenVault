@@ -1,0 +1,32 @@
+export const DEFAULT_SERVER_URL = "https://your-openvault-api.workers.dev";
+
+export const LOCAL_KEYS = {
+  ACCOUNT: "ov_account",
+  VAULT_CACHE: "ov_vault_cache",
+  SETTINGS: "ov_settings",
+  DEVICE_ID: "ov_device_id",
+} as const;
+
+export const SESSION_KEYS = {
+  SECRETS: "ov_session_secrets",
+  PENDING_SAVE: "ov_pending_save",
+} as const;
+
+export const ALARMS = {
+  AUTO_LOCK: "ov_auto_lock",
+  SYNC_POLL: "ov_sync_poll",
+} as const;
+
+export const CONTEXT_MENUS = {
+  OPEN_SIDE_PANEL: "ov_open_side_panel",
+  AUTOFILL_LOGIN: "ov_autofill_login",
+  GENERATE_PASSWORD: "ov_generate_password",
+} as const;
+
+export const DEFAULT_SETTINGS = {
+  autoLockMinutes: 15,
+  clipboardClearSeconds: 30,
+  showInlineAutofill: true,
+  promptSaveCredentials: true,
+  showFavicons: true,
+} as const;

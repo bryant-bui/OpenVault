@@ -72,12 +72,21 @@ rm .secrets.tmp.json
 
 > **Tip:** After registering your personal account, set `ALLOW_SIGNUP: bindings.text("false")` in `backend/cloudflare.config.ts` and run `cf deploy` again to lock down signup permanently.
 
+### 4. Build & load Chrome Extension (Phase 2)
+```bash
+npm run build:extension
+```
+1. Open `chrome://extensions/` in Chrome/Edge/Brave.
+2. Enable **Developer mode** (top-right).
+3. Click **Load unpacked** and select `extension/dist`.
+4. Pin **OpenVault** to your toolbar and sign in or create your personal account against your Cloudflare Worker URL.
+
 ---
 
 ## Roadmap
 
 - [x] **Phase 1:** Bitwarden Crypto Spec, Cross-Platform Test Vectors, `@openvault/crypto-core`, Cloudflare Workers + D1 + R2 Daily Backup Backend
-- [ ] **Phase 2:** Chrome Extension (Manifest V3, 1Password-inspired UI, Autofill, built-in TOTP)
+- [x] **Phase 2:** Chrome Extension (Manifest V3, 1Password-inspired UI, Autofill, built-in TOTP, Bitwarden JSON Import, R2 Backup Trigger)
 - [ ] **Phase 3:** Android App (`io.openvault.app`, Jetpack Compose Apple Glass UI, BiometricPrompt + Keystore, Offline-first Room, AutofillService, TOTP QR Scanner)
 - [ ] **Phase 4:** Cross-Platform Passkeys (WebAuthn / FIDO2 on Chrome Extension + Android 14+ `CredentialProviderService`)
 

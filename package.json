@@ -5,13 +5,16 @@
   "description": "OpenVault — Open-source zero-knowledge password manager (Bitwarden-compatible Cloudflare Workers + D1 + R2 backend, Chrome Extension MV3, Android Jetpack Compose).",
   "workspaces": [
     "packages/*",
-    "backend"
+    "backend",
+    "extension"
   ],
   "scripts": {
-    "test": "npm --workspace=@openvault/crypto-core test && npm --workspace=@openvault/backend test",
+    "test": "npm --workspace=@openvault/crypto-core test && npm --workspace=@openvault/backend test && npm --workspace=@openvault/extension test",
     "test:crypto": "npm --workspace=@openvault/crypto-core test",
     "test:backend": "npm --workspace=@openvault/backend test",
-    "typecheck": "npm --workspace=@openvault/crypto-core run typecheck && npm --workspace=@openvault/backend run typecheck"
+    "test:extension": "npm --workspace=@openvault/extension test",
+    "build:extension": "npm --workspace=@openvault/extension run build",
+    "typecheck": "npm --workspace=@openvault/crypto-core run typecheck && npm --workspace=@openvault/backend run typecheck && npm --workspace=@openvault/extension run typecheck"
   },
   "engines": {
     "node": ">=22.18.0"
