@@ -13,6 +13,7 @@ interface EditorScreenProps {
   initialCipher: CipherPayload | null;
   folders: FolderPayload[];
   currentTabUrl: string;
+  autoCopyGeneratedPassword?: boolean;
   onCancel: () => void;
   onSave: (cipher: CipherPayload) => Promise<void>;
   onCopyText: (text: string, label: string) => Promise<void>;
@@ -22,6 +23,7 @@ export function EditorScreen({
   initialCipher,
   folders,
   currentTabUrl,
+  autoCopyGeneratedPassword = false,
   onCancel,
   onSave,
   onCopyText,
@@ -60,6 +62,20 @@ export function EditorScreen({
   const [expYear, setExpYear] = useState(initialCipher?.card?.expYear ?? "");
   const [cardCode, setCardCode] = useState(initialCipher?.card?.code ?? "");
 
+  // Identity fields
+  const [firstName, setFirstName] = useState(initialCipher?.identity?.firstName ?? "");
+  const [middleName, setMiddleName] = useState(initialCipher?.identity?.middleName ?? "");
+  const [lastName, setLastName] = useState(initialCipher?.identity?.lastName ?? "");
+  const [idEmail, setIdEmail] = useState(initialCipher?.identity?.email ?? "");
+  const [phone, setPhone] = useState(initialCipher?.identity?.phone ?? "");
+  const [company, setCompany] = useState(initialCipher?.identity?.company ?? "");
+  const [address1, setAddress1] = useState(initialCipher?.identity?.address1 ?? "");
+  const [address2, setAddress2] = useState(initialCipher?.identity?.address2 ?? "");
+  const [city, setCity] = useState(initialCipher?.identity?.city ?? "");
+  const [stateRegion, setStateRegion] = useState(initialCipher?.identity?.state ?? "");
+  const [postalCode, setPostalCode] = useState(initialCipher?.identity?.postalCode ?? "");
+  const [country, setCountry] = useState(initialCipher?.identity?.country ?? "");
+
   // Notes
   const [notes, setNotes] = useState(initialCipher?.notes ?? "");
   const [saving, setSaving] = useState(false);
@@ -75,6 +91,9 @@ export function EditorScreen({
     });
     setPassword(generated);
     setShowPassword(true);
+    if (autoCopyGeneratedPassword) {
+      void onCopyText(generated, "Đã tạo & sao chép mật khẩu mạnh");
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -119,7 +138,24 @@ export function EditorScreen({
                 code: cardCode.trim() || null,
               }
             : null,
-        identity: initialCipher?.identity ?? null,
+        identity:
+          type === CipherType.Identity
+            ? {
+                ...(initialCipher?.identity ?? {}),
+                firstName: firstName.trim() || null,
+                middleName: middleName.trim() || null,
+                lastName: lastName.trim() || null,
+                email: idEmail.trim() || null,
+                phone: phone.trim() || null,
+                company: company.trim() || null,
+                address1: address1.trim() || null,
+                address2: address2.trim() || null,
+                city: city.trim() || null,
+                state: stateRegion.trim() || null,
+                postalCode: postalCode.trim() || null,
+                country: country.trim() || null,
+              }
+            : null,
         fields: initialCipher?.fields ?? null,
       };
       await onSave(payload);
@@ -158,17 +194,18 @@ export function EditorScreen({
 
       <div className="flex-1 overflow-y-auto ov-scroll p-3.5 flex flex-col gap-3">
         {!isEditing ? (
-          <div className="grid grid-cols-3 gap-1.5">
+          <div className="grid grid-cols-4 gap-1.5">
             {[
               { id: CipherType.Login, label: "Đăng nhập" },
-              { id: CipherType.SecureNote, label: "Ghi chú" },
               { id: CipherType.Card, label: "Thẻ" },
+              { id: CipherType.Identity, label: "Danh tính" },
+              { id: CipherType.SecureNote, label: "Ghi chú" },
             ].map((opt) => (
               <button
                 key={opt.id}
                 type="button"
                 onClick={() => setType(opt.id)}
-                className={`py-1.5 rounded-[10px] text-[12px] font-semibold border cursor-pointer ${
+                className={`py-1.5 rounded-[10px] text-[11.5px] font-semibold border cursor-pointer ${
                   type === opt.id
                     ? "bg-[var(--accent-soft)] text-[var(--accent)] border-[var(--accent-border)]"
                     : "bg-[var(--surface)] text-[var(--text-secondary)] border-[var(--border)]"
@@ -387,6 +424,103 @@ export function EditorScreen({
                 placeholder="CVV"
                 value={cardCode}
                 onChange={(e) => setCardCode(e.target.value)}
+              />
+            </div>
+          </div>
+        ) : null}
+
+        {type === CipherType.Identity ? (
+          <div className="ov-card p-3 flex flex-col gap-2.5">
+            <div className="grid grid-cols-3 gap-2">
+              <input
+                type="text"
+                className="ov-input"
+                placeholder="Họ"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+              />
+              <input
+                type="text"
+                className="ov-input"
+                placeholder="Tên đệm"
+                value={middleName}
+                onChange={(e) => setMiddleName(e.target.value)}
+              />
+              <input
+                type="text"
+                className="ov-input"
+                placeholder="Tên"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                type="email"
+                className="ov-input"
+                placeholder="Email"
+                value={idEmail}
+                onChange={(e) => setIdEmail(e.target.value)}
+              />
+              <input
+                type="tel"
+                className="ov-input"
+                placeholder="Số điện thoại"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+              />
+            </div>
+            <input
+              type="text"
+              className="ov-input"
+              placeholder="Công ty / Tổ chức"
+              value={company}
+              onChange={(e) => setCompany(e.target.value)}
+            />
+            <input
+              type="text"
+              className="ov-input"
+              placeholder="Địa chỉ (Dòng 1)"
+              value={address1}
+              onChange={(e) => setAddress1(e.target.value)}
+            />
+            <input
+              type="text"
+              className="ov-input"
+              placeholder="Địa chỉ (Dòng 2 / Căn hộ)"
+              value={address2}
+              onChange={(e) => setAddress2(e.target.value)}
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                type="text"
+                className="ov-input"
+                placeholder="Thành phố"
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+              />
+              <input
+                type="text"
+                className="ov-input"
+                placeholder="Tỉnh / Bang"
+                value={stateRegion}
+                onChange={(e) => setStateRegion(e.target.value)}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                type="text"
+                className="ov-input"
+                placeholder="Mã bưu chính"
+                value={postalCode}
+                onChange={(e) => setPostalCode(e.target.value)}
+              />
+              <input
+                type="text"
+                className="ov-input"
+                placeholder="Quốc gia"
+                value={country}
+                onChange={(e) => setCountry(e.target.value)}
               />
             </div>
           </div>

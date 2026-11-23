@@ -30,6 +30,7 @@ interface SettingsScreenProps {
   settings: ExtensionSettings;
   pinEnabled: boolean;
   pinRequireMasterOnRestart: boolean;
+  pinMaxAttempts: number;
   isPopup: boolean;
   onUpdateSettings: (partial: Partial<ExtensionSettings>) => Promise<void>;
   onPinUpdated: () => Promise<void>;
@@ -41,6 +42,36 @@ interface SettingsScreenProps {
   onToast: (text: string, tone?: "info" | "success" | "error") => void;
 }
 
+interface ToggleRowProps {
+  title: string;
+  description: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}
+
+function ToggleRow({ title, description, checked, onChange }: ToggleRowProps) {
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <div className="min-w-0">
+        <div className="text-[12.5px] font-medium leading-snug text-[var(--text-primary)]">
+          {title}
+        </div>
+        <div className="text-[11px] text-[var(--text-muted)] leading-snug mt-0.5">
+          {description}
+        </div>
+      </div>
+      <label className="ov-switch shrink-0 mt-0.5">
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(e) => onChange(e.target.checked)}
+        />
+        <span className="ov-switch-track" />
+      </label>
+    </div>
+  );
+}
+
 export function SettingsScreen({
   email,
   serverUrl,
@@ -48,6 +79,7 @@ export function SettingsScreen({
   settings,
   pinEnabled,
   pinRequireMasterOnRestart,
+  pinMaxAttempts,
   isPopup,
   onUpdateSettings,
   onPinUpdated,
@@ -85,12 +117,20 @@ export function SettingsScreen({
     }
     setSavingPin(true);
     try {
-      await sendBg({ type: "SET_PIN", pin: pinValue, requireMasterOnRestart });
+      await sendBg({
+        type: "SET_PIN",
+        pin: pinValue,
+        requireMasterOnRestart,
+        maxAttempts: settings.pinMaxAttempts,
+      });
       setPinValue("");
       setPinConfirm("");
       setShowPinSetup(false);
       await onPinUpdated();
-      onToast("Đã bật mở khóa bằng mã PIN (PBKDF2 600.000 vòng)!", "success");
+      onToast(
+        `Đã bật mở khóa bằng mã PIN (PBKDF2 600k · tối đa ${settings.pinMaxAttempts} lần thử)!`,
+        "success",
+      );
     } catch (err) {
       onToast(err instanceof Error ? err.message : "Không thể lưu mã PIN", "error");
     } finally {
@@ -178,7 +218,6 @@ export function SettingsScreen({
         rawText = await file.text();
       }
 
-      // Pre-validate locally before sending to Service Worker for instant, clear feedback
       const preview = parseUniversalVaultImport(rawText);
       const itemCount = preview.exportData.items?.length ?? 0;
       if (itemCount === 0) {
@@ -256,7 +295,7 @@ export function SettingsScreen({
           ) : null}
         </div>
 
-        {/* Appearance (3-state system / light / dark per modern-web-guidance dark-mode-toggle) */}
+        {/* Appearance (3-state system / light / dark) */}
         <div className="ov-card p-3 flex flex-col gap-2">
           <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
             Giao diện
@@ -292,86 +331,135 @@ export function SettingsScreen({
           </div>
         </div>
 
-        {/* Security & Autofill */}
+        {/* Autofill (Proton Pass granular controls) */}
         <div className="ov-card p-3 flex flex-col gap-3">
           <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-            Bảo mật & Tự động điền
+            Tự động điền
           </div>
 
-          <div className="flex items-center justify-between gap-2">
-            <label htmlFor="autolock-select" className="text-[12.5px] font-medium">
-              Tự động khóa kho sau
-            </label>
-            <select
-              id="autolock-select"
-              value={settings.autoLockMinutes}
-              onChange={(e) => {
-                void onUpdateSettings({ autoLockMinutes: Number(e.target.value) });
+          <ToggleRow
+            title="Tự điền thông tin đăng nhập"
+            description="Hiện gợi ý và điền nhanh tên đăng nhập, mật khẩu đã lưu."
+            checked={settings.showInlineAutofill}
+            onChange={(v) => {
+              void onUpdateSettings({ showInlineAutofill: v });
+            }}
+          />
+          <ToggleRow
+            title="Tự động điền danh tính"
+            description="Điền nhanh họ tên, email, số điện thoại và địa chỉ đã lưu."
+            checked={settings.autofillIdentity}
+            onChange={(v) => {
+              void onUpdateSettings({ autofillIdentity: v });
+            }}
+          />
+          <ToggleRow
+            title="Tự động điền 2FA"
+            description="Nhận diện ô OTP (kể cả 6 ô rời) để điền nhanh mã 2FA TOTP."
+            checked={settings.autofillTotp}
+            onChange={(v) => {
+              void onUpdateSettings({ autofillTotp: v });
+            }}
+          />
+          <ToggleRow
+            title="Tự động sao chép mã 2FA"
+            description="Sau khi tự động điền đăng nhập, mã 2FA sẽ tự động chép vào bảng tạm."
+            checked={settings.autoCopyTotp}
+            onChange={(v) => {
+              void onUpdateSettings({ autoCopyTotp: v });
+            }}
+          />
+          <ToggleRow
+            title="Tự động điền thẻ tín dụng"
+            description="Điền nhanh số thẻ, ngày hết hạn và mã CVV khi thanh toán."
+            checked={settings.autofillCard}
+            onChange={(v) => {
+              void onUpdateSettings({ autofillCard: v });
+            }}
+          />
+          <ToggleRow
+            title="Tự động điền xác thực cơ bản"
+            description="Tự động điền vào hộp thoại HTTP Basic Auth bằng tài khoản đã lưu."
+            checked={settings.autofillBasicAuth}
+            onChange={(v) => {
+              void onUpdateSettings({ autofillBasicAuth: v });
+            }}
+          />
+
+          <div className="pt-2 border-t border-[var(--border)] flex flex-col gap-3">
+            <ToggleRow
+              title="Gợi ý lưu khi đăng nhập tài khoản mới"
+              description="Hiện thông báo lưu nhanh khi bạn đăng nhập tài khoản chưa có trong kho."
+              checked={settings.promptSaveCredentials}
+              onChange={(v) => {
+                void onUpdateSettings({ promptSaveCredentials: v });
               }}
-              className="ov-input w-auto py-1 text-[12px]"
-            >
-              <option value={1}>1 phút</option>
-              <option value={5}>5 phút</option>
-              <option value={15}>15 phút</option>
-              <option value={30}>30 phút</option>
-              <option value={60}>1 giờ</option>
-              <option value={0}>Khi đóng Chrome</option>
-            </select>
+            />
+            <ToggleRow
+              title="Hiển thị biểu tượng (favicon) website"
+              description="Tải logo trang web trong danh sách và khung chi tiết."
+              checked={settings.showFavicons}
+              onChange={(v) => {
+                void onUpdateSettings({ showFavicons: v });
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Autosuggest */}
+        <div className="ov-card p-3 flex flex-col gap-3">
+          <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+            Tự động đề xuất
           </div>
 
-          <div className="flex items-center justify-between text-[12.5px]">
-            <span>Hiện gợi ý điền trực tiếp trên ô nhập</span>
-            <label className="ov-switch">
-              <input
-                type="checkbox"
-                checked={settings.showInlineAutofill}
-                onChange={(e) => {
-                  void onUpdateSettings({ showInlineAutofill: e.target.checked });
-                }}
-              />
-              <span className="ov-switch-track" />
-            </label>
-          </div>
+          <ToggleRow
+            title="Mật khẩu mạnh khi đăng ký"
+            description="OpenVault sẽ gợi ý tạo và điền mật khẩu mạnh 20 ký tự trên ô mật khẩu mới."
+            checked={settings.autosuggestPassword}
+            onChange={(v) => {
+              void onUpdateSettings({ autosuggestPassword: v });
+            }}
+          />
+          <ToggleRow
+            title="Tự động sao chép mật khẩu vừa tạo"
+            description="Tự động sao chép các mật khẩu mới tạo vào bảng tạm (và tự xóa theo lịch)."
+            checked={settings.autoCopyGeneratedPassword}
+            onChange={(v) => {
+              void onUpdateSettings({ autoCopyGeneratedPassword: v });
+            }}
+          />
+        </div>
 
-          <div className="flex items-center justify-between text-[12.5px]">
-            <span>Gợi ý lưu khi đăng nhập tài khoản mới</span>
-            <label className="ov-switch">
-              <input
-                type="checkbox"
-                checked={settings.promptSaveCredentials}
-                onChange={(e) => {
-                  void onUpdateSettings({ promptSaveCredentials: e.target.checked });
-                }}
-              />
-              <span className="ov-switch-track" />
-            </label>
+        {/* Browser Settings */}
+        <div className="ov-card p-3 flex flex-col gap-2.5">
+          <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+            Thiết lập trình duyệt
           </div>
+          <ToggleRow
+            title="Dùng OpenVault làm trình quản lý mật khẩu mặc định"
+            description="Tắt trình lưu mật khẩu, thẻ thanh toán và địa chỉ tích hợp của Chrome để không bị popup đè."
+            checked={settings.defaultBrowserPasswordManager}
+            onChange={(v) => {
+              void onUpdateSettings({ defaultBrowserPasswordManager: v });
+            }}
+          />
+        </div>
 
-          <div className="flex items-center justify-between text-[12.5px]">
-            <span>Hiển thị biểu tượng (favicon) website</span>
-            <label className="ov-switch">
-              <input
-                type="checkbox"
-                checked={settings.showFavicons}
-                onChange={(e) => {
-                  void onUpdateSettings({ showFavicons: e.target.checked });
-                }}
-              />
-              <span className="ov-switch-track" />
-            </label>
+        {/* Security & Lock */}
+        <div className="ov-card p-3 flex flex-col gap-3">
+          <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+            Bảo mật & Mở khóa
           </div>
 
           {/* Zero-Knowledge PIN Unlock */}
-          <div className="pt-2.5 border-t border-[var(--border)] flex flex-col gap-2">
+          <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between gap-2">
               <div>
                 <div className="text-[12.5px] font-semibold">Mở khóa nhanh bằng mã PIN</div>
                 <div className="text-[11px] text-[var(--text-muted)]">
                   {pinEnabled
-                    ? pinRequireMasterOnRestart
-                      ? "Đang bật · Hỏi Master Password khi mở lại Chrome"
-                      : "Đang bật · Dùng được cả khi mở lại Chrome"
-                    : "Bọc khóa bằng PBKDF2 600k · Tự hủy sau 5 lần nhập sai"}
+                    ? `${pinRequireMasterOnRestart ? "Hỏi Master Password khi mở lại Chrome" : "Dùng được ngay khi mở lại Chrome"} · Tự hủy sau ${pinMaxAttempts} lần sai`
+                    : `Bọc khóa bằng PBKDF2 600k · Tự hủy sau ${settings.pinMaxAttempts} lần nhập sai`}
                 </div>
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
@@ -450,9 +538,79 @@ export function SettingsScreen({
               </form>
             ) : null}
           </div>
+
+          <div className="pt-2.5 border-t border-[var(--border)] flex flex-col gap-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <label htmlFor="pin-attempts-select" className="text-[12.5px] font-medium">
+                Tự hủy PIN khi nhập sai
+              </label>
+              <select
+                id="pin-attempts-select"
+                value={settings.pinMaxAttempts}
+                onChange={(e) => {
+                  const nextAttempts = Number(e.target.value);
+                  void (async () => {
+                    await onUpdateSettings({ pinMaxAttempts: nextAttempts });
+                    await onPinUpdated();
+                  })();
+                }}
+                className="ov-input w-auto py-1 text-[12px]"
+              >
+                <option value={3}>3 lần</option>
+                <option value={5}>5 lần</option>
+              </select>
+            </div>
+
+            <div className="flex items-center justify-between gap-2">
+              <label htmlFor="autolock-select" className="text-[12.5px] font-medium">
+                Tự động khóa sau
+              </label>
+              <select
+                id="autolock-select"
+                value={settings.autoLockMinutes}
+                onChange={(e) => {
+                  void onUpdateSettings({ autoLockMinutes: Number(e.target.value) });
+                }}
+                className="ov-input w-auto py-1 text-[12px]"
+              >
+                <option value={1}>1 phút</option>
+                <option value={5}>5 phút</option>
+                <option value={10}>10 phút</option>
+                <option value={15}>15 phút</option>
+                <option value={30}>30 phút</option>
+                <option value={60}>1 giờ</option>
+                <option value={0}>Khi đóng Chrome</option>
+              </select>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center justify-between gap-2">
+                <label htmlFor="clipboard-clear-select" className="text-[12.5px] font-medium">
+                  Xóa bảng tạm sau
+                </label>
+                <select
+                  id="clipboard-clear-select"
+                  value={settings.clipboardClearSeconds}
+                  onChange={(e) => {
+                    void onUpdateSettings({ clipboardClearSeconds: Number(e.target.value) });
+                  }}
+                  className="ov-input w-auto py-1 text-[12px]"
+                >
+                  <option value={15}>15 giây</option>
+                  <option value={30}>30 giây</option>
+                  <option value={60}>60 giây</option>
+                  <option value={120}>2 phút</option>
+                  <option value={0}>Không tự xóa</option>
+                </select>
+              </div>
+              <div className="text-[11px] text-[var(--text-muted)]">
+                Vui lòng giữ trình duyệt mở để có thể tự động xóa bảng tạm.
+              </div>
+            </div>
+          </div>
         </div>
 
-        {/* Cloudflare R2 Backups & Bitwarden Import/Export */}
+        {/* Cloudflare R2 Backups & Universal Import/Export */}
         <div className="ov-card p-3 flex flex-col gap-2.5">
           <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
             Sao lưu & Di chuyển dữ liệu
@@ -467,7 +625,9 @@ export function SettingsScreen({
             className="ov-btn-primary w-full py-2 inline-flex items-center justify-center gap-1.5 text-[12.5px]"
           >
             <CloudUpload size={14} />
-            <span>{backingUp ? "Đang tạo snapshot R2..." : "Sao lưu mã hóa lên Cloudflare R2 ngay"}</span>
+            <span>
+              {backingUp ? "Đang tạo snapshot R2..." : "Sao lưu mã hóa lên Cloudflare R2 ngay"}
+            </span>
           </button>
 
           {r2Backups.length > 0 ? (
@@ -520,7 +680,9 @@ export function SettingsScreen({
             </button>
           </div>
           <p className="text-[11px] text-[var(--text-muted)] m-0 leading-snug">
-            Hỗ trợ trực tiếp file <strong>ZIP (&quot;Mã bưu chính&quot;)</strong>, <strong>data.json</strong>, <strong>CSV</strong> xuất từ Proton Pass và <strong>JSON</strong> từ Bitwarden.
+            Hỗ trợ trực tiếp file <strong>ZIP (&quot;Mã bưu chính&quot;)</strong>,{" "}
+            <strong>data.json</strong>, <strong>CSV</strong> xuất từ Proton Pass và{" "}
+            <strong>JSON</strong> từ Bitwarden.
           </p>
         </div>
 

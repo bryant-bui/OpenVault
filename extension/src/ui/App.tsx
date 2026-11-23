@@ -25,6 +25,7 @@ import {
   Sparkles,
   Star,
   Trash2,
+  UserSquare2,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -54,7 +55,7 @@ import { SettingsScreen } from "./screens/SettingsScreen.js";
 import { UnlockScreen } from "./screens/UnlockScreen.js";
 import { WatchtowerPanel } from "./screens/WatchtowerPanel.js";
 
-type FilterKind = "all" | "favorites" | "login" | "totp" | "passkey" | "weak" | "card" | "note" | "trash";
+type FilterKind = "all" | "favorites" | "login" | "totp" | "passkey" | "weak" | "card" | "identity" | "note" | "trash";
 type RightPanelMode = "detail" | "editor" | "generator" | "watchtower" | "settings";
 
 export function App() {
@@ -73,6 +74,7 @@ export function App() {
     pinAvailableNow: false,
     pinRequireMasterOnRestart: true,
     pinRemainingAttempts: 5,
+    pinMaxAttempts: 5,
   });
 
   const [ciphers, setCiphers] = useState<CipherPayload[]>([]);
@@ -215,6 +217,7 @@ export function App() {
           return false;
         if (filterKind === "weak" && !(c.id && weakOrReusedIds.has(c.id))) return false;
         if (filterKind === "card" && c.type !== CipherType.Card) return false;
+        if (filterKind === "identity" && c.type !== CipherType.Identity) return false;
         if (filterKind === "note" && c.type !== CipherType.SecureNote) return false;
 
         if (!q) return true;
@@ -223,6 +226,10 @@ export function App() {
           c.login?.username ?? "",
           ...(c.login?.uris?.map((u) => u.uri ?? "") ?? []),
           c.card?.brand ?? "",
+          c.identity?.firstName ?? "",
+          c.identity?.lastName ?? "",
+          c.identity?.email ?? "",
+          c.identity?.phone ?? "",
           c.notes ?? "",
         ]
           .join(" ")
@@ -249,6 +256,7 @@ export function App() {
       try {
         await navigator.clipboard.writeText(text);
         showToast(label, "success");
+        void sendBg({ type: "SCHEDULE_CLIPBOARD_CLEAR" }).catch(() => undefined);
         void sendBg({ type: "TOUCH_ACTIVITY" }).catch(() => undefined);
       } catch {
         showToast("Không thể ghi vào bộ nhớ tạm", "error");
@@ -421,7 +429,10 @@ export function App() {
 
   const canAutofillSelected = Boolean(
     selectedCipher?.login?.uris?.some((u) => scoreUriMatch(currentTabUrl, u.uri) > 0) ||
-      (currentTabUrl.startsWith("http") && selectedCipher?.type === CipherType.Login),
+      (currentTabUrl.startsWith("http") &&
+        (selectedCipher?.type === CipherType.Login ||
+          selectedCipher?.type === CipherType.Card ||
+          selectedCipher?.type === CipherType.Identity)),
   );
 
   const favoriteItems =
@@ -450,7 +461,10 @@ export function App() {
             : item.card?.brand || "Thẻ thanh toán"
           : item.type === CipherType.SecureNote
             ? "Ghi chú bảo mật"
-            : "Định danh";
+            : item.identity?.email ||
+              item.identity?.phone ||
+              [item.identity?.firstName, item.identity?.lastName].filter(Boolean).join(" ") ||
+              "Danh tính";
 
     return (
       <button
@@ -655,6 +669,7 @@ export function App() {
               { id: "totp" as const, label: "Mã 2FA (TOTP)", icon: ShieldCheck },
               { id: "passkey" as const, label: "Passkeys", icon: Fingerprint },
               { id: "card" as const, label: "Thẻ thanh toán", icon: CreditCard },
+              { id: "identity" as const, label: "Danh tính", icon: UserSquare2 },
               { id: "note" as const, label: "Ghi chú bảo mật", icon: FileText },
               { id: "trash" as const, label: "Thùng rác", icon: Trash2 },
             ].map((cat) => {
@@ -740,9 +755,11 @@ export function App() {
                               ? "Yêu thích"
                               : filterKind === "card"
                                 ? "Thẻ thanh toán"
-                                : filterKind === "note"
-                                  ? "Ghi chú"
-                                  : "Đăng nhập"}
+                                : filterKind === "identity"
+                                  ? "Danh tính"
+                                  : filterKind === "note"
+                                    ? "Ghi chú"
+                                    : "Đăng nhập"}
                 </span>
                 <button
                   type="button"
@@ -881,6 +898,7 @@ export function App() {
                 initialCipher={editingCipher}
                 folders={folders}
                 currentTabUrl={currentTabUrl}
+                autoCopyGeneratedPassword={status.settings.autoCopyGeneratedPassword}
                 onCancel={() => {
                   setEditingCipher(null);
                   setRightMode("detail");
@@ -890,6 +908,7 @@ export function App() {
               />
             ) : rightMode === "generator" ? (
               <GeneratorScreen
+                autoCopyOnGenerate={status.settings.autoCopyGeneratedPassword}
                 onCopyText={handleCopyText}
                 onClose={() => setRightMode("detail")}
               />
@@ -918,6 +937,7 @@ export function App() {
                 settings={status.settings}
                 pinEnabled={status.pinEnabled}
                 pinRequireMasterOnRestart={status.pinRequireMasterOnRestart}
+                pinMaxAttempts={status.pinMaxAttempts}
                 isPopup={isPopup}
                 onUpdateSettings={handleUpdateSettings}
                 onPinUpdated={loadStatus}

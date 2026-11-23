@@ -9,6 +9,7 @@ import {
   parseHostname,
   scoreUriMatch,
 } from "../src/shared/domain-match.js";
+import { classifyField, formatTotpCode, maskCardNumber } from "../src/shared/field-classifier.js";
 
 const EXT_ROOT = path.resolve(import.meta.dirname, "..");
 
@@ -94,7 +95,17 @@ describe("OpenVault Extension — Manifest V3 & Asset Integrity", () => {
     expect(manifest.side_panel.default_path).toBe("sidepanel.html");
     expect(manifest.permissions).toContain("tabs");
     expect(manifest.permissions).toContain("sidePanel");
+    expect(manifest.permissions).toContain("offscreen");
+    expect(manifest.permissions).toContain("privacy");
+    expect(manifest.permissions).toContain("webRequest");
+    expect(manifest.permissions).toContain("webRequestAuthProvider");
     expect(manifest.content_security_policy.extension_pages).toContain("wasm-unsafe-eval");
+
+    // Verify offscreen document exists with zero inline scripts
+    const offscreenHtml = fs.readFileSync(path.join(EXT_ROOT, "public/offscreen.html"), "utf8");
+    expect(offscreenHtml).toContain('src="offscreen.js"');
+    expect(offscreenHtml).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>/i);
+    expect(fs.existsSync(path.join(EXT_ROOT, "public/offscreen.js"))).toBe(true);
 
     // Verify every icon exists and has valid PNG header + exact declared dimensions
     for (const [sizeStr, relPath] of Object.entries(manifest.icons)) {
@@ -116,5 +127,57 @@ describe("OpenVault Extension — Manifest V3 & Asset Integrity", () => {
       expect(html).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>/i);
       expect(html).not.toMatch(/\son(click|load|submit|change)=/i);
     }
+  });
+});
+
+describe("OpenVault Extension — Smart Field Classifier (Login, 2FA, Card, Identity, New Password)", () => {
+  const base = {
+    type: "text",
+    name: "",
+    id: "",
+    autocomplete: "",
+    placeholder: "",
+    ariaLabel: "",
+  };
+
+  it("distinguishes login password vs registration new-password accurately", () => {
+    expect(classifyField({ ...base, type: "password", autocomplete: "current-password" })).toBe(
+      "login",
+    );
+    expect(classifyField({ ...base, type: "password", autocomplete: "new-password" })).toBe(
+      "new-password",
+    );
+    expect(classifyField({ ...base, type: "password", formPasswordCount: 2 })).toBe("new-password");
+    expect(
+      classifyField({ ...base, type: "password", placeholder: "Nhập lại mật khẩu" }),
+    ).toBe("new-password");
+  });
+
+  it("detects single and split 6-box 2FA OTP fields while ignoring coupons/captchas/search", () => {
+    expect(classifyField({ ...base, autocomplete: "one-time-code" })).toBe("totp");
+    expect(classifyField({ ...base, name: "totp_code", placeholder: "Mã 2FA 6 chữ số" })).toBe(
+      "totp",
+    );
+    expect(classifyField({ ...base, maxLength: 1, siblingSingleCharInputCount: 6 })).toBe("totp");
+    expect(classifyField({ ...base, name: "promo_code", placeholder: "Coupon code" })).toBeNull();
+    expect(classifyField({ ...base, type: "search", placeholder: "Search..." })).toBeNull();
+    expect(formatTotpCode("123456")).toBe("123 456");
+  });
+
+  it("detects credit card and identity fields cleanly", () => {
+    expect(classifyField({ ...base, autocomplete: "cc-number" })).toBe("card");
+    expect(classifyField({ ...base, name: "card_cvv", placeholder: "CVV" })).toBe("card");
+    expect(maskCardNumber("4242 4242 4242 1234")).toBe("•••• 1234");
+
+    expect(
+      classifyField({ ...base, autocomplete: "street-address", formHasPasswordField: false }),
+    ).toBe("identity");
+    expect(
+      classifyField({ ...base, placeholder: "Số điện thoại", formHasPasswordField: false }),
+    ).toBe("identity");
+    // Inside a login form with a password field, non-username text shouldn't hijack as identity
+    expect(
+      classifyField({ ...base, autocomplete: "street-address", formHasPasswordField: true }),
+    ).toBeNull();
   });
 });

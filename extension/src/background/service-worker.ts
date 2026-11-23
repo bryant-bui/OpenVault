@@ -13,6 +13,7 @@ import {
   encryptString,
   generatePassword,
   generateProtectedRsaKeyPair,
+  generateTotp,
   generateUserSymmetricKey,
   prepareUniversalVaultImport,
   protectSymmetricKey,
@@ -57,15 +58,19 @@ import {
 } from "../shared/constants.js";
 import { findMatchingLogins } from "../shared/domain-match.js";
 import type {
+  AutofillContextResponse,
   BgRequest,
   BgResponse,
+  CardAutofillCandidate,
   DecryptedVault,
   ExtensionSettings,
+  IdentityAutofillCandidate,
   PendingSaveCredential,
   SessionSecrets,
   StoredAccount,
   StoredPinState,
   StoredVaultCache,
+  TotpAutofillCandidate,
   VaultStatusResponse,
 } from "../shared/types.js";
 
@@ -348,6 +353,163 @@ async function setupContextMenus(): Promise<void> {
   });
 }
 
+async function writeClipboardViaOffscreen(text: string): Promise<boolean> {
+  if (!chrome.offscreen) return false;
+  const offscreenUrl = chrome.runtime.getURL("offscreen.html");
+  let createdHere = false;
+  try {
+    const existing = await chrome.runtime.getContexts({
+      contextTypes: [chrome.runtime.ContextType.OFFSCREEN_DOCUMENT],
+      documentUrls: [offscreenUrl],
+    });
+    if (existing.length === 0) {
+      try {
+        await chrome.offscreen.createDocument({
+          url: "offscreen.html",
+          reasons: [chrome.offscreen.Reason.CLIPBOARD],
+          justification: "Copy 2FA codes and clear sensitive passwords from clipboard automatically.",
+        });
+        createdHere = true;
+      } catch {
+        // Another concurrent call already created the single offscreen document
+      }
+    }
+
+    const res = (await chrome.runtime.sendMessage({
+      target: "offscreen",
+      type: "OV_OFFSCREEN_CLIPBOARD",
+      text,
+    })) as { ok?: boolean } | undefined;
+    return Boolean(res?.ok);
+  } catch {
+    return false;
+  } finally {
+    if (createdHere) {
+      await chrome.offscreen.closeDocument().catch(() => undefined);
+    }
+  }
+}
+
+async function scheduleClipboardClear(): Promise<void> {
+  const settings = await getSettings();
+  await chrome.alarms.clear(ALARMS.CLEAR_CLIPBOARD);
+  if (settings.clipboardClearSeconds > 0) {
+    await chrome.alarms.create(ALARMS.CLEAR_CLIPBOARD, {
+      when: Date.now() + settings.clipboardClearSeconds * 1000,
+    });
+  }
+}
+
+async function applyBrowserPasswordManagerPreference(enabled: boolean): Promise<void> {
+  const services = chrome.privacy?.services;
+  if (!services) return;
+  try {
+    if (enabled) {
+      await Promise.allSettled([
+        services.passwordSavingEnabled?.set({ value: false }),
+        services.autofillCreditCardEnabled?.set({ value: false }),
+        services.autofillAddressEnabled?.set({ value: false }),
+      ]);
+    } else {
+      await Promise.allSettled([
+        services.passwordSavingEnabled?.clear({}),
+        services.autofillCreditCardEnabled?.clear({}),
+        services.autofillAddressEnabled?.clear({}),
+      ]);
+    }
+  } catch {
+    // Enterprise policy or unsupported browser
+  }
+}
+
+function buildCardCandidates(ciphers: CipherPayload[]): CardAutofillCandidate[] {
+  return ciphers
+    .filter((c) => !c.deletedDate && c.type === CipherType.Card && c.card && c.id)
+    .map((c) => ({
+      id: c.id!,
+      name: c.name,
+      cardholderName: c.card?.cardholderName ?? "",
+      brand: c.card?.brand ?? "",
+      number: c.card?.number ?? "",
+      expMonth: c.card?.expMonth ?? "",
+      expYear: c.card?.expYear ?? "",
+      code: c.card?.code ?? "",
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function buildIdentityCandidates(ciphers: CipherPayload[]): IdentityAutofillCandidate[] {
+  return ciphers
+    .filter((c) => !c.deletedDate && c.type === CipherType.Identity && c.identity && c.id)
+    .map((c) => {
+      const idn = c.identity!;
+      const firstName = idn.firstName ?? "";
+      const middleName = idn.middleName ?? "";
+      const lastName = idn.lastName ?? "";
+      const fullName = [firstName, middleName, lastName].filter(Boolean).join(" ").trim() || c.name;
+      return {
+        id: c.id!,
+        name: c.name,
+        firstName,
+        middleName,
+        lastName,
+        fullName,
+        email: idn.email ?? "",
+        phone: idn.phone ?? "",
+        company: idn.company ?? "",
+        address1: idn.address1 ?? "",
+        address2: idn.address2 ?? "",
+        city: idn.city ?? "",
+        state: idn.state ?? "",
+        postalCode: idn.postalCode ?? "",
+        country: idn.country ?? "",
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+async function buildTotpCandidates(
+  ciphers: CipherPayload[],
+  url: string,
+): Promise<TotpAutofillCandidate[]> {
+  const loginMatches = findMatchingLogins(ciphers, url).filter((m) => Boolean(m.totp));
+  const out: TotpAutofillCandidate[] = [];
+  for (const m of loginMatches) {
+    if (!m.totp) continue;
+    try {
+      const generated = await generateTotp(m.totp);
+      out.push({
+        id: m.id,
+        name: m.name,
+        username: m.username,
+        code: generated.code,
+        remainingSeconds: generated.remainingSeconds,
+        period: generated.period,
+      });
+    } catch {
+      // Skip malformed TOTP secret
+    }
+  }
+  return out;
+}
+
+async function autoCopyTotpForCipher(totpSecret: string | null | undefined): Promise<string | null> {
+  if (!totpSecret) return null;
+  const settings = await getSettings();
+  if (!settings.autoCopyTotp) return null;
+  try {
+    const { code } = await generateTotp(totpSecret);
+    const ok = await writeClipboardViaOffscreen(code);
+    if (ok) {
+      await scheduleClipboardClear();
+      return code;
+    }
+  } catch {
+    // Ignore malformed TOTP secret
+  }
+  return null;
+}
+
 async function autofillCandidateInTab(tabId: number, cipherId?: string): Promise<boolean> {
   const { key, account } = await getUnlockedKey();
   const tab = await chrome.tabs.get(tabId);
@@ -364,16 +526,49 @@ async function autofillCandidateInTab(tabId: number, cipherId?: string): Promise
     target = decrypted.ciphers.find((c) => c.id === top.id);
   }
 
-  if (!target?.login) return false;
+  if (!target) return false;
 
-  await chrome.tabs.sendMessage(tabId, {
+  if (target.type === CipherType.Card && target.card && target.id) {
+    const card: CardAutofillCandidate = {
+      id: target.id,
+      name: target.name,
+      cardholderName: target.card.cardholderName ?? "",
+      brand: target.card.brand ?? "",
+      number: target.card.number ?? "",
+      expMonth: target.card.expMonth ?? "",
+      expYear: target.card.expYear ?? "",
+      code: target.card.code ?? "",
+    };
+    const res = (await chrome.tabs.sendMessage(tabId, {
+      type: "OV_FILL_CARD",
+      card,
+    })) as { ok?: boolean } | undefined;
+    return Boolean(res?.ok);
+  }
+
+  if (target.type === CipherType.Identity && target.identity && target.id) {
+    const [identity] = buildIdentityCandidates([target]);
+    if (!identity) return false;
+    const res = (await chrome.tabs.sendMessage(tabId, {
+      type: "OV_FILL_IDENTITY",
+      identity,
+    })) as { ok?: boolean } | undefined;
+    return Boolean(res?.ok);
+  }
+
+  if (!target.login) return false;
+
+  const copiedTotpCode = await autoCopyTotpForCipher(target.login.totp);
+
+  const res = (await chrome.tabs.sendMessage(tabId, {
     type: "OV_FILL_CREDENTIALS",
     username: target.login.username ?? "",
     password: target.login.password ?? "",
     totp: target.login.totp ?? null,
+    copiedTotpCode,
     itemName: target.name,
-  });
-  return true;
+  })) as { ok?: boolean } | undefined;
+  return Boolean(res?.ok ?? true);
 }
 
 // --- Message Handler ---
@@ -399,7 +594,7 @@ async function handleMessage(
         : null;
       const remainingAttempts = pinState
         ? Math.max(0, pinState.maxAttempts - pinState.failedAttempts)
-        : MAX_PIN_ATTEMPTS;
+        : settings.pinMaxAttempts;
 
       const data: VaultStatusResponse = {
         hasAccount: account !== null,
@@ -413,6 +608,7 @@ async function handleMessage(
         pinAvailableNow: activeRecord !== null && remainingAttempts > 0,
         pinRequireMasterOnRestart: pinState?.requireMasterOnRestart ?? true,
         pinRemainingAttempts: remainingAttempts,
+        pinMaxAttempts: pinState?.maxAttempts ?? settings.pinMaxAttempts,
       };
       return { ok: true, data };
     }
@@ -604,17 +800,21 @@ async function handleMessage(
     }
 
     case "SET_PIN": {
-      const { key } = await getUnlockedKey();
+      const [{ key }, settings] = await Promise.all([getUnlockedKey(), getSettings()]);
       const record = await protectUserKeyWithPin(key, request.pin);
       const encryptedSessionRecord = request.requireMasterOnRestart
         ? await encryptString(JSON.stringify(record), key)
         : null;
+      const maxAttempts = Math.min(
+        10,
+        Math.max(3, request.maxAttempts ?? settings.pinMaxAttempts ?? MAX_PIN_ATTEMPTS),
+      );
       const nextLocalState: StoredPinState = {
         record: request.requireMasterOnRestart ? null : record,
         encryptedSessionRecord,
         requireMasterOnRestart: request.requireMasterOnRestart,
         failedAttempts: 0,
-        maxAttempts: MAX_PIN_ATTEMPTS,
+        maxAttempts,
       };
       await chrome.storage.local.set({ [LOCAL_KEYS.PIN_LOCAL]: nextLocalState });
       if (request.requireMasterOnRestart) {
@@ -893,6 +1093,21 @@ async function handleMessage(
       const next = { ...current, ...request.settings };
       await chrome.storage.local.set({ [LOCAL_KEYS.SETTINGS]: next });
       await scheduleAutoLock();
+
+      if (typeof request.settings.defaultBrowserPasswordManager === "boolean") {
+        await applyBrowserPasswordManagerPreference(next.defaultBrowserPasswordManager);
+      }
+      if (typeof request.settings.pinMaxAttempts === "number") {
+        const { localState } = await getPinState();
+        if (localState) {
+          await chrome.storage.local.set({
+            [LOCAL_KEYS.PIN_LOCAL]: {
+              ...localState,
+              maxAttempts: Math.min(10, Math.max(3, request.settings.pinMaxAttempts)),
+            },
+          });
+        }
+      }
       return { ok: true, data: next };
     }
 
@@ -913,6 +1128,113 @@ async function handleMessage(
       const decrypted = await decryptVaultCache(cache, key, account.lastSyncAt);
       const matches = findMatchingLogins(decrypted.ciphers, request.url);
       return { ok: true, data: { unlocked: true, disabled: false, matches } };
+    }
+
+    case "GET_AUTOFILL_CONTEXT": {
+      const [account, secrets, settings, cache] = await Promise.all([
+        getAccount(),
+        getSessionSecrets(),
+        getSettings(),
+        getVaultCache(),
+      ]);
+
+      const kind = request.fieldKind;
+      const featureEnabled =
+        kind === "login"
+          ? settings.showInlineAutofill
+          : kind === "new-password"
+            ? settings.autosuggestPassword || settings.showInlineAutofill
+            : kind === "totp"
+              ? settings.autofillTotp
+              : kind === "card"
+                ? settings.autofillCard
+                : settings.autofillIdentity;
+
+      const baseEmpty: AutofillContextResponse = {
+        unlocked: Boolean(account && secrets && cache),
+        disabled: !featureEnabled,
+        fieldKind: kind,
+        matches: [],
+        totpMatches: [],
+        cards: [],
+        identities: [],
+        suggestedPassword: null,
+        autoCopyGeneratedPassword: settings.autoCopyGeneratedPassword,
+        autoCopyTotp: settings.autoCopyTotp,
+      };
+
+      if (!featureEnabled) {
+        return { ok: true, data: baseEmpty };
+      }
+
+      if (kind === "new-password" && settings.autosuggestPassword) {
+        baseEmpty.suggestedPassword = generatePassword({
+          length: 20,
+          lowercase: true,
+          uppercase: true,
+          digits: true,
+          symbols: true,
+        });
+      }
+
+      if (!account || !secrets || !cache) {
+        return { ok: true, data: baseEmpty };
+      }
+
+      const key = splitSymmetricKey(base64ToBytes(secrets.userKeyB64));
+      const decrypted = await decryptVaultCache(cache, key, account.lastSyncAt);
+
+      if (kind === "login") {
+        baseEmpty.matches = findMatchingLogins(decrypted.ciphers, request.url);
+      } else if (kind === "new-password") {
+        baseEmpty.matches = settings.showInlineAutofill
+          ? findMatchingLogins(decrypted.ciphers, request.url)
+          : [];
+      } else if (kind === "totp") {
+        baseEmpty.totpMatches = await buildTotpCandidates(decrypted.ciphers, request.url);
+      } else if (kind === "card") {
+        baseEmpty.cards = buildCardCandidates(decrypted.ciphers);
+      } else if (kind === "identity") {
+        baseEmpty.identities = buildIdentityCandidates(decrypted.ciphers);
+      }
+
+      return { ok: true, data: baseEmpty };
+    }
+
+    case "GENERATE_INLINE_PASSWORD": {
+      const password = generatePassword({
+        length: 20,
+        lowercase: true,
+        uppercase: true,
+        digits: true,
+        symbols: true,
+      });
+      return { ok: true, data: { password } };
+    }
+
+    case "NOTIFY_LOGIN_FILLED": {
+      const [account, secrets, cache] = await Promise.all([
+        getAccount(),
+        getSessionSecrets(),
+        getVaultCache(),
+      ]);
+      if (!account || !secrets || !cache) {
+        return { ok: true, data: { copiedTotp: null } };
+      }
+      await scheduleAutoLock();
+      const key = splitSymmetricKey(base64ToBytes(secrets.userKeyB64));
+      const decrypted = await decryptVaultCache(cache, key, account.lastSyncAt);
+      const target = decrypted.ciphers.find((c) => c.id === request.cipherId && !c.deletedDate);
+      const copiedTotp = await autoCopyTotpForCipher(target?.login?.totp);
+      return { ok: true, data: { copiedTotp } };
+    }
+
+    case "SCHEDULE_CLIPBOARD_CLEAR": {
+      if (typeof request.copyText === "string") {
+        await writeClipboardViaOffscreen(request.copyText);
+      }
+      await scheduleClipboardClear();
+      return { ok: true, data: { scheduled: true } };
     }
 
     case "AUTOFILL_IN_TAB": {
@@ -1005,6 +1327,10 @@ chrome.runtime.onInstalled.addListener(() => {
     await ensureSessionAccessPolicy();
     await setupContextMenus();
     await chrome.alarms.create(ALARMS.SYNC_POLL, { periodInMinutes: 5 });
+    const settings = await getSettings();
+    if (settings.defaultBrowserPasswordManager) {
+      await applyBrowserPasswordManagerPreference(true);
+    }
   })();
 });
 
@@ -1012,6 +1338,10 @@ chrome.runtime.onStartup.addListener(() => {
   void (async () => {
     await ensureSessionAccessPolicy();
     await setupContextMenus();
+    const settings = await getSettings();
+    if (settings.defaultBrowserPasswordManager) {
+      await applyBrowserPasswordManagerPreference(true);
+    }
   })();
 });
 
@@ -1020,6 +1350,8 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === ALARMS.AUTO_LOCK) {
       await setSessionSecrets(null);
       await refreshActiveTabBadge();
+    } else if (alarm.name === ALARMS.CLEAR_CLIPBOARD) {
+      await writeClipboardViaOffscreen("");
     } else if (alarm.name === ALARMS.SYNC_POLL) {
       const secrets = await getSessionSecrets();
       if (secrets) {
@@ -1029,6 +1361,71 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     }
   })();
 });
+
+// HTTP Basic Authentication Autofill (requires webRequest + webRequestAuthProvider)
+if (chrome.webRequest?.onAuthRequired) {
+  chrome.webRequest.onAuthRequired.addListener(
+    (details, asyncCallback) => {
+      const done = (response: chrome.webRequest.BlockingResponse) => {
+        if (asyncCallback) asyncCallback(response);
+      };
+
+      void (async () => {
+        try {
+          if (details.isProxy) {
+            done({});
+            return;
+          }
+          const [account, secrets, settings, cache, triedRes] = await Promise.all([
+            getAccount(),
+            getSessionSecrets(),
+            getSettings(),
+            getVaultCache(),
+            chrome.storage.session.get(SESSION_KEYS.BASIC_AUTH_ATTEMPTS),
+          ]);
+
+          if (!settings.autofillBasicAuth || !account || !secrets || !cache) {
+            done({});
+            return;
+          }
+
+          const triedList =
+            (triedRes[SESSION_KEYS.BASIC_AUTH_ATTEMPTS] as string[] | undefined) ?? [];
+          if (triedList.includes(details.requestId)) {
+            // Already attempted once for this request; let Chrome prompt user instead of looping
+            done({});
+            return;
+          }
+
+          const key = splitSymmetricKey(base64ToBytes(secrets.userKeyB64));
+          const decrypted = await decryptVaultCache(cache, key, account.lastSyncAt);
+          const matches = findMatchingLogins(decrypted.ciphers, details.url);
+          const top = matches.find((m) => m.username && m.password);
+
+          if (!top) {
+            done({});
+            return;
+          }
+
+          const nextTried = [...triedList.slice(-24), details.requestId];
+          await chrome.storage.session.set({ [SESSION_KEYS.BASIC_AUTH_ATTEMPTS]: nextTried });
+
+          done({
+            authCredentials: {
+              username: top.username,
+              password: top.password,
+            },
+          });
+        } catch {
+          done({});
+        }
+      })();
+      return undefined;
+    },
+    { urls: ["http://*/*", "https://*/*"] },
+    ["asyncBlocking"],
+  );
+}
 
 chrome.tabs.onActivated.addListener((info) => {
   void (async () => {
@@ -1071,12 +1468,12 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     if (info.menuItemId === CONTEXT_MENUS.AUTOFILL_LOGIN && tab?.id) {
       try {
         const filled = await autofillCandidateInTab(tab.id);
-        await chrome.tabs.sendMessage(tab.id, {
-          type: "OV_SHOW_TOAST",
-          message: filled
-            ? "OpenVault đã điền tài khoản"
-            : "Không tìm thấy tài khoản khớp cho trang này",
-        });
+        if (!filled) {
+          await chrome.tabs.sendMessage(tab.id, {
+            type: "OV_SHOW_TOAST",
+            message: "Không tìm thấy tài khoản khớp cho trang này",
+          });
+        }
       } catch {
         await chrome.tabs.sendMessage(tab.id, {
           type: "OV_SHOW_TOAST",
@@ -1100,11 +1497,15 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
           message: "Đã tạo và sao chép mật khẩu mạnh 20 ký tự",
         })
         .catch(() => undefined);
+      await scheduleClipboardClear();
     }
   })();
 });
 
 chrome.runtime.onMessage.addListener((message: BgRequest, sender, sendResponse) => {
+  if ((message as unknown as { target?: string })?.target === "offscreen") {
+    return false;
+  }
   void (async () => {
     try {
       const response = await handleMessage(message, sender);

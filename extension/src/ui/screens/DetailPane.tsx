@@ -119,7 +119,12 @@ export function DetailPane({
         </div>
 
         <div className="flex items-center gap-1 shrink-0">
-          {!isTrashed && canAutofill && cipher.type === CipherType.Login && cipher.id ? (
+          {!isTrashed &&
+          canAutofill &&
+          (cipher.type === CipherType.Login ||
+            cipher.type === CipherType.Card ||
+            cipher.type === CipherType.Identity) &&
+          cipher.id ? (
             <button
               type="button"
               onClick={() => {
@@ -432,6 +437,71 @@ export function DetailPane({
                       void onCopyText(field.value!, `Đã sao chép ${field.label}`);
                     }}
                     className="ov-icon-btn w-7 h-7 opacity-0 group-hover:opacity-100"
+                    aria-label={`Sao chép ${field.label}`}
+                  >
+                    <Copy size={13} />
+                  </button>
+                </div>
+              ))}
+          </div>
+        ) : null}
+
+        {/* Identity fields */}
+        {cipher.type === CipherType.Identity && cipher.identity ? (
+          <div className="flex flex-col divide-y divide-[var(--border)] -mx-2">
+            {[
+              {
+                label: "họ và tên",
+                value: [
+                  cipher.identity.firstName,
+                  cipher.identity.middleName,
+                  cipher.identity.lastName,
+                ]
+                  .filter(Boolean)
+                  .join(" "),
+              },
+              { label: "email", value: cipher.identity.email },
+              { label: "điện thoại", value: cipher.identity.phone },
+              { label: "công ty", value: cipher.identity.company },
+              {
+                label: "địa chỉ",
+                value: [
+                  cipher.identity.address1,
+                  cipher.identity.address2,
+                  cipher.identity.city,
+                  cipher.identity.state,
+                  cipher.identity.postalCode,
+                  cipher.identity.country,
+                ]
+                  .filter(Boolean)
+                  .join(", "),
+              },
+            ]
+              .filter((f) => Boolean(f.value))
+              .map((field) => (
+                <div
+                  key={field.label}
+                  className="ov-detail-field group flex items-center justify-between gap-2"
+                >
+                  <div
+                    className="min-w-0 flex-1 cursor-pointer"
+                    onClick={() => {
+                      void onCopyText(field.value!, `Đã sao chép ${field.label}`);
+                    }}
+                  >
+                    <div className="text-[11px] font-medium text-[var(--text-muted)]">
+                      {field.label}
+                    </div>
+                    <div className="text-[13.5px] font-medium mt-0.5 break-words text-[var(--text-primary)]">
+                      {field.value}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void onCopyText(field.value!, `Đã sao chép ${field.label}`);
+                    }}
+                    className="ov-icon-btn w-7 h-7 opacity-0 group-hover:opacity-100 shrink-0"
                     aria-label={`Sao chép ${field.label}`}
                   >
                     <Copy size={13} />

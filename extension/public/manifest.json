@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "OpenVault",
-  "version": "0.1.2",
-  "description": "Zero-knowledge Bitwarden-compatible password manager with TOTP 2FA, smart autofill, and Cloudflare Workers sync.",
+  "version": "0.2.0",
+  "description": "Zero-knowledge Bitwarden-compatible password manager with TOTP 2FA, smart autofill (Login, 2FA, Card, Identity, Basic Auth), and Cloudflare Workers sync.",
   "icons": {
     "16": "icons/icon-16.png",
     "32": "icons/icon-32.png",
@@ -41,7 +41,11 @@
     "scripting",
     "clipboardWrite",
     "contextMenus",
-    "sidePanel"
+    "sidePanel",
+    "offscreen",
+    "privacy",
+    "webRequest",
+    "webRequestAuthProvider"
   ],
   "host_permissions": [
     "http://*/*",

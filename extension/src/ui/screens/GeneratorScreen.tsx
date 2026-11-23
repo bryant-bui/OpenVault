@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ColorPassword } from "../components/ColorPassword.js";
 
 interface GeneratorScreenProps {
+  autoCopyOnGenerate?: boolean;
   onCopyText: (text: string, label: string) => Promise<void>;
   onClose?: () => void;
 }
@@ -21,7 +22,11 @@ type GenType = "random" | "passphrase";
  * - Hairline-divided Type select, Characters slider + numeric badge, iOS toggle switches
  * - Collapsible Password Generator History
  */
-export function GeneratorScreen({ onCopyText, onClose }: GeneratorScreenProps) {
+export function GeneratorScreen({
+  autoCopyOnGenerate = false,
+  onCopyText,
+  onClose,
+}: GeneratorScreenProps) {
   const [genType, setGenType] = useState<GenType>("random");
   const [length, setLength] = useState(20);
   const [wordCount, setWordCount] = useState(4);
@@ -32,30 +37,36 @@ export function GeneratorScreen({ onCopyText, onClose }: GeneratorScreenProps) {
   const [history, setHistory] = useState<string[]>([]);
   const [showHistory, setShowHistory] = useState(false);
 
-  const regenerate = useCallback(() => {
-    const next =
-      genType === "random"
-        ? generatePassword({
-            length,
-            lowercase: true,
-            uppercase: true,
-            digits,
-            symbols,
-            avoidAmbiguous,
-          })
-        : generatePassphrase({
-            wordCount,
-            capitalize: true,
-            includeNumber: digits,
-            separator: symbols ? "-" : ".",
-          });
+  const regenerate = useCallback(
+    (userTriggered = false) => {
+      const next =
+        genType === "random"
+          ? generatePassword({
+              length,
+              lowercase: true,
+              uppercase: true,
+              digits,
+              symbols,
+              avoidAmbiguous,
+            })
+          : generatePassphrase({
+              wordCount,
+              capitalize: true,
+              includeNumber: digits,
+              separator: symbols ? "-" : ".",
+            });
 
-    setPassword(next);
-    setHistory((prev) => [next, ...prev.filter((p) => p !== next)].slice(0, 10));
-  }, [genType, length, wordCount, digits, symbols, avoidAmbiguous]);
+      setPassword(next);
+      setHistory((prev) => [next, ...prev.filter((p) => p !== next)].slice(0, 10));
+      if (userTriggered && autoCopyOnGenerate) {
+        void onCopyText(next, "Đã tạo & sao chép mật khẩu mới");
+      }
+    },
+    [genType, length, wordCount, digits, symbols, avoidAmbiguous, autoCopyOnGenerate, onCopyText],
+  );
 
   useEffect(() => {
-    regenerate();
+    regenerate(false);
   }, [regenerate]);
 
   const strength = estimatePasswordStrength(password);
@@ -93,7 +104,7 @@ export function GeneratorScreen({ onCopyText, onClose }: GeneratorScreenProps) {
 
             <button
               type="button"
-              onClick={regenerate}
+              onClick={() => regenerate(true)}
               className="ov-icon-btn w-8 h-8"
               title="Tạo mật khẩu khác"
               aria-label="Tạo lại mật khẩu"
