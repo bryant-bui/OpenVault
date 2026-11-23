@@ -49,6 +49,7 @@ import io.openvault.app.ui.components.OnePassSearchBar
 import io.openvault.app.ui.components.TotpCountdownRing
 import io.openvault.app.ui.theme.LocalFoldableLayout
 import io.openvault.app.ui.theme.LocalOpenVaultColors
+import io.openvault.app.ui.theme.LocalStrings
 import kotlinx.coroutines.delay
 
 @Composable
@@ -60,6 +61,7 @@ fun TotpScreen(
     onCopyCode: (title: String, code: String) -> Unit,
 ) {
     val c = LocalOpenVaultColors.current
+    val s = LocalStrings.current
     val fold = LocalFoldableLayout.current
     var query by remember { mutableStateOf("") }
     var nowSec by remember { mutableLongStateOf(System.currentTimeMillis() / 1000L) }
@@ -99,7 +101,7 @@ fun TotpScreen(
                     Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Quay lại", tint = c.textPrimary)
                 }
                 Text(
-                    text = "Mã xác thực 2FA",
+                    text = s.twoFactorCodes,
                     color = c.textPrimary,
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
@@ -183,7 +185,13 @@ fun TotpScreen(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                                         ) {
-                                            ItemIconTile(title = item.name, type = item.type, size = 36.dp)
+                                            ItemIconTile(
+                                                title = item.name,
+                                                type = item.type,
+                                                size = 36.dp,
+                                                customIconBase64 = item.customIconBase64,
+                                                websiteUrl = item.primaryWebsiteUrl,
+                                            )
                                             Column(
                                                 modifier = Modifier
                                                     .weight(1f)

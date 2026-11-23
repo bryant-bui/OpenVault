@@ -52,20 +52,17 @@ import io.openvault.app.ui.components.OnePassItemRow
 import io.openvault.app.ui.components.OnePassTopSearchBar
 import io.openvault.app.ui.theme.LocalFoldableLayout
 import io.openvault.app.ui.theme.LocalOpenVaultColors
+import io.openvault.app.ui.theme.LocalStrings
 import kotlin.math.cos
 import kotlin.math.sin
 
-/**
- * Authentic 1Password 8 Android Watchtower Screen:
- * - Single-row Midnight-Navy Search Pill + Account Dropdown
- * - Thick semicircular 0..1000 gauge with radial tick marks (matching real Android Watchtower capture)
- * - Outlined "Kiểm tra & đồng bộ" pill button right below gauge
- * - Overall Password Strength bar + expandable alert cards (supports Z Fold 3 selected highlight)
- */
 @Composable
 fun WatchtowerTabScreen(
     email: String,
     report: WatchtowerReport,
+    checkWeak: Boolean = true,
+    checkReused: Boolean = true,
+    checkTwoFactor: Boolean = true,
     isSyncing: Boolean = false,
     selectedItemId: String? = null,
     onOpenSettings: () -> Unit,
@@ -76,6 +73,7 @@ fun WatchtowerTabScreen(
     onOpenItem: (VaultItem) -> Unit,
 ) {
     val c = LocalOpenVaultColors.current
+    val s = LocalStrings.current
     val fold = LocalFoldableLayout.current
     var query by remember { mutableStateOf("") }
     var expandWeak by remember { mutableStateOf(false) }
@@ -84,10 +82,10 @@ fun WatchtowerTabScreen(
 
     val score1000 = (report.score * 10).coerceIn(0, 1000)
     val ratingLabel = when {
-        score1000 >= 850 -> "TUYỆT VỜI"
-        score1000 >= 700 -> "RẤT TỐT"
-        score1000 >= 500 -> "KHÁ TỐT"
-        else -> "CẦN CẢI THIỆN"
+        score1000 >= 850 -> s.ratingFantastic
+        score1000 >= 700 -> s.ratingVeryGood
+        score1000 >= 500 -> s.ratingGood
+        else -> s.ratingNeedsWork
     }
 
     val strongCount = (report.totalLogins - report.weakItems.size).coerceAtLeast(0)
@@ -104,7 +102,7 @@ fun WatchtowerTabScreen(
             email = email,
             query = query,
             onQueryChange = { query = it },
-            placeholder = if (fold.isNarrowCover) "Tìm cảnh báo..." else "Tìm cảnh báo bảo mật",
+            placeholder = if (fold.isNarrowCover) s.searchShort else s.searchAlerts,
             isSyncing = isSyncing,
             onSync = onSync,
             onOpenGenerator = onOpenGenerator,
@@ -123,7 +121,6 @@ fun WatchtowerTabScreen(
             ),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            // Iconic 1Password Android Semicircular Tick-Mark Gauge (0..1000)
             item {
                 val gaugeSize = if (fold.isNarrowCover) 204.dp else 228.dp
                 Column(
@@ -145,7 +142,6 @@ fun WatchtowerTabScreen(
                             val startDeg = 148f
                             val totalSweep = 244f
 
-                            // Matte dark track arc
                             drawArc(
                                 color = if (c.isDark) Color(0xFF1F2124) else Color(0xFFE2E6EE),
                                 startAngle = startDeg,
@@ -156,7 +152,6 @@ fun WatchtowerTabScreen(
                                 style = Stroke(width = strokeW, cap = StrokeCap.Round),
                             )
 
-                            // Vivid Green -> Teal -> Cyan -> Blue progress sweep
                             val sweep = (totalSweep * (score1000 / 1000f)).coerceAtLeast(10f)
                             drawArc(
                                 brush = Brush.horizontalGradient(
@@ -175,7 +170,6 @@ fun WatchtowerTabScreen(
                                 style = Stroke(width = strokeW, cap = StrokeCap.Round),
                             )
 
-                            // Signature 1Password Android subtle radial tick marks along the gauge
                             val tickCount = 24
                             val radiusOuter = (size.minDimension / 2f) - 4.dp.toPx()
                             val radiusInner = radiusOuter - 10.dp.toPx()
@@ -183,18 +177,16 @@ fun WatchtowerTabScreen(
                             for (i in 1 until tickCount) {
                                 val deg = startDeg + (totalSweep * i / tickCount)
                                 val rad = Math.toRadians(deg.toDouble())
-                                val start = Offset(
-                                    x = center.x + (radiusInner * cos(rad)).toFloat(),
-                                    y = center.y + (radiusInner * sin(rad)).toFloat(),
-                                )
-                                val end = Offset(
-                                    x = center.x + (radiusOuter * cos(rad)).toFloat(),
-                                    y = center.y + (radiusOuter * sin(rad)).toFloat(),
-                                )
                                 drawLine(
                                     color = tickColor,
-                                    start = start,
-                                    end = end,
+                                    start = Offset(
+                                        x = center.x + (radiusInner * cos(rad)).toFloat(),
+                                        y = center.y + (radiusInner * sin(rad)).toFloat(),
+                                    ),
+                                    end = Offset(
+                                        x = center.x + (radiusOuter * cos(rad)).toFloat(),
+                                        y = center.y + (radiusOuter * sin(rad)).toFloat(),
+                                    ),
                                     strokeWidth = 1.6.dp.toPx(),
                                     cap = StrokeCap.Round,
                                 )
@@ -222,7 +214,6 @@ fun WatchtowerTabScreen(
                         }
                     }
 
-                    // Outlined matte action button matching real 1Password Watchtower
                     Surface(
                         onClick = onSync,
                         enabled = !isSyncing,
@@ -250,7 +241,7 @@ fun WatchtowerTabScreen(
                                 )
                             }
                             Text(
-                                text = if (isSyncing) "Đang kiểm tra kho…" else "Đồng bộ & quét lại",
+                                text = if (isSyncing) s.syncing else s.rescanAndSync,
                                 color = c.textPrimary,
                                 fontSize = 14.5.sp,
                                 fontWeight = FontWeight.Medium,
@@ -259,7 +250,7 @@ fun WatchtowerTabScreen(
                     }
 
                     Text(
-                        text = "Điểm bảo mật được phân tích hoàn toàn cục bộ từ ${report.totalLogins} tài khoản đăng nhập. Xử lý các mục cảnh báo bên dưới để tăng mức an toàn.",
+                        text = String.format(s.watchtowerSummary, report.totalLogins),
                         color = c.textSecondary,
                         fontSize = 13.5.sp,
                         lineHeight = 19.sp,
@@ -269,7 +260,6 @@ fun WatchtowerTabScreen(
                 }
             }
 
-            // Overall Password Strength Card
             item {
                 OnePassCard(modifier = Modifier.fillMaxWidth(), padding = PaddingValues(16.dp)) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -279,13 +269,13 @@ fun WatchtowerTabScreen(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
-                                text = "Độ mạnh mật khẩu tổng thể",
+                                text = s.overallPasswordStrength,
                                 color = c.textPrimary,
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.SemiBold,
                             )
                             Text(
-                                text = "${(strongRatio * 100).toInt()}% mạnh",
+                                text = "${(strongRatio * 100).toInt()}${s.strongSuffix}",
                                 color = c.success,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold,
@@ -333,50 +323,58 @@ fun WatchtowerTabScreen(
                 }
             }
 
-            // Issue Cards
-            item {
-                WatchtowerAlertCard(
-                    title = "Mật khẩu yếu",
-                    subtitle = "Nên đổi sang mật khẩu ngẫu nhiên tối thiểu 16 ký tự",
-                    count = report.weakItems.size,
-                    accentColor = c.danger,
-                    tintedBg = if (report.weakItems.isNotEmpty() && c.isDark) Color(0xFF231517) else null,
-                    items = filterItems(report.weakItems, query),
-                    selectedItemId = selectedItemId,
-                    expanded = expandWeak,
-                    onToggle = { expandWeak = !expandWeak },
-                    onOpenItem = onOpenItem,
-                )
+            if (checkWeak) {
+                item {
+                    WatchtowerAlertCard(
+                        title = s.weakPasswords,
+                        subtitle = s.weakPasswordsSub,
+                        emptyText = s.noIssuesFound,
+                        count = report.weakItems.size,
+                        accentColor = c.danger,
+                        tintedBg = if (report.weakItems.isNotEmpty() && c.isDark) Color(0xFF231517) else null,
+                        items = filterItems(report.weakItems, query),
+                        selectedItemId = selectedItemId,
+                        expanded = expandWeak,
+                        onToggle = { expandWeak = !expandWeak },
+                        onOpenItem = onOpenItem,
+                    )
+                }
             }
 
-            item {
-                WatchtowerAlertCard(
-                    title = "Mật khẩu dùng lại",
-                    subtitle = "Tránh dùng chung mật khẩu giữa nhiều dịch vụ",
-                    count = report.reusedItems.size,
-                    accentColor = c.warning,
-                    tintedBg = if (report.reusedItems.isNotEmpty() && c.isDark) Color(0xFF221D12) else null,
-                    items = filterItems(report.reusedItems, query),
-                    selectedItemId = selectedItemId,
-                    expanded = expandReused,
-                    onToggle = { expandReused = !expandReused },
-                    onOpenItem = onOpenItem,
-                )
+            if (checkReused) {
+                item {
+                    WatchtowerAlertCard(
+                        title = s.reusedPasswords,
+                        subtitle = s.reusedPasswordsSub,
+                        emptyText = s.noIssuesFound,
+                        count = report.reusedItems.size,
+                        accentColor = c.warning,
+                        tintedBg = if (report.reusedItems.isNotEmpty() && c.isDark) Color(0xFF221D12) else null,
+                        items = filterItems(report.reusedItems, query),
+                        selectedItemId = selectedItemId,
+                        expanded = expandReused,
+                        onToggle = { expandReused = !expandReused },
+                        onOpenItem = onOpenItem,
+                    )
+                }
             }
 
-            item {
-                WatchtowerAlertCard(
-                    title = "Tài khoản chưa bật 2FA (TOTP)",
-                    subtitle = "Bật xác thực 2 bước để bảo vệ ngay cả khi lộ mật khẩu",
-                    count = report.missingTotpItems.size,
-                    accentColor = c.accent,
-                    tintedBg = null,
-                    items = filterItems(report.missingTotpItems, query).take(25),
-                    selectedItemId = selectedItemId,
-                    expanded = expandMissing2fa,
-                    onToggle = { expandMissing2fa = !expandMissing2fa },
-                    onOpenItem = onOpenItem,
-                )
+            if (checkTwoFactor) {
+                item {
+                    WatchtowerAlertCard(
+                        title = s.missing2fa,
+                        subtitle = s.missing2faSub,
+                        emptyText = s.noIssuesFound,
+                        count = report.missingTotpItems.size,
+                        accentColor = c.accent,
+                        tintedBg = null,
+                        items = filterItems(report.missingTotpItems, query).take(25),
+                        selectedItemId = selectedItemId,
+                        expanded = expandMissing2fa,
+                        onToggle = { expandMissing2fa = !expandMissing2fa },
+                        onOpenItem = onOpenItem,
+                    )
+                }
             }
         }
     }
@@ -394,6 +392,7 @@ private fun filterItems(items: List<VaultItem>, query: String): List<VaultItem> 
 private fun WatchtowerAlertCard(
     title: String,
     subtitle: String,
+    emptyText: String,
     count: Int,
     accentColor: Color,
     tintedBg: Color?,
@@ -433,7 +432,7 @@ private fun WatchtowerAlertCard(
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
-                        text = if (count == 0) "Tuyệt vời! Không phát hiện vấn đề nào." else subtitle,
+                        text = if (count == 0) emptyText else subtitle,
                         color = c.textSecondary,
                         fontSize = 12.5.sp,
                     )

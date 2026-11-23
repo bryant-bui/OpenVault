@@ -14,6 +14,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import io.openvault.app.core.security.AppLanguage
 import io.openvault.app.core.security.AppThemeMode
 
 /**
@@ -128,6 +129,8 @@ private val LightOnePassColors = OpenVaultColors(
 )
 
 val LocalOpenVaultColors = staticCompositionLocalOf { DarkOnePassColors }
+val LocalShowWebsiteIcons = staticCompositionLocalOf { true }
+val LocalAccountAvatar = staticCompositionLocalOf<String?> { null }
 
 private val OnePassTypography = Typography(
     headlineLarge = TextStyle(
@@ -180,6 +183,9 @@ private val OnePassTypography = Typography(
 @Composable
 fun OpenVaultTheme(
     themeMode: AppThemeMode = AppThemeMode.DARK,
+    language: AppLanguage = AppLanguage.ENGLISH,
+    showWebsiteIcons: Boolean = true,
+    accountAvatarBase64: String? = null,
     content: @Composable () -> Unit,
 ) {
     val isDark = when (themeMode) {
@@ -188,6 +194,7 @@ fun OpenVaultTheme(
         AppThemeMode.SYSTEM -> isSystemInDarkTheme()
     }
     val ovColors = if (isDark) DarkOnePassColors else LightOnePassColors
+    val strings = stringsFor(language)
 
     val materialColors = if (isDark) {
         darkColorScheme(
@@ -217,7 +224,12 @@ fun OpenVaultTheme(
         )
     }
 
-    CompositionLocalProvider(LocalOpenVaultColors provides ovColors) {
+    CompositionLocalProvider(
+        LocalOpenVaultColors provides ovColors,
+        LocalStrings provides strings,
+        LocalShowWebsiteIcons provides showWebsiteIcons,
+        LocalAccountAvatar provides accountAvatarBase64,
+    ) {
         MaterialTheme(
             colorScheme = materialColors,
             typography = OnePassTypography,

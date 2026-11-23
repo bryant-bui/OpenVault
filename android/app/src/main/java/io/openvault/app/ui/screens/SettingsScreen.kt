@@ -4,9 +4,13 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,22 +25,25 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.AutoFixHigh
-import androidx.compose.material.icons.rounded.Backup
+import androidx.compose.material.icons.rounded.CameraAlt
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.Fingerprint
+import androidx.compose.material.icons.rounded.CloudUpload
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.Lock
-import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Person
-import androidx.compose.material.icons.rounded.Pin
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Security
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -44,7 +51,10 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -57,35 +67,59 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.fragment.app.FragmentActivity
 import io.openvault.app.BuildConfig
+import io.openvault.app.core.media.IconLoader
 import io.openvault.app.core.network.R2BackupItemDto
+import io.openvault.app.core.security.AppLanguage
 import io.openvault.app.core.security.AppThemeMode
 import io.openvault.app.core.security.BiometricKeyManager
 import io.openvault.app.data.VaultRepository
 import io.openvault.app.ui.components.CategoryIconBadge
-import io.openvault.app.ui.components.OnePassChip
+import io.openvault.app.ui.components.OnePassAccountAvatar
+import io.openvault.app.ui.components.OpenVaultBrandCrest
 import io.openvault.app.ui.theme.LocalFoldableLayout
 import io.openvault.app.ui.theme.LocalOpenVaultColors
+import io.openvault.app.ui.theme.LocalStrings
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+private enum class SettingsPage {
+    ROOT,
+    ACCOUNTS,
+    GENERAL,
+    SECURITY,
+    PRIVACY,
+    AUTOFILL,
+    BACKUP,
+    ADVANCED,
+    ABOUT,
+}
+
 /**
- * Authentic 1Password 8 Android Settings Screen:
- * - Elevated matte charcoal (#1C1D1F) canvas, ✕ Close + bold "Cài đặt" top bar
- * - Flat grouped rows separated by clean full-width section dividers
- * - Colorful pastel circular icon badges (matching real 1Password Android Settings capture!)
- * - Centered max-width layout on unfolded Galaxy Z Fold 3
+ * Clean Hierarchical 1Password 8 Android Settings (matching Images 10–15):
+ * - Root Menu with colorful circular pastel icons & short titles
+ * - Focused sub-pages: Accounts (with avatar photo picker), General, Security, Privacy,
+ *   Autofill (visual setup guide + Passkey provider), Backup & R2, Advanced (Language + Allow screenshots), About
  */
 @Composable
 fun SettingsScreen(
@@ -97,6 +131,7 @@ fun SettingsScreen(
     onLock: () -> Unit,
 ) {
     val c = LocalOpenVaultColors.current
+    val s = LocalStrings.current
     val fold = LocalFoldableLayout.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -106,22 +141,65 @@ fun SettingsScreen(
     val isSyncing by repository.isSyncing.collectAsState()
     val bioSupported = remember { BiometricKeyManager.isBiometricAvailable(context) }
 
+    var page by remember { mutableStateOf(SettingsPage.ROOT) }
+
     var showPinDialog by remember { mutableStateOf(false) }
     var pinInput by remember { mutableStateOf("") }
     var pinConfirm by remember { mutableStateOf("") }
     var pinBusy by remember { mutableStateOf(false) }
     var pinError by remember { mutableStateOf<String?>(null) }
 
-    var backupBusy by remember { mutableStateOf(false) }
-    var backups by remember { mutableStateOf<List<R2BackupItemDto>>(emptyList()) }
+    var showAutoLockDialog by remember { mutableStateOf(false) }
+    var showClipboardDialog by remember { mutableStateOf(false) }
+    var showPinAttemptsDialog by remember { mutableStateOf(false) }
+    var showThemeDialog by remember { mutableStateOf(false) }
+    var showLanguageDialog by remember { mutableStateOf(false) }
     var showLogoutDialog by remember { mutableStateOf(false) }
 
-    val syncTimeText = remember(account.lastSyncMs) {
-        if (account.lastSyncMs <= 0L) "Chưa đồng bộ"
-        else SimpleDateFormat("HH:mm · dd/MM/yyyy", Locale.getDefault()).format(Date(account.lastSyncMs))
+    var backupBusy by remember { mutableStateOf(false) }
+    var backups by remember { mutableStateOf<List<R2BackupItemDto>>(emptyList()) }
+
+    val avatarPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val b64 = IconLoader.compressPickedImageToBase64(context, uri, targetPx = 160, quality = 82)
+                if (b64 != null) {
+                    repository.preferences.setAccountAvatarBase64(b64)
+                    onShowMessage(if (s.isVi) "Đã cập nhật ảnh đại diện!" else "Account avatar updated!")
+                } else {
+                    onShowMessage(if (s.isVi) "Không thể đọc ảnh." else "Could not process image.")
+                }
+            }
+        }
     }
 
-    val hPad = if (fold.isNarrowCover) 14.dp else 20.dp
+    BackHandler(enabled = page != SettingsPage.ROOT) {
+        page = SettingsPage.ROOT
+    }
+
+    val syncTimeText = remember(account.lastSyncMs, s.isVi) {
+        if (account.lastSyncMs <= 0L) {
+            if (s.isVi) "Chưa đồng bộ" else "Not synced yet"
+        } else {
+            SimpleDateFormat("HH:mm · dd/MM/yyyy", Locale.getDefault()).format(Date(account.lastSyncMs))
+        }
+    }
+
+    val pageTitle = when (page) {
+        SettingsPage.ROOT -> s.settings.removeSuffix("…")
+        SettingsPage.ACCOUNTS -> s.settingsAccounts
+        SettingsPage.GENERAL -> s.settingsGeneral
+        SettingsPage.SECURITY -> s.settingsSecurity
+        SettingsPage.PRIVACY -> s.settingsPrivacy
+        SettingsPage.AUTOFILL -> s.settingsAutofill
+        SettingsPage.BACKUP -> s.settingsBackup
+        SettingsPage.ADVANCED -> s.settingsAdvanced
+        SettingsPage.ABOUT -> s.settingsAbout
+    }
+
+    val hPad = if (fold.isNarrowCover) 16.dp else 20.dp
 
     Column(
         modifier = Modifier
@@ -130,7 +208,7 @@ fun SettingsScreen(
             .statusBarsPadding()
             .navigationBarsPadding(),
     ) {
-        // 1Password Android Settings Top Bar: ✕  Cài đặt
+        // Clean Top Bar (✕ on Root, ← on Sub-page)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -138,15 +216,19 @@ fun SettingsScreen(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            if (showCloseButton) {
+            if (page != SettingsPage.ROOT) {
+                IconButton(onClick = { page = SettingsPage.ROOT }) {
+                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = s.back, tint = c.textPrimary)
+                }
+            } else if (showCloseButton) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.Rounded.Close, contentDescription = "Đóng", tint = c.textPrimary)
+                    Icon(Icons.Rounded.Close, contentDescription = s.close, tint = c.textPrimary)
                 }
             } else {
                 Spacer(modifier = Modifier.size(12.dp))
             }
             Text(
-                text = "Cài đặt",
+                text = pageTitle,
                 color = c.textPrimary,
                 fontSize = 21.sp,
                 fontWeight = FontWeight.Bold,
@@ -165,407 +247,636 @@ fun SettingsScreen(
                     .widthIn(max = 640.dp)
                     .fillMaxWidth(),
             ) {
-                // SECTION 1: ACCOUNT
-                Column(
-                    modifier = Modifier.padding(horizontal = hPad, vertical = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    ) {
-                        CategoryIconBadge(
+                when (page) {
+                    SettingsPage.ROOT -> {
+                        SettingsRootRow(
                             icon = Icons.Rounded.Person,
-                            tint = Color(0xFF064E3B),
-                            background = Color(0xFF6EE7B7),
-                            size = 38.dp,
-                            circular = true,
+                            iconTint = Color(0xFF064E3B),
+                            iconBg = Color(0xFF6EE7B7),
+                            title = s.settingsAccounts,
+                            hPad = hPad,
+                            onClick = { page = SettingsPage.ACCOUNTS },
                         )
-                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(account.email.ifBlank { "Tài khoản OpenVault" }, color = c.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                            Text(
-                                text = "${account.serverUrl.removePrefix("https://")} · Đồng bộ: $syncTimeText",
-                                color = c.textSecondary,
-                                fontSize = 12.5.sp,
-                            )
-                        }
+
+                        HorizontalDivider(color = c.divider, thickness = 0.8.dp, modifier = Modifier.padding(vertical = 4.dp))
+
+                        SettingsRootRow(
+                            icon = Icons.Rounded.Settings,
+                            iconTint = Color(0xFF0C4A6E),
+                            iconBg = Color(0xFF60B8FF),
+                            title = s.settingsGeneral,
+                            hPad = hPad,
+                            onClick = { page = SettingsPage.GENERAL },
+                        )
+                        SettingsRootRow(
+                            icon = Icons.Rounded.Lock,
+                            iconTint = Color(0xFF451A03),
+                            iconBg = Color(0xFFFCD34D),
+                            title = s.settingsSecurity,
+                            hPad = hPad,
+                            onClick = { page = SettingsPage.SECURITY },
+                        )
+                        SettingsRootRow(
+                            icon = Icons.Rounded.Security,
+                            iconTint = Color(0xFF064E3B),
+                            iconBg = Color(0xFF6EE7B7),
+                            title = s.settingsPrivacy,
+                            hPad = hPad,
+                            onClick = { page = SettingsPage.PRIVACY },
+                        )
+                        SettingsRootRow(
+                            icon = Icons.Rounded.AutoFixHigh,
+                            iconTint = Color(0xFF1F2937),
+                            iconBg = Color(0xFFCBD5E1),
+                            title = s.settingsAutofill,
+                            hPad = hPad,
+                            onClick = { page = SettingsPage.AUTOFILL },
+                        )
+
+                        HorizontalDivider(color = c.divider, thickness = 0.8.dp, modifier = Modifier.padding(vertical = 4.dp))
+
+                        SettingsRootRow(
+                            icon = Icons.Rounded.CloudUpload,
+                            iconTint = Color(0xFF2E1065),
+                            iconBg = Color(0xFFC4B5FD),
+                            title = s.settingsBackup,
+                            hPad = hPad,
+                            onClick = { page = SettingsPage.BACKUP },
+                        )
+                        SettingsRootRow(
+                            icon = Icons.Rounded.Tune,
+                            iconTint = Color(0xFF083344),
+                            iconBg = Color(0xFF67E8F9),
+                            title = s.settingsAdvanced,
+                            hPad = hPad,
+                            onClick = { page = SettingsPage.ADVANCED },
+                        )
+
+                        HorizontalDivider(color = c.divider, thickness = 0.8.dp, modifier = Modifier.padding(vertical = 4.dp))
+
+                        SettingsRootRow(
+                            icon = Icons.Rounded.Info,
+                            iconTint = Color(0xFF0C4A6E),
+                            iconBg = Color(0xFF7DD3FC),
+                            title = s.settingsAbout,
+                            hPad = hPad,
+                            onClick = { page = SettingsPage.ABOUT },
+                        )
+                        Spacer(modifier = Modifier.height(24.dp))
                     }
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Button(
-                            onClick = {
-                                scope.launch {
-                                    runCatching { repository.syncNow(force = true) }
-                                        .onSuccess { onShowMessage("Đã đồng bộ kho mới nhất từ Cloudflare D1!") }
-                                        .onFailure { onShowMessage("Lỗi đồng bộ: ${it.message}") }
-                                }
-                            },
-                            enabled = !isSyncing,
-                            shape = RoundedCornerShape(10.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = c.accentButtonBg, contentColor = Color.White),
-                            modifier = Modifier.weight(1f).height(42.dp),
+                    SettingsPage.ACCOUNTS -> {
+                        Column(
+                            modifier = Modifier.padding(horizontal = hPad, vertical = 18.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
                         ) {
-                            if (isSyncing) {
-                                CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
-                            } else {
-                                Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(17.dp))
-                                Spacer(Modifier.size(6.dp))
-                                Text("Đồng bộ", fontWeight = FontWeight.SemiBold)
-                            }
-                        }
-
-                        Button(
-                            onClick = onLock,
-                            shape = RoundedCornerShape(10.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = c.surfaceElevated, contentColor = c.textPrimary),
-                            modifier = Modifier.weight(1f).height(42.dp),
-                        ) {
-                            Icon(Icons.Rounded.Lock, contentDescription = null, modifier = Modifier.size(17.dp))
-                            Spacer(Modifier.size(6.dp))
-                            Text("Khóa kho", fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                }
-
-                HorizontalDivider(color = c.divider, thickness = 0.8.dp)
-
-                // SECTION 2: AUTOFILL & PASSKEY
-                SettingsActionRow(
-                    icon = Icons.Rounded.AutoFixHigh,
-                    iconTint = Color(0xFF1F2937),
-                    iconBg = Color(0xFFCBD5E1),
-                    title = "Tự động điền Android (Autofill)",
-                    subtitle = "Chọn OpenVault làm trình điền mật khẩu & gợi ý bàn phím",
-                    hPad = hPad,
-                    onClick = {
-                        val intent = Intent(Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE).apply {
-                            data = Uri.parse("package:${context.packageName}")
-                        }
-                        runCatching { context.startActivity(intent) }
-                            .onFailure { runCatching { context.startActivity(Intent(Settings.ACTION_SETTINGS)) } }
-                    },
-                )
-
-                SettingsActionRow(
-                    icon = Icons.Rounded.Key,
-                    iconTint = Color(0xFF2E1065),
-                    iconBg = Color(0xFFC4B5FD),
-                    title = "Nhà cung cấp Passkey (Android 14+)",
-                    subtitle = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                        "Bật OpenVault trong Mật khẩu, mã khóa và tự động điền"
-                    } else {
-                        "Thiết bị đang chạy Android dưới 14 (chỉ hỗ trợ Autofill)"
-                    },
-                    hPad = hPad,
-                    onClick = {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                            val intent = Intent(Settings.ACTION_CREDENTIAL_PROVIDER).apply {
-                                data = Uri.parse("package:${context.packageName}")
-                            }
-                            runCatching { context.startActivity(intent) }
-                                .onFailure {
-                                    runCatching {
-                                        context.startActivity(
-                                            Intent(Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE).apply {
-                                                data = Uri.parse("package:${context.packageName}")
-                                            },
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            ) {
+                                OnePassAccountAvatar(
+                                    email = account.email,
+                                    size = 56.dp,
+                                    onClick = {
+                                        avatarPicker.launch(
+                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
                                         )
-                                    }.onFailure {
-                                        runCatching { context.startActivity(Intent(Settings.ACTION_SETTINGS)) }
+                                    },
+                                )
+                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    Text(
+                                        text = account.email.ifBlank { "OpenVault" },
+                                        color = c.textPrimary,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                    Text(
+                                        text = account.serverUrl.removePrefix("https://"),
+                                        color = c.textSecondary,
+                                        fontSize = 13.sp,
+                                    )
+                                    Text(
+                                        text = syncTimeText,
+                                        color = c.textMuted,
+                                        fontSize = 12.sp,
+                                    )
+                                }
+                            }
+
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                OutlinedButton(
+                                    onClick = {
+                                        avatarPicker.launch(
+                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                                        )
+                                    },
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    Icon(Icons.Rounded.CameraAlt, contentDescription = null, tint = c.accent, modifier = Modifier.size(17.dp))
+                                    Spacer(Modifier.size(6.dp))
+                                    Text(s.changeAvatar, color = c.textPrimary, fontSize = 13.5.sp)
+                                }
+                                if (!settings.accountAvatarBase64.isNullOrBlank()) {
+                                    OutlinedButton(
+                                        onClick = { repository.preferences.setAccountAvatarBase64(null) },
+                                        shape = RoundedCornerShape(10.dp),
+                                    ) {
+                                        Text(s.removeAvatar, color = c.danger, fontSize = 13.5.sp)
                                     }
                                 }
-                        } else {
-                            onShowMessage("Passkey hệ thống yêu cầu Android 14 trở lên.")
-                        }
-                    },
-                )
+                            }
 
-                HorizontalDivider(color = c.divider, thickness = 0.8.dp)
-
-                // SECTION 3: SECURITY (Biometric, PIN, Auto-lock, Clipboard)
-                SettingsSwitchRow(
-                    icon = Icons.Rounded.Fingerprint,
-                    iconTint = Color(0xFF064E3B),
-                    iconBg = Color(0xFF6EE7B7),
-                    title = "Vân tay / Khuôn mặt",
-                    subtitle = if (bioSupported) "Khóa phần cứng Android Keystore (StrongBox)" else "Thiết bị chưa cài sinh trắc học",
-                    checked = settings.biometricEnabled,
-                    enabled = bioSupported && activity != null,
-                    hPad = hPad,
-                    onCheckedChange = { enable ->
-                        if (!enable) {
-                            repository.disableBiometric()
-                            onShowMessage("Đã tắt mở khóa sinh trắc học.")
-                        } else if (activity != null) {
-                            val cipher = runCatching { BiometricKeyManager.createBiometricEncryptCipher() }
-                                .getOrElse {
-                                    onShowMessage("Không khởi tạo được Keystore: ${it.message}")
-                                    return@SettingsSwitchRow
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Button(
+                                    onClick = {
+                                        scope.launch {
+                                            runCatching { repository.syncNow(force = true) }
+                                                .onSuccess {
+                                                    onShowMessage(if (s.isVi) "Đã đồng bộ thành công!" else "Vault synced!")
+                                                }
+                                                .onFailure { onShowMessage("${it.message}") }
+                                        }
+                                    },
+                                    enabled = !isSyncing,
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = c.accentButtonBg, contentColor = Color.White),
+                                    modifier = Modifier.weight(1f).height(44.dp),
+                                ) {
+                                    if (isSyncing) {
+                                        CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
+                                    } else {
+                                        Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(17.dp))
+                                        Spacer(Modifier.size(6.dp))
+                                        Text(s.syncNow, fontWeight = FontWeight.SemiBold)
+                                    }
                                 }
-                            BiometricKeyManager.showBiometricPrompt(
-                                activity = activity,
-                                title = "Bật mở khóa sinh trắc học",
-                                subtitle = "Xác nhận vân tay để lưu khóa an toàn",
-                                negativeText = "Hủy",
-                                cipher = cipher,
-                                onSuccess = { authed ->
-                                    runCatching { repository.enableBiometricWithCipher(authed) }
-                                        .onSuccess { onShowMessage("Đã bật mở khóa bằng sinh trắc học!") }
-                                        .onFailure { onShowMessage("Lỗi lưu khóa: ${it.message}") }
-                                },
-                                onError = { msg -> onShowMessage(msg) },
+                                Button(
+                                    onClick = onLock,
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = c.surfaceElevated, contentColor = c.textPrimary),
+                                    modifier = Modifier.weight(1f).height(44.dp),
+                                ) {
+                                    Icon(Icons.Rounded.Lock, contentDescription = null, modifier = Modifier.size(17.dp))
+                                    Spacer(Modifier.size(6.dp))
+                                    Text(s.lockVault, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                        }
+
+                        HorizontalDivider(color = c.divider, thickness = 0.8.dp)
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { showLogoutDialog = true }
+                                .padding(horizontal = hPad, vertical = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        ) {
+                            Icon(Icons.AutoMirrored.Rounded.Logout, contentDescription = null, tint = c.danger)
+                            Text(s.signOut, color = c.danger, fontSize = 15.5.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+
+                    SettingsPage.GENERAL -> {
+                        SettingsToggleItem(
+                            title = s.prefillUsername,
+                            checked = settings.prefillUsername,
+                            hPad = hPad,
+                            onCheckedChange = { repository.preferences.setPrefillUsername(it) },
+                        )
+
+                        HorizontalDivider(color = c.divider, thickness = 0.8.dp)
+                        SettingsSectionCaption(s.sectionAppearance, hPad)
+
+                        SettingsValueRow(
+                            title = s.themeLabel,
+                            value = if (s.isVi) settings.themeMode.labelVi else settings.themeMode.labelEn,
+                            hPad = hPad,
+                            onClick = { showThemeDialog = true },
+                        )
+                    }
+
+                    SettingsPage.SECURITY -> {
+                        SettingsSectionCaption(s.sectionUnlock, hPad)
+
+                        SettingsToggleItem(
+                            title = s.unlockBiometrics,
+                            checked = settings.biometricEnabled,
+                            enabled = bioSupported && activity != null,
+                            hPad = hPad,
+                            onCheckedChange = { enable ->
+                                if (!enable) {
+                                    repository.disableBiometric()
+                                    onShowMessage(if (s.isVi) "Đã tắt mở khóa sinh trắc học." else "Biometric unlock disabled.")
+                                } else if (activity != null) {
+                                    val cipher = runCatching { BiometricKeyManager.createBiometricEncryptCipher() }
+                                        .getOrElse {
+                                            onShowMessage("Keystore error: ${it.message}")
+                                            return@SettingsToggleItem
+                                        }
+                                    BiometricKeyManager.showBiometricPrompt(
+                                        activity = activity,
+                                        title = s.unlockBiometrics,
+                                        subtitle = account.email,
+                                        negativeText = s.cancel,
+                                        cipher = cipher,
+                                        onSuccess = { authed ->
+                                            runCatching { repository.enableBiometricWithCipher(authed) }
+                                                .onSuccess {
+                                                    onShowMessage(if (s.isVi) "Đã bật vân tay!" else "Biometrics enabled!")
+                                                }
+                                                .onFailure { onShowMessage("${it.message}") }
+                                        },
+                                        onError = { msg -> onShowMessage(msg) },
+                                    )
+                                }
+                            },
+                        )
+
+                        SettingsToggleItem(
+                            title = s.unlockWithPin,
+                            checked = settings.pinEnabled,
+                            hPad = hPad,
+                            onCheckedChange = { enable ->
+                                if (!enable) {
+                                    repository.disablePin()
+                                    onShowMessage(if (s.isVi) "Đã tắt mã PIN." else "PIN disabled.")
+                                } else {
+                                    pinInput = ""
+                                    pinConfirm = ""
+                                    pinError = null
+                                    showPinDialog = true
+                                }
+                            },
+                        )
+
+                        if (settings.pinEnabled) {
+                            SettingsValueRow(
+                                title = s.pinAttemptLimit,
+                                value = "${settings.pinMaxAttempts} ${s.attemptsSuffix}",
+                                hPad = hPad,
+                                onClick = { showPinAttemptsDialog = true },
                             )
                         }
-                    },
-                )
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = hPad, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    CategoryIconBadge(
-                        icon = Icons.Rounded.Pin,
-                        tint = Color(0xFF451A03),
-                        background = Color(0xFFFCD34D),
-                        size = 38.dp,
-                        circular = true,
-                    )
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Mã PIN 6 số (tự động mở khóa)", color = c.textPrimary, fontSize = 15.5.sp, fontWeight = FontWeight.Normal)
-                        Text(
-                            if (settings.pinEnabled) "Đang bật · PBKDF2 600.000 vòng" else "Mở khóa nhanh không cần gõ mật khẩu chính",
-                            color = c.textSecondary,
-                            fontSize = 12.5.sp,
+                        HorizontalDivider(color = c.divider, thickness = 0.8.dp, modifier = Modifier.padding(top = 6.dp))
+                        SettingsSectionCaption(s.sectionAutoLock, hPad)
+
+                        SettingsValueRow(
+                            title = s.autoLockOnExit,
+                            value = if (settings.autoLockMinutes == 0) s.never else "${settings.autoLockMinutes} ${s.minutesSuffix}",
+                            hPad = hPad,
+                            onClick = { showAutoLockDialog = true },
                         )
-                    }
-                    TextButton(
-                        onClick = {
-                            if (settings.pinEnabled) {
-                                repository.disablePin()
-                                onShowMessage("Đã tắt mã PIN.")
+
+                        HorizontalDivider(color = c.divider, thickness = 0.8.dp, modifier = Modifier.padding(top = 6.dp))
+                        SettingsSectionCaption(s.sectionClipboard, hPad)
+
+                        SettingsToggleItem(
+                            title = s.clearClipboard,
+                            subtitle = if (settings.clipboardClearSeconds > 0) {
+                                String.format(s.clearClipboardNote, settings.clipboardClearSeconds)
                             } else {
-                                pinInput = ""
-                                pinConfirm = ""
-                                pinError = null
-                                showPinDialog = true
-                            }
-                        },
-                    ) {
-                        Text(
-                            text = if (settings.pinEnabled) "Tắt" else "Bật",
-                            color = if (settings.pinEnabled) c.danger else c.accent,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
-                }
-
-                if (settings.pinEnabled) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = hPad + 52.dp, end = hPad, bottom = 10.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text("Xóa PIN nếu sai", color = c.textSecondary, fontSize = 13.sp)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf(3, 5).forEach { count ->
-                                OnePassChip("$count lần", settings.pinMaxAttempts == count) {
-                                    repository.preferences.setPinMaxAttempts(count)
-                                }
-                            }
-                        }
-                    }
-                }
-
-                SettingsSwitchRow(
-                    icon = Icons.Rounded.Security,
-                    iconTint = Color(0xFF0C4A6E),
-                    iconBg = Color(0xFF7DD3FC),
-                    title = "Chống chụp màn hình (FLAG_SECURE)",
-                    subtitle = "Ẩn nội dung kho trên ảnh chụp và màn hình đa nhiệm",
-                    checked = settings.flagSecureEnabled,
-                    enabled = true,
-                    hPad = hPad,
-                    onCheckedChange = { repository.preferences.setFlagSecureEnabled(it) },
-                )
-
-                Column(
-                    modifier = Modifier.padding(horizontal = hPad, vertical = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Tự động khóa khi ẩn ứng dụng", color = c.textPrimary, fontSize = 14.5.sp, fontWeight = FontWeight.Medium)
-                        Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf(1 to "1p", 5 to "5p", 10 to "10p", 15 to "15p", 30 to "30p", 0 to "Không").forEach { (min, lbl) ->
-                                OnePassChip(lbl, settings.autoLockMinutes == min) { repository.preferences.setAutoLockMinutes(min) }
-                            }
-                        }
-                    }
-
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Tự xóa bảng tạm (Clipboard)", color = c.textPrimary, fontSize = 14.5.sp, fontWeight = FontWeight.Medium)
-                        Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf(15 to "15s", 30 to "30s", 60 to "60s", 120 to "120s", 0 to "Tắt").forEach { (sec, lbl) ->
-                                OnePassChip(lbl, settings.clipboardClearSeconds == sec) { repository.preferences.setClipboardClearSeconds(sec) }
-                            }
-                        }
-                    }
-                }
-
-                HorizontalDivider(color = c.divider, thickness = 0.8.dp)
-
-                // SECTION 4: APPEARANCE
-                Column(
-                    modifier = Modifier.padding(horizontal = hPad, vertical = 14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    ) {
-                        CategoryIconBadge(
-                            icon = Icons.Rounded.Palette,
-                            tint = Color(0xFF831843),
-                            background = Color(0xFFF9A8D4),
-                            size = 38.dp,
-                            circular = true,
-                        )
-                        Text("Giao diện", color = c.textPrimary, fontSize = 15.5.sp, fontWeight = FontWeight.Normal)
-                    }
-                    Row(
-                        modifier = Modifier
-                            .padding(start = 52.dp)
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        listOf(
-                            AppThemeMode.DARK to "Tối (OLED)",
-                            AppThemeMode.LIGHT to "Sáng",
-                            AppThemeMode.SYSTEM to "Hệ thống",
-                        ).forEach { (mode, lbl) ->
-                            OnePassChip(lbl, settings.themeMode == mode) { repository.preferences.setThemeMode(mode) }
-                        }
-                    }
-                }
-
-                HorizontalDivider(color = c.divider, thickness = 0.8.dp)
-
-                // SECTION 5: CLOUDFLARE R2 BACKUP
-                Column(
-                    modifier = Modifier.padding(horizontal = hPad, vertical = 14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    ) {
-                        CategoryIconBadge(
-                            icon = Icons.Rounded.Backup,
-                            tint = Color(0xFF083344),
-                            background = Color(0xFF67E8F9),
-                            size = 38.dp,
-                            circular = true,
-                        )
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Sao lưu mã hóa Cloudflare R2", color = c.textPrimary, fontSize = 15.5.sp)
-                            Text("Snapshot tự động hằng ngày lúc 03:00 UTC", color = c.textSecondary, fontSize = 12.5.sp)
-                        }
-                    }
-                    Row(
-                        modifier = Modifier.padding(start = 52.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Button(
-                            onClick = {
-                                backupBusy = true
-                                scope.launch {
-                                    runCatching { repository.triggerR2Backup() }
-                                        .onSuccess { res ->
-                                            onShowMessage("Đã tạo bản sao lưu R2 (${res.ciphersCount} mục)!")
-                                            runCatching { backups = repository.listR2Backups() }
-                                        }
-                                        .onFailure { onShowMessage("Lỗi sao lưu: ${it.message}") }
-                                    backupBusy = false
-                                }
+                                s.clearClipboardOff
                             },
-                            enabled = !backupBusy,
-                            shape = RoundedCornerShape(10.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = c.accentSoft, contentColor = c.navActiveContent),
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Text(if (backupBusy) "Đang lưu…" else "Sao lưu ngay", fontWeight = FontWeight.SemiBold)
-                        }
-                        Button(
-                            onClick = {
-                                scope.launch {
-                                    runCatching { backups = repository.listR2Backups() }
-                                        .onFailure { onShowMessage("Không tải được danh sách: ${it.message}") }
-                                }
+                            checked = settings.clipboardClearSeconds > 0,
+                            hPad = hPad,
+                            onCheckedChange = { enabled ->
+                                repository.preferences.setClipboardClearSeconds(if (enabled) 30 else 0)
                             },
-                            shape = RoundedCornerShape(10.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = c.surfaceElevated, contentColor = c.textPrimary),
-                        ) {
-                            Text("Lịch sử")
+                        )
+                        if (settings.clipboardClearSeconds > 0) {
+                            SettingsValueRow(
+                                title = if (s.isVi) "Thời gian tự xóa" else "Clear after",
+                                value = "${settings.clipboardClearSeconds} ${s.secondsSuffix}",
+                                hPad = hPad,
+                                onClick = { showClipboardDialog = true },
+                            )
                         }
                     }
-                    if (backups.isNotEmpty()) {
+
+                    SettingsPage.PRIVACY -> {
+                        SettingsToggleItem(
+                            title = s.showWebsiteIcons,
+                            subtitle = s.showWebsiteIconsSub,
+                            checked = settings.showWebsiteIcons,
+                            hPad = hPad,
+                            onCheckedChange = { repository.preferences.setShowWebsiteIcons(it) },
+                        )
+
+                        HorizontalDivider(color = c.divider, thickness = 0.8.dp, modifier = Modifier.padding(top = 6.dp))
+                        SettingsSectionCaption(s.sectionWatchtower, hPad)
+
+                        SettingsToggleItem(
+                            title = s.wtWeakToggle,
+                            checked = settings.checkWeakPasswords,
+                            hPad = hPad,
+                            onCheckedChange = { repository.preferences.setWatchtowerChecks(weak = it) },
+                        )
+                        SettingsToggleItem(
+                            title = s.wtReusedToggle,
+                            checked = settings.checkReusedPasswords,
+                            hPad = hPad,
+                            onCheckedChange = { repository.preferences.setWatchtowerChecks(reused = it) },
+                        )
+                        SettingsToggleItem(
+                            title = s.wt2faToggle,
+                            checked = settings.checkTwoFactor,
+                            hPad = hPad,
+                            onCheckedChange = { repository.preferences.setWatchtowerChecks(twoFactor = it) },
+                        )
+                    }
+
+                    SettingsPage.AUTOFILL -> {
+                        // Authentic 1Password "Set up AutoFill" visual guide (Image 14!)
                         Column(
-                            modifier = Modifier.padding(start = 52.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = hPad, vertical = 20.dp),
+                            verticalArrangement = Arrangement.spacedBy(18.dp),
                         ) {
-                            backups.take(5).forEach { b ->
-                                Text("• ${b.key.substringAfterLast('/')} (${b.size / 1024} KB)", color = c.textSecondary, fontSize = 12.sp)
+                            Box(
+                                modifier = Modifier.fillMaxWidth(),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                AutofillHeroIllustration(modifier = Modifier.size(width = 190.dp, height = 96.dp))
+                            }
+
+                            Text(
+                                text = s.autofillGuideTitle,
+                                color = c.textPrimary,
+                                fontSize = 26.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Text(
+                                text = s.autofillGuideDesc,
+                                color = c.textSecondary,
+                                fontSize = 14.5.sp,
+                                lineHeight = 20.sp,
+                            )
+                            Text(
+                                text = s.autofillGuideToSetUp,
+                                color = c.textSecondary,
+                                fontSize = 14.sp,
+                            )
+
+                            AutofillStepRow(1, s.autofillStep1)
+                            AutofillStepRow(2, s.autofillStep2)
+                            AutofillStepRow(3, s.autofillStep3)
+
+                            Button(
+                                onClick = {
+                                    val intent = Intent(Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE).apply {
+                                        data = Uri.parse("package:${context.packageName}")
+                                    }
+                                    runCatching { context.startActivity(intent) }
+                                        .onFailure { runCatching { context.startActivity(Intent(Settings.ACTION_SETTINGS)) } }
+                                },
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = c.accentButtonBg, contentColor = Color.White),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp),
+                            ) {
+                                Text(s.openSettings, fontSize = 15.5.sp, fontWeight = FontWeight.SemiBold)
+                            }
+
+                            HorizontalDivider(color = c.divider, thickness = 0.8.dp, modifier = Modifier.padding(vertical = 4.dp))
+
+                            // Android 14+ Passkey Provider Card
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(c.surface)
+                                    .clickable {
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                                            val intent = Intent(Settings.ACTION_CREDENTIAL_PROVIDER).apply {
+                                                data = Uri.parse("package:${context.packageName}")
+                                            }
+                                            runCatching { context.startActivity(intent) }
+                                                .onFailure {
+                                                    runCatching { context.startActivity(Intent(Settings.ACTION_SETTINGS)) }
+                                                }
+                                        } else {
+                                            onShowMessage(s.passkeyUnsupported)
+                                        }
+                                    }
+                                    .padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                CategoryIconBadge(
+                                    icon = Icons.Rounded.Key,
+                                    tint = Color.White,
+                                    background = Color(0xFF7253ED),
+                                    size = 38.dp,
+                                    circular = true,
+                                )
+                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(s.passkeyProviderTitle, color = c.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        text = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) s.passkeyProviderSub else s.passkeyUnsupported,
+                                        color = c.textSecondary,
+                                        fontSize = 12.5.sp,
+                                    )
+                                }
                             }
                         }
                     }
+
+                    SettingsPage.BACKUP -> {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = hPad, vertical = 18.dp),
+                            verticalArrangement = Arrangement.spacedBy(14.dp),
+                        ) {
+                            Text(s.r2BackupTitle, color = c.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                            Text(s.r2BackupSub, color = c.textSecondary, fontSize = 13.5.sp)
+
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Button(
+                                    onClick = {
+                                        backupBusy = true
+                                        scope.launch {
+                                            runCatching { repository.triggerR2Backup() }
+                                                .onSuccess { res ->
+                                                    onShowMessage("R2 snapshot created (${res.ciphersCount} items)!")
+                                                    runCatching { backups = repository.listR2Backups() }
+                                                }
+                                                .onFailure { onShowMessage("${it.message}") }
+                                            backupBusy = false
+                                        }
+                                    },
+                                    enabled = !backupBusy,
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = c.accentButtonBg, contentColor = Color.White),
+                                    modifier = Modifier.weight(1f).height(44.dp),
+                                ) {
+                                    Text(if (backupBusy) s.backingUp else s.backupNow, fontWeight = FontWeight.SemiBold)
+                                }
+                                Button(
+                                    onClick = {
+                                        scope.launch {
+                                            runCatching { backups = repository.listR2Backups() }
+                                                .onFailure { onShowMessage("${it.message}") }
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = c.surfaceElevated, contentColor = c.textPrimary),
+                                    modifier = Modifier.height(44.dp),
+                                ) {
+                                    Text(s.viewHistory)
+                                }
+                            }
+
+                            if (backups.isNotEmpty()) {
+                                HorizontalDivider(color = c.divider, thickness = 0.8.dp)
+                                backups.take(10).forEach { b ->
+                                    Text(
+                                        text = "• ${b.key.substringAfterLast('/')} (${b.size / 1024} KB)",
+                                        color = c.textSecondary,
+                                        fontSize = 13.sp,
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    SettingsPage.ADVANCED -> {
+                        // Exact Image 15: Language + Allow screenshots!
+                        SettingsValueRow(
+                            title = s.language,
+                            value = settings.language.labelNative,
+                            hPad = hPad,
+                            onClick = { showLanguageDialog = true },
+                        )
+
+                        SettingsToggleItem(
+                            title = s.allowScreenshots,
+                            subtitle = s.allowScreenshotsSub,
+                            checked = !settings.flagSecureEnabled,
+                            hPad = hPad,
+                            onCheckedChange = { allow ->
+                                repository.preferences.setFlagSecureEnabled(!allow)
+                            },
+                        )
+                    }
+
+                    SettingsPage.ABOUT -> {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = hPad, vertical = 28.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            OpenVaultBrandCrest(size = 64.dp)
+                            Text("OpenVault", color = c.textPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                            Text("v${BuildConfig.VERSION_NAME}", color = c.accent, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                text = "Zero-Knowledge Password & Passkey Manager\nBitwarden-compatible AES-256-CBC + HMAC-SHA256 + Argon2id\nHosted on Cloudflare Workers, D1 & R2 · MIT License",
+                                color = c.textSecondary,
+                                fontSize = 13.sp,
+                                lineHeight = 19.sp,
+                            )
+                        }
+                    }
                 }
-
-                HorizontalDivider(color = c.divider, thickness = 0.8.dp)
-
-                // SECTION 6: SIGN OUT & VERSION
-                SettingsActionRow(
-                    icon = Icons.AutoMirrored.Rounded.Logout,
-                    iconTint = Color.White,
-                    iconBg = c.danger,
-                    title = "Đăng xuất khỏi thiết bị này",
-                    subtitle = "Xóa cache Room, mã PIN và liên kết vân tay cục bộ",
-                    titleColor = c.danger,
-                    hPad = hPad,
-                    onClick = { showLogoutDialog = true },
-                )
-
-                Text(
-                    text = "OpenVault Android v${BuildConfig.VERSION_NAME} · Tối ưu Galaxy Z Fold · MIT",
-                    color = c.textMuted,
-                    fontSize = 12.sp,
-                    modifier = Modifier
-                        .align(Alignment.CenterHorizontally)
-                        .padding(vertical = 20.dp),
-                )
             }
         }
+    }
+
+    // --- Dialogs ---
+    if (showLanguageDialog) {
+        SingleChoiceDialog(
+            title = s.language,
+            options = AppLanguage.entries.map { it to it.labelNative },
+            selected = settings.language,
+            onSelect = {
+                repository.preferences.setLanguage(it)
+                showLanguageDialog = false
+            },
+            onDismiss = { showLanguageDialog = false },
+        )
+    }
+
+    if (showThemeDialog) {
+        SingleChoiceDialog(
+            title = s.themeLabel,
+            options = AppThemeMode.entries.map { it to (if (s.isVi) it.labelVi else it.labelEn) },
+            selected = settings.themeMode,
+            onSelect = {
+                repository.preferences.setThemeMode(it)
+                showThemeDialog = false
+            },
+            onDismiss = { showThemeDialog = false },
+        )
+    }
+
+    if (showAutoLockDialog) {
+        SingleChoiceDialog(
+            title = s.autoLockOnExit,
+            options = listOf(1, 5, 10, 15, 30, 0).map { m ->
+                m to if (m == 0) s.never else "$m ${s.minutesSuffix}"
+            },
+            selected = settings.autoLockMinutes,
+            onSelect = {
+                repository.preferences.setAutoLockMinutes(it)
+                showAutoLockDialog = false
+            },
+            onDismiss = { showAutoLockDialog = false },
+        )
+    }
+
+    if (showClipboardDialog) {
+        SingleChoiceDialog(
+            title = s.clearClipboard,
+            options = listOf(15, 30, 60, 90, 120).map { sec ->
+                sec to "$sec ${s.secondsSuffix}"
+            },
+            selected = settings.clipboardClearSeconds,
+            onSelect = {
+                repository.preferences.setClipboardClearSeconds(it)
+                showClipboardDialog = false
+            },
+            onDismiss = { showClipboardDialog = false },
+        )
+    }
+
+    if (showPinAttemptsDialog) {
+        SingleChoiceDialog(
+            title = s.pinAttemptLimit,
+            options = listOf(3, 5).map { cnt -> cnt to "$cnt ${s.attemptsSuffix}" },
+            selected = settings.pinMaxAttempts,
+            onSelect = {
+                repository.preferences.setPinMaxAttempts(it)
+                showPinAttemptsDialog = false
+            },
+            onDismiss = { showPinAttemptsDialog = false },
+        )
     }
 
     if (showPinDialog) {
         AlertDialog(
             onDismissRequest = { if (!pinBusy) showPinDialog = false },
             containerColor = c.surfaceElevated,
-            title = { Text("Thiết lập mã PIN 6 số", color = c.textPrimary, fontWeight = FontWeight.Bold) },
+            title = { Text(s.unlockWithPin, color = c.textPrimary, fontWeight = FontWeight.Bold) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        "Mã PIN được bọc bằng PBKDF2-SHA256 600.000 vòng. Nhập đủ 6 số sẽ tự động mở khóa.",
+                        if (s.isVi) "Mã PIN 6 số bọc bằng PBKDF2-SHA256 600.000 vòng. Nhập đủ 6 số sẽ tự động mở khóa."
+                        else "6-digit PIN wrapped with PBKDF2-SHA256 (600,000 rounds). Automatically unlocks on the 6th digit.",
                         color = c.textSecondary,
                         fontSize = 13.sp,
                     )
                     OutlinedTextField(
                         value = pinInput,
-                        onValueChange = { s -> pinInput = s.filter { it.isDigit() }.take(6); pinError = null },
-                        label = { Text("Nhập mã PIN (6 chữ số)") },
+                        onValueChange = { txt -> pinInput = txt.filter { it.isDigit() }.take(6); pinError = null },
+                        label = { Text(if (s.isVi) "Nhập PIN (6 số)" else "Enter 6-digit PIN") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                         visualTransformation = PasswordVisualTransformation(),
                         singleLine = true,
@@ -573,8 +884,8 @@ fun SettingsScreen(
                     )
                     OutlinedTextField(
                         value = pinConfirm,
-                        onValueChange = { s -> pinConfirm = s.filter { it.isDigit() }.take(6); pinError = null },
-                        label = { Text("Xác nhận mã PIN") },
+                        onValueChange = { txt -> pinConfirm = txt.filter { it.isDigit() }.take(6); pinError = null },
+                        label = { Text(if (s.isVi) "Xác nhận PIN" else "Confirm PIN") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                         visualTransformation = PasswordVisualTransformation(),
                         singleLine = true,
@@ -588,11 +899,11 @@ fun SettingsScreen(
                     enabled = !pinBusy,
                     onClick = {
                         if (pinInput.length != 6) {
-                            pinError = "Vui lòng nhập đúng 6 chữ số."
+                            pinError = if (s.isVi) "Vui lòng nhập đủ 6 chữ số." else "Please enter exactly 6 digits."
                             return@TextButton
                         }
                         if (pinInput != pinConfirm) {
-                            pinError = "Mã PIN xác nhận không khớp."
+                            pinError = if (s.isVi) "Mã PIN không khớp." else "PINs do not match."
                             return@TextButton
                         }
                         pinBusy = true
@@ -601,7 +912,7 @@ fun SettingsScreen(
                                 .onSuccess {
                                     pinBusy = false
                                     showPinDialog = false
-                                    onShowMessage("Đã bật mở khóa bằng mã PIN 6 số!")
+                                    onShowMessage(if (s.isVi) "Đã bật mã PIN 6 số!" else "6-digit PIN enabled!")
                                 }
                                 .onFailure {
                                     pinBusy = false
@@ -610,12 +921,12 @@ fun SettingsScreen(
                         }
                     },
                 ) {
-                    Text(if (pinBusy) "Đang lưu…" else "Lưu PIN", color = c.accent, fontWeight = FontWeight.Bold)
+                    Text(if (pinBusy) "…" else s.save, color = c.accent, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
                 TextButton(enabled = !pinBusy, onClick = { showPinDialog = false }) {
-                    Text("Hủy", color = c.textSecondary)
+                    Text(s.cancel, color = c.textSecondary)
                 }
             },
         )
@@ -625,13 +936,8 @@ fun SettingsScreen(
         AlertDialog(
             onDismissRequest = { showLogoutDialog = false },
             containerColor = c.surfaceElevated,
-            title = { Text("Đăng xuất khỏi OpenVault?", color = c.textPrimary, fontWeight = FontWeight.Bold) },
-            text = {
-                Text(
-                    "Toàn bộ cache mã hóa cục bộ, mã PIN và liên kết vân tay trên máy này sẽ bị xóa sạch.",
-                    color = c.textSecondary,
-                )
-            },
+            title = { Text(s.signOutConfirmTitle, color = c.textPrimary, fontWeight = FontWeight.Bold) },
+            text = { Text(s.signOutConfirmMsg, color = c.textSecondary) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -639,12 +945,12 @@ fun SettingsScreen(
                         scope.launch { repository.logout(allDevices = false) }
                     },
                 ) {
-                    Text("Đăng xuất", color = c.danger, fontWeight = FontWeight.Bold)
+                    Text(s.signOut, color = c.danger, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showLogoutDialog = false }) {
-                    Text("Hủy", color = c.textSecondary)
+                    Text(s.cancel, color = c.textSecondary)
                 }
             },
         )
@@ -652,14 +958,12 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun SettingsActionRow(
+private fun SettingsRootRow(
     icon: ImageVector,
     iconTint: Color,
     iconBg: Color,
     title: String,
-    subtitle: String,
-    hPad: androidx.compose.ui.unit.Dp,
-    titleColor: Color? = null,
+    hPad: Dp,
     onClick: () -> Unit,
 ) {
     val c = LocalOpenVaultColors.current
@@ -669,41 +973,212 @@ private fun SettingsActionRow(
             .clickable(onClick = onClick)
             .padding(horizontal = hPad, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         CategoryIconBadge(icon = icon, tint = iconTint, background = iconBg, size = 38.dp, circular = true)
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(title, color = titleColor ?: c.textPrimary, fontSize = 15.5.sp, fontWeight = FontWeight.Normal)
-            Text(subtitle, color = c.textSecondary, fontSize = 12.5.sp)
+        Text(text = title, color = c.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Normal)
+    }
+}
+
+@Composable
+private fun SettingsSectionCaption(text: String, hPad: Dp) {
+    val c = LocalOpenVaultColors.current
+    Text(
+        text = text,
+        color = c.textSecondary,
+        fontSize = 12.5.sp,
+        fontWeight = FontWeight.SemiBold,
+        letterSpacing = 0.8.sp,
+        modifier = Modifier.padding(start = hPad, end = hPad, top = 16.dp, bottom = 6.dp),
+    )
+}
+
+@Composable
+private fun SettingsValueRow(
+    title: String,
+    value: String,
+    hPad: Dp,
+    onClick: () -> Unit,
+) {
+    val c = LocalOpenVaultColors.current
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = hPad, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(text = title, color = c.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Normal)
+        Text(text = value, color = c.textSecondary, fontSize = 13.5.sp)
+    }
+}
+
+@Composable
+private fun SettingsToggleItem(
+    title: String,
+    subtitle: String? = null,
+    checked: Boolean,
+    enabled: Boolean = true,
+    hPad: Dp,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    val c = LocalOpenVaultColors.current
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled) { onCheckedChange(!checked) }
+            .padding(horizontal = hPad, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = title,
+                color = if (enabled) c.textPrimary else c.textMuted,
+                fontSize = 16.sp,
+                modifier = Modifier.weight(1f),
+            )
+            Switch(checked = checked, enabled = enabled, onCheckedChange = onCheckedChange)
+        }
+        if (!subtitle.isNullOrBlank()) {
+            Text(
+                text = subtitle,
+                color = c.textSecondary,
+                fontSize = 13.sp,
+                lineHeight = 18.sp,
+            )
         }
     }
 }
 
 @Composable
-private fun SettingsSwitchRow(
-    icon: ImageVector,
-    iconTint: Color,
-    iconBg: Color,
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    enabled: Boolean,
-    hPad: androidx.compose.ui.unit.Dp,
-    onCheckedChange: (Boolean) -> Unit,
-) {
+private fun AutofillStepRow(number: Int, text: String) {
     val c = LocalOpenVaultColors.current
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = hPad, vertical = 12.dp),
+        modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        CategoryIconBadge(icon = icon, tint = iconTint, background = iconBg, size = 38.dp, circular = true)
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(title, color = c.textPrimary, fontSize = 15.5.sp, fontWeight = FontWeight.Normal)
-            Text(subtitle, color = c.textSecondary, fontSize = 12.5.sp)
+        Box(
+            modifier = Modifier
+                .size(28.dp)
+                .clip(CircleShape)
+                .background(c.accentSoft),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(text = "$number", color = c.navActiveContent, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
         }
-        Switch(checked = checked, enabled = enabled, onCheckedChange = onCheckedChange)
+        Text(text = text, color = c.textPrimary, fontSize = 14.5.sp, lineHeight = 20.sp, modifier = Modifier.weight(1f))
     }
+}
+
+/**
+ * Original vector AutoFill hero graphic (tilted password pill + circular refresh arrow, inspired by Image 14).
+ */
+@Composable
+private fun AutofillHeroIllustration(modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+
+        // Teal swoosh arcs around password pill
+        drawArc(
+            color = Color(0xFF4FD1C5),
+            startAngle = 210f,
+            sweepAngle = 140f,
+            useCenter = false,
+            topLeft = Offset(w * 0.22f, h * 0.06f),
+            size = Size(w * 0.56f, h * 0.88f),
+            style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round),
+        )
+        drawArc(
+            color = Color(0xFF4FD1C5),
+            startAngle = 30f,
+            sweepAngle = 135f,
+            useCenter = false,
+            topLeft = Offset(w * 0.22f, h * 0.06f),
+            size = Size(w * 0.56f, h * 0.88f),
+            style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round),
+        )
+
+        // Arrowhead at top
+        val arrow = Path().apply {
+            moveTo(w * 0.44f, h * 0.03f)
+            lineTo(w * 0.58f, h * 0.10f)
+            lineTo(w * 0.45f, h * 0.19f)
+            close()
+        }
+        drawPath(arrow, color = Color(0xFF4FD1C5))
+
+        // Tilted blue password pill with 7 dots
+        rotate(degrees = -12f, pivot = center) {
+            val pillW = w * 0.84f
+            val pillH = h * 0.36f
+            val left = (w - pillW) / 2f
+            val top = (h - pillH) / 2f
+            drawRoundRect(
+                color = Color(0xFF7FA6E8),
+                topLeft = Offset(left, top),
+                size = Size(pillW, pillH),
+                cornerRadius = CornerRadius(pillH / 2f, pillH / 2f),
+            )
+            val dotCount = 7
+            val dotRadius = pillH * 0.16f
+            val step = (pillW - pillH) / (dotCount - 1)
+            for (i in 0 until dotCount) {
+                drawCircle(
+                    color = Color(0xFF1D4ED8),
+                    radius = dotRadius,
+                    center = Offset(left + pillH / 2f + step * i, center.y),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun <T> SingleChoiceDialog(
+    title: String,
+    options: List<Pair<T, String>>,
+    selected: T,
+    onSelect: (T) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val c = LocalOpenVaultColors.current
+    val s = LocalStrings.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = c.surfaceElevated,
+        title = { Text(title, color = c.textPrimary, fontWeight = FontWeight.Bold) },
+        text = {
+            Column {
+                options.forEach { (value, label) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { onSelect(value) }
+                            .padding(vertical = 8.dp, horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        RadioButton(
+                            selected = value == selected,
+                            onClick = { onSelect(value) },
+                            colors = RadioButtonDefaults.colors(selectedColor = c.accent),
+                        )
+                        Text(text = label, color = c.textPrimary, fontSize = 15.sp)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(s.cancel, color = c.textSecondary)
+            }
+        },
+    )
 }

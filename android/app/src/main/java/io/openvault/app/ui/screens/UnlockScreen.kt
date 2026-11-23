@@ -73,6 +73,7 @@ import io.openvault.app.ui.components.OnePassCard
 import io.openvault.app.ui.components.OpenVaultBrandCrest
 import io.openvault.app.ui.theme.LocalFoldableLayout
 import io.openvault.app.ui.theme.LocalOpenVaultColors
+import io.openvault.app.ui.theme.LocalStrings
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -90,6 +91,7 @@ fun UnlockScreen(
     onUnlocked: () -> Unit,
 ) {
     val c = LocalOpenVaultColors.current
+    val s = LocalStrings.current
     val fold = LocalFoldableLayout.current
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -196,7 +198,7 @@ fun UnlockScreen(
         ) {
             OpenVaultBrandCrest(size = if (fold.isNarrowCover) 52.dp else 62.dp)
             Text(
-                text = "Mở khóa OpenVault",
+                text = s.unlockTitle,
                 color = c.textPrimary,
                 fontSize = if (fold.isNarrowCover) 21.sp else 24.sp,
                 fontWeight = FontWeight.Bold,
@@ -222,7 +224,7 @@ fun UnlockScreen(
                     pinDigits = ""
                 }) {
                     Text(
-                        if (useMasterMode) "Dùng mã PIN" else "Dùng mật khẩu chính",
+                        if (useMasterMode) s.usePin else s.useMasterPassword,
                         color = c.accent,
                         fontWeight = FontWeight.Medium,
                     )
@@ -230,7 +232,7 @@ fun UnlockScreen(
             }
             if (allowLogout) {
                 TextButton(onClick = { scope.launch { repository.logout(allDevices = false) } }) {
-                    Text("Đăng xuất", color = c.textSecondary)
+                    Text(if (s.isVi) "Đăng xuất" else "Sign out", color = c.textSecondary)
                 }
             }
         }
@@ -245,7 +247,7 @@ fun UnlockScreen(
             modifier = modifier,
         ) {
             Text(
-                text = if (busy) "Đang mở khóa…" else "Nhập mã PIN ($targetLen số)",
+                text = if (busy) s.unlocking else "${s.enterPinPrefix} ($targetLen)",
                 color = c.textSecondary,
                 fontSize = 14.sp,
             )
@@ -383,7 +385,7 @@ fun UnlockScreen(
                 OutlinedTextField(
                     value = masterPassword,
                     onValueChange = { masterPassword = it; errorMessage = null },
-                    label = { Text("Mật khẩu chính") },
+                    label = { Text(s.masterPassword) },
                     singleLine = true,
                     visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
                     trailingIcon = {
@@ -435,7 +437,7 @@ fun UnlockScreen(
                     if (busy) {
                         CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(19.dp))
                     } else {
-                        Text("Mở khóa", fontWeight = FontWeight.SemiBold, fontSize = 15.5.sp)
+                        Text(s.unlockButton, fontWeight = FontWeight.SemiBold, fontSize = 15.5.sp)
                     }
                 }
 
@@ -452,7 +454,7 @@ fun UnlockScreen(
                     ) {
                         Icon(Icons.Rounded.Fingerprint, contentDescription = null, tint = c.navActiveContent, modifier = Modifier.size(21.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Mở nhanh bằng sinh trắc học", color = c.navActiveContent, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Text(s.unlockWithBiometricsCta, color = c.navActiveContent, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                     }
                 }
             }

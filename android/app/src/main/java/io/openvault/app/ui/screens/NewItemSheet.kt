@@ -47,6 +47,7 @@ import io.openvault.app.ui.components.OnePassCard
 import io.openvault.app.ui.components.OnePassSearchBar
 import io.openvault.app.ui.theme.LocalFoldableLayout
 import io.openvault.app.ui.theme.LocalOpenVaultColors
+import io.openvault.app.ui.theme.LocalStrings
 
 private data class NewItemTileSpec(
     val title: String,
@@ -69,21 +70,22 @@ fun NewItemSheet(
     onDismiss: () -> Unit,
 ) {
     val c = LocalOpenVaultColors.current
+    val s = LocalStrings.current
     val fold = LocalFoldableLayout.current
     var query by remember { mutableStateOf("") }
 
-    val tiles = remember {
+    val tiles = remember(s) {
         listOf(
-            NewItemTileSpec("Đăng nhập", Icons.Rounded.Lock, Color(0xFF042F2E), Color(0xFF5EEAD4)) { onCreateType(CipherType.LOGIN) },
-            NewItemTileSpec("Ghi chú bảo mật", Icons.Rounded.Description, Color(0xFF2E1E04), Color(0xFFFBBF24)) { onCreateType(CipherType.SECURE_NOTE) },
-            NewItemTileSpec("Thẻ tín dụng", Icons.Rounded.CreditCard, Color.White, Color(0xFF0284C7)) { onCreateType(CipherType.CARD) },
-            NewItemTileSpec("Danh tính", Icons.Rounded.Person, Color(0xFF042F1A), Color(0xFF4ADE80)) { onCreateType(CipherType.IDENTITY) },
-            NewItemTileSpec("Tạo mật khẩu", Icons.Rounded.Key, Color.White, Color(0xFF16A34A)) { onOpenGenerator() },
-            NewItemTileSpec("Quét mã QR 2FA", Icons.Rounded.QrCodeScanner, Color.White, Color(0xFF6366F1)) { onOpenQrScanner() },
+            NewItemTileSpec(s.logins, Icons.Rounded.Lock, Color(0xFF042F2E), Color(0xFF5EEAD4)) { onCreateType(CipherType.LOGIN) },
+            NewItemTileSpec(s.secureNotes, Icons.Rounded.Description, Color(0xFF2E1E04), Color(0xFFFBBF24)) { onCreateType(CipherType.SECURE_NOTE) },
+            NewItemTileSpec(s.creditCards, Icons.Rounded.CreditCard, Color.White, Color(0xFF0284C7)) { onCreateType(CipherType.CARD) },
+            NewItemTileSpec(s.identities, Icons.Rounded.Person, Color(0xFF042F1A), Color(0xFF4ADE80)) { onCreateType(CipherType.IDENTITY) },
+            NewItemTileSpec(s.passwordGenerator, Icons.Rounded.Key, Color.White, Color(0xFF16A34A)) { onOpenGenerator() },
+            NewItemTileSpec(s.scanQr2fa.removeSuffix("…"), Icons.Rounded.QrCodeScanner, Color.White, Color(0xFF6366F1)) { onOpenQrScanner() },
         )
     }
 
-    val visibleTiles = remember(query) {
+    val visibleTiles = remember(query, tiles) {
         val q = query.trim().lowercase()
         if (q.isEmpty()) tiles else tiles.filter { it.title.lowercase().contains(q) }
     }
@@ -106,10 +108,10 @@ fun NewItemSheet(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             IconButton(onClick = onDismiss) {
-                Icon(Icons.Rounded.Close, contentDescription = "Đóng", tint = c.textPrimary)
+                Icon(Icons.Rounded.Close, contentDescription = s.close, tint = c.textPrimary)
             }
             Text(
-                text = "Thêm mục mới",
+                text = s.addItemsTitle,
                 color = c.textPrimary,
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
@@ -132,7 +134,7 @@ fun NewItemSheet(
                 OnePassSearchBar(
                     query = query,
                     onQueryChange = { query = it },
-                    placeholder = "Bạn muốn thêm gì?",
+                    placeholder = s.whatToAddPlaceholder,
                 )
 
                 visibleTiles.chunked(columns).forEach { rowItems ->

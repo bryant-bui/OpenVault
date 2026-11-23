@@ -21,13 +21,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoFixHigh
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.History
-import androidx.compose.material.icons.rounded.Key
+import androidx.compose.material.icons.rounded.KeyboardDoubleArrowRight
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -47,6 +49,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.openvault.app.core.crypto.TotpEngine
 import io.openvault.app.core.crypto.VaultItem
+import io.openvault.app.core.security.HomeSectionPref
+import io.openvault.app.core.security.HomeSectionType
 import io.openvault.app.ui.components.CategoryIconBadge
 import io.openvault.app.ui.components.ItemIconTile
 import io.openvault.app.ui.components.OnePassCard
@@ -55,21 +59,25 @@ import io.openvault.app.ui.components.OnePassTopSearchBar
 import io.openvault.app.ui.components.TotpInlineCountdown
 import io.openvault.app.ui.theme.LocalFoldableLayout
 import io.openvault.app.ui.theme.LocalOpenVaultColors
+import io.openvault.app.ui.theme.LocalStrings
 import kotlinx.coroutines.delay
 
 /**
  * Authentic 1Password 8 Android Home Screen:
- * - Single-row Midnight-Navy Search Pill + Account Avatar Dropdown (zero clutter on 320dp Z Fold 3 cover screen)
- * - Horizontal Pinned 2FA OTP cards (tap to copy immediately)
- * - Profile card, collapsible Favorites & Recently Created cards on pure OLED black (#000000)
- * - Subtle blue-outlined quick action button ("Tạo mật khẩu mạnh") matching 1Password Android's Customize button
+ * - Single-row Search Pill + Pencil Customize button + Avatar dropdown (Image 2)
+ * - User-customizable ordered sections: Pinned 2FA, Profile, Favorites, Recently Created, Frequently Used
+ * - Blue-outlined "✎ Customize" button at bottom (Image 2)
  */
 @Composable
 fun HomeScreen(
     email: String,
     items: List<VaultItem>,
+    homeSections: List<HomeSectionPref>,
+    usageCounts: Map<String, Int>,
     isSyncing: Boolean,
     selectedItemId: String? = null,
+    onOpenProfile: () -> Unit,
+    onOpenCustomizeHome: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenGenerator: () -> Unit,
     onOpenQrScanner: () -> Unit,
@@ -80,10 +88,12 @@ fun HomeScreen(
     onCopyTotp: (title: String, code: String) -> Unit,
 ) {
     val c = LocalOpenVaultColors.current
+    val s = LocalStrings.current
     val fold = LocalFoldableLayout.current
     var query by remember { mutableStateOf("") }
     var favoritesExpanded by remember { mutableStateOf(true) }
     var recentExpanded by remember { mutableStateOf(true) }
+    var frequentExpanded by remember { mutableStateOf(true) }
 
     var nowSec by remember { mutableLongStateOf(System.currentTimeMillis() / 1000L) }
     LaunchedEffect(items) {
@@ -99,7 +109,13 @@ fun HomeScreen(
     val pinnedTotpItems = remember(activeItems) { activeItems.filter { it.hasTotp }.take(8) }
     val favoriteItems = remember(activeItems) { activeItems.filter { it.favorite } }
     val recentItems = remember(activeItems) {
-        activeItems.sortedByDescending { it.revisionDate ?: it.creationDate ?: "" }.take(14)
+        activeItems.sortedByDescending { it.revisionDate ?: it.creationDate ?: "" }.take(12)
+    }
+    val frequentItems = remember(activeItems, usageCounts) {
+        activeItems
+            .filter { (usageCounts[it.id] ?: 0) > 0 }
+            .sortedByDescending { usageCounts[it.id] ?: 0 }
+            .take(8)
     }
 
     val searchResults = remember(activeItems, query) {
@@ -127,13 +143,26 @@ fun HomeScreen(
             email = email,
             query = query,
             onQueryChange = { query = it },
-            placeholder = if (fold.isNarrowCover) "Tìm trong kho..." else "Tìm trong OpenVault",
+            placeholder = if (fold.isNarrowCover) s.searchShort else s.searchInVault,
             isSyncing = isSyncing,
             onSync = onSync,
             onOpenGenerator = onOpenGenerator,
             onOpenQrScanner = onOpenQrScanner,
             onOpenSettings = onOpenSettings,
             onLock = onLock,
+            trailingAction = {
+                IconButton(
+                    onClick = onOpenCustomizeHome,
+                    modifier = Modifier.size(36.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Edit,
+                        contentDescription = s.customize,
+                        tint = c.textPrimary,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            },
         )
 
         LazyColumn(
@@ -151,7 +180,7 @@ fun HomeScreen(
                     if (searchResults.isEmpty()) {
                         OnePassCard(modifier = Modifier.fillMaxWidth()) {
                             Text(
-                                text = "Không tìm thấy mục nào khớp \"$query\"",
+                                text = "${s.noMatchingItems} \"$query\"",
                                 color = c.textSecondary,
                                 fontSize = 14.5.sp,
                             )
@@ -175,67 +204,78 @@ fun HomeScreen(
                     }
                 }
             } else {
-                // Pinned 2FA Horizontal Strip
-                if (pinnedTotpItems.isNotEmpty()) {
-                    item {
-                        val cardWidth = if (fold.isNarrowCover) 182.dp else 204.dp
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            pinnedTotpItems.forEach { item ->
-                                val totp = remember(item.login?.totp, nowSec) {
-                                    item.login?.totp?.let { TotpEngine.generateFromInput(it, nowSec) }
-                                }
-                                if (totp != null) {
-                                    val dotFormatted = if (totp.code.length == 6) {
-                                        "${totp.code.substring(0, 3)} · ${totp.code.substring(3)}"
-                                    } else {
-                                        totp.formattedCode
-                                    }
-                                    OnePassCard(
-                                        modifier = Modifier.width(cardWidth),
-                                        cornerRadius = 16.dp,
-                                        padding = PaddingValues(14.dp),
-                                        onClick = { onCopyTotp(item.name, totp.code) },
+                homeSections.filter { it.visible }.forEach { pref ->
+                    when (pref.toTypeOrNull()) {
+                        HomeSectionType.PINNED_TOTP -> {
+                            if (pinnedTotpItems.isNotEmpty()) {
+                                item(key = "section_totp") {
+                                    val cardWidth = if (fold.isNarrowCover) 182.dp else 204.dp
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                                     ) {
-                                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                            ) {
-                                                ItemIconTile(title = item.name, type = item.type, size = 24.dp)
-                                                Text(
-                                                    text = item.name,
-                                                    color = c.textPrimary,
-                                                    fontSize = 14.sp,
-                                                    fontWeight = FontWeight.SemiBold,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                )
+                                        pinnedTotpItems.forEach { item ->
+                                            val totp = remember(item.login?.totp, nowSec) {
+                                                item.login?.totp?.let { TotpEngine.generateFromInput(it, nowSec) }
                                             }
-                                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                                Text(
-                                                    text = "mã xác thực 2FA",
-                                                    color = c.fieldLabel,
-                                                    fontSize = 12.sp,
-                                                    fontWeight = FontWeight.Medium,
-                                                )
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                                    verticalAlignment = Alignment.CenterVertically,
+                                            if (totp != null) {
+                                                val dotFormatted = if (totp.code.length == 6) {
+                                                    "${totp.code.substring(0, 3)} · ${totp.code.substring(3)}"
+                                                } else {
+                                                    totp.formattedCode
+                                                }
+                                                OnePassCard(
+                                                    modifier = Modifier.width(cardWidth),
+                                                    cornerRadius = 16.dp,
+                                                    padding = PaddingValues(14.dp),
+                                                    onClick = { onCopyTotp(item.name, totp.code) },
                                                 ) {
-                                                    Text(
-                                                        text = dotFormatted,
-                                                        color = c.textPrimary,
-                                                        fontFamily = FontFamily.Monospace,
-                                                        fontSize = 17.sp,
-                                                        fontWeight = FontWeight.SemiBold,
-                                                    )
-                                                    TotpInlineCountdown(totp = totp)
+                                                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                        Row(
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                        ) {
+                                                            ItemIconTile(
+                                                                title = item.name,
+                                                                type = item.type,
+                                                                size = 24.dp,
+                                                                customIconBase64 = item.customIconBase64,
+                                                                websiteUrl = item.primaryWebsiteUrl,
+                                                            )
+                                                            Text(
+                                                                text = item.name,
+                                                                color = c.textPrimary,
+                                                                fontSize = 14.sp,
+                                                                fontWeight = FontWeight.SemiBold,
+                                                                maxLines = 1,
+                                                                overflow = TextOverflow.Ellipsis,
+                                                            )
+                                                        }
+                                                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                                            Text(
+                                                                text = s.oneTimePassword,
+                                                                color = c.fieldLabel,
+                                                                fontSize = 12.sp,
+                                                                fontWeight = FontWeight.Medium,
+                                                            )
+                                                            Row(
+                                                                modifier = Modifier.fillMaxWidth(),
+                                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                                verticalAlignment = Alignment.CenterVertically,
+                                                            ) {
+                                                                Text(
+                                                                    text = dotFormatted,
+                                                                    color = c.textPrimary,
+                                                                    fontFamily = FontFamily.Monospace,
+                                                                    fontSize = 17.sp,
+                                                                    fontWeight = FontWeight.SemiBold,
+                                                                )
+                                                                TotpInlineCountdown(totp = totp)
+                                                            }
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
@@ -243,177 +283,238 @@ fun HomeScreen(
                                 }
                             }
                         }
-                    }
-                }
 
-                // Profile Card (exact 1Password Android Home "Profile" card!)
-                item {
-                    OnePassCard(
-                        modifier = Modifier.fillMaxWidth(),
-                        padding = PaddingValues(horizontal = 16.dp, vertical = 15.dp),
-                        onClick = onOpenSettings,
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        ) {
-                            CategoryIconBadge(
-                                icon = Icons.Rounded.Person,
-                                tint = Color(0xFF0C74F2),
-                                background = Color.White,
-                                size = 34.dp,
-                                circular = true,
-                            )
-                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text(
-                                    text = "Hồ sơ & Cài đặt",
-                                    color = c.textPrimary,
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                )
-                                Text(
-                                    text = email.ifBlank { "Thiết lập vân tay, mã PIN, Autofill & Passkey" },
-                                    color = c.textSecondary,
-                                    fontSize = 13.5.sp,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Favorites Collapsible Card
-                if (favoriteItems.isNotEmpty()) {
-                    item {
-                        OnePassCard(
-                            modifier = Modifier.fillMaxWidth(),
-                            padding = PaddingValues(vertical = 6.dp),
-                        ) {
-                            Column {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable { favoritesExpanded = !favoritesExpanded }
-                                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        HomeSectionType.PROFILE -> {
+                            item(key = "section_profile") {
+                                OnePassCard(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    padding = PaddingValues(horizontal = 16.dp, vertical = 15.dp),
+                                    onClick = onOpenProfile,
                                 ) {
-                                    CategoryIconBadge(
-                                        icon = Icons.Rounded.Star,
-                                        tint = Color(0xFF1F1604),
-                                        background = Color(0xFFFBBF24),
-                                        size = 34.dp,
-                                        circular = true,
-                                    )
-                                    Text(
-                                        text = "Yêu thích",
-                                        color = c.textPrimary,
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    Icon(
-                                        imageVector = if (favoritesExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
-                                        contentDescription = null,
-                                        tint = c.accent,
-                                        modifier = Modifier.size(22.dp),
-                                    )
-                                }
-
-                                AnimatedVisibility(visible = favoritesExpanded) {
-                                    Column(modifier = Modifier.padding(bottom = 4.dp)) {
-                                        favoriteItems.forEach { item ->
-                                            OnePassItemRow(
-                                                item = item,
-                                                showFavoriteBadge = true,
-                                                selected = fold.isTwoPane && item.id == selectedItemId,
-                                                onClick = { onSelectItem(item) },
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Recently Created / Updated Collapsible Card (exact 1Password Android card!)
-                item {
-                    OnePassCard(
-                        modifier = Modifier.fillMaxWidth(),
-                        padding = PaddingValues(vertical = 6.dp),
-                    ) {
-                        Column {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { recentExpanded = !recentExpanded }
-                                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                            ) {
-                                CategoryIconBadge(
-                                    icon = Icons.Rounded.History,
-                                    tint = Color(0xFF07233B),
-                                    background = Color(0xFF60B8FF),
-                                    size = 34.dp,
-                                    circular = true,
-                                )
-                                Text(
-                                    text = "Mới tạo & cập nhật",
-                                    color = c.textPrimary,
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                Icon(
-                                    imageVector = if (recentExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
-                                    contentDescription = null,
-                                    tint = c.accent,
-                                    modifier = Modifier.size(22.dp),
-                                )
-                            }
-
-                            AnimatedVisibility(visible = recentExpanded) {
-                                if (recentItems.isEmpty()) {
                                     Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clickable(onClick = onOpenNewItem)
-                                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                                        modifier = Modifier.fillMaxWidth(),
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(14.dp),
                                     ) {
-                                        Icon(Icons.Rounded.AutoFixHigh, contentDescription = null, tint = c.accent)
-                                        Text(
-                                            text = "Chưa có mục nào. Nhấn \"+ Mục mới\" để thêm tài khoản đầu tiên.",
-                                            color = c.textSecondary,
-                                            fontSize = 13.5.sp,
+                                        CategoryIconBadge(
+                                            icon = Icons.Rounded.Person,
+                                            tint = Color(0xFF0C74F2),
+                                            background = Color.White,
+                                            size = 34.dp,
+                                            circular = true,
                                         )
-                                    }
-                                } else {
-                                    Column(modifier = Modifier.padding(bottom = 4.dp)) {
-                                        recentItems.forEach { item ->
-                                            OnePassItemRow(
-                                                item = item,
-                                                showFavoriteBadge = true,
-                                                selected = fold.isTwoPane && item.id == selectedItemId,
-                                                onClick = { onSelectItem(item) },
+                                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            Text(
+                                                text = s.profile,
+                                                color = c.textPrimary,
+                                                fontSize = 16.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                            )
+                                            Text(
+                                                text = s.profileSubtitle,
+                                                color = c.textSecondary,
+                                                fontSize = 13.5.sp,
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis,
                                             )
                                         }
                                     }
                                 }
                             }
                         }
+
+                        HomeSectionType.FAVORITES -> {
+                            if (favoriteItems.isNotEmpty()) {
+                                item(key = "section_favorites") {
+                                    OnePassCard(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        padding = PaddingValues(vertical = 6.dp),
+                                    ) {
+                                        Column {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable { favoritesExpanded = !favoritesExpanded }
+                                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                            ) {
+                                                CategoryIconBadge(
+                                                    icon = Icons.Rounded.Star,
+                                                    tint = Color(0xFF1F1604),
+                                                    background = Color(0xFFFBBF24),
+                                                    size = 34.dp,
+                                                    circular = true,
+                                                )
+                                                Text(
+                                                    text = s.favorites,
+                                                    color = c.textPrimary,
+                                                    fontSize = 16.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    modifier = Modifier.weight(1f),
+                                                )
+                                                Icon(
+                                                    imageVector = if (favoritesExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                                                    contentDescription = null,
+                                                    tint = c.accent,
+                                                    modifier = Modifier.size(22.dp),
+                                                )
+                                            }
+
+                                            AnimatedVisibility(visible = favoritesExpanded) {
+                                                Column(modifier = Modifier.padding(bottom = 4.dp)) {
+                                                    favoriteItems.forEach { item ->
+                                                        OnePassItemRow(
+                                                            item = item,
+                                                            showFavoriteBadge = true,
+                                                            selected = fold.isTwoPane && item.id == selectedItemId,
+                                                            onClick = { onSelectItem(item) },
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        HomeSectionType.RECENT -> {
+                            item(key = "section_recent") {
+                                OnePassCard(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    padding = PaddingValues(vertical = 6.dp),
+                                ) {
+                                    Column {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable { recentExpanded = !recentExpanded }
+                                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                        ) {
+                                            CategoryIconBadge(
+                                                icon = Icons.Rounded.History,
+                                                tint = Color(0xFF07233B),
+                                                background = Color(0xFF60B8FF),
+                                                size = 34.dp,
+                                                circular = true,
+                                            )
+                                            Text(
+                                                text = s.recentlyCreated,
+                                                color = c.textPrimary,
+                                                fontSize = 16.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.weight(1f),
+                                            )
+                                            Icon(
+                                                imageVector = if (recentExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                                                contentDescription = null,
+                                                tint = c.accent,
+                                                modifier = Modifier.size(22.dp),
+                                            )
+                                        }
+
+                                        AnimatedVisibility(visible = recentExpanded) {
+                                            if (recentItems.isEmpty()) {
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .clickable(onClick = onOpenNewItem)
+                                                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                                ) {
+                                                    Icon(Icons.Rounded.AutoFixHigh, contentDescription = null, tint = c.accent)
+                                                    Text(
+                                                        text = s.emptyHomeHint,
+                                                        color = c.textSecondary,
+                                                        fontSize = 13.5.sp,
+                                                    )
+                                                }
+                                            } else {
+                                                Column(modifier = Modifier.padding(bottom = 4.dp)) {
+                                                    recentItems.forEach { item ->
+                                                        OnePassItemRow(
+                                                            item = item,
+                                                            showFavoriteBadge = true,
+                                                            selected = fold.isTwoPane && item.id == selectedItemId,
+                                                            onClick = { onSelectItem(item) },
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        HomeSectionType.FREQUENT -> {
+                            if (frequentItems.isNotEmpty()) {
+                                item(key = "section_frequent") {
+                                    OnePassCard(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        padding = PaddingValues(vertical = 6.dp),
+                                    ) {
+                                        Column {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable { frequentExpanded = !frequentExpanded }
+                                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                            ) {
+                                                CategoryIconBadge(
+                                                    icon = Icons.Rounded.KeyboardDoubleArrowRight,
+                                                    tint = Color(0xFF052E16),
+                                                    background = Color(0xFF4ADE80),
+                                                    size = 34.dp,
+                                                    circular = true,
+                                                )
+                                                Text(
+                                                    text = s.frequentlyUsed,
+                                                    color = c.textPrimary,
+                                                    fontSize = 16.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    modifier = Modifier.weight(1f),
+                                                )
+                                                Icon(
+                                                    imageVector = if (frequentExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                                                    contentDescription = null,
+                                                    tint = c.accent,
+                                                    modifier = Modifier.size(22.dp),
+                                                )
+                                            }
+
+                                            AnimatedVisibility(visible = frequentExpanded) {
+                                                Column(modifier = Modifier.padding(bottom = 4.dp)) {
+                                                    frequentItems.forEach { item ->
+                                                        OnePassItemRow(
+                                                            item = item,
+                                                            showFavoriteBadge = true,
+                                                            selected = fold.isTwoPane && item.id == selectedItemId,
+                                                            onClick = { onSelectItem(item) },
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        null -> Unit
                     }
                 }
 
-                // Subtle Blue-Outlined Quick Action Button (exact 1Password Android "Customize" button style!)
-                item {
+                // Authentic Blue-Outlined "✎ Customize" Button (Exact Image 2!)
+                item(key = "btn_customize") {
                     Surface(
-                        onClick = onOpenGenerator,
+                        onClick = onOpenCustomizeHome,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(48.dp),
@@ -427,13 +528,13 @@ fun HomeScreen(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Icon(
-                                imageVector = Icons.Rounded.Key,
+                                imageVector = Icons.Rounded.Edit,
                                 contentDescription = null,
                                 tint = c.navActiveContent,
                                 modifier = Modifier.size(18.dp),
                             )
                             Text(
-                                text = "  Tạo mật khẩu mạnh",
+                                text = "  ${s.customize}",
                                 color = c.navActiveContent,
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Medium,

@@ -12,11 +12,13 @@ import io.openvault.app.core.network.Fido2CredentialDto
 import io.openvault.app.core.network.FolderDto
 import io.openvault.app.core.network.PasswordHistoryDto
 
-enum class CipherType(val value: Int, val labelVi: String) {
-    LOGIN(1, "Đăng nhập"),
-    SECURE_NOTE(2, "Ghi chú bảo mật"),
-    CARD(3, "Thẻ thanh toán"),
-    IDENTITY(4, "Danh tính");
+enum class CipherType(val value: Int, val labelVi: String, val labelEn: String) {
+    LOGIN(1, "Đăng nhập", "Login"),
+    SECURE_NOTE(2, "Ghi chú bảo mật", "Secure Note"),
+    CARD(3, "Thẻ thanh toán", "Credit Card"),
+    IDENTITY(4, "Danh tính", "Identity");
+
+    fun label(isVi: Boolean): String = if (isVi) labelVi else labelEn
 
     companion object {
         fun fromValue(v: Int): CipherType = entries.firstOrNull { it.value == v } ?: LOGIN
@@ -126,24 +128,34 @@ data class VaultItem(
     val isDeleted: Boolean get() = !deletedDate.isNullOrBlank()
     val hasTotp: Boolean get() = !login?.totp.isNullOrBlank()
     val hasPasskeys: Boolean get() = !login?.fido2Credentials.isNullOrEmpty()
+    val customIconBase64: String?
+        get() = fields.firstOrNull { it.name == CUSTOM_ICON_FIELD_NAME }?.value?.takeIf { it.isNotBlank() }
+    val visibleFields: List<VaultField>
+        get() = fields.filter { it.name != CUSTOM_ICON_FIELD_NAME }
+    val primaryWebsiteUrl: String?
+        get() = login?.uris?.firstOrNull { it.uri.isNotBlank() }?.uri
     val primarySubtitle: String
         get() = when (type) {
             CipherType.LOGIN -> login?.username?.takeIf { it.isNotBlank() }
                 ?: login?.uris?.firstOrNull()?.uri?.let { DomainMatcher.extractDisplayDomain(it) }
-                ?: "Tài khoản đăng nhập"
+                ?: "Login"
             CipherType.CARD -> {
                 val digits = card?.number?.filter { it.isDigit() }.orEmpty()
                 val last4 = if (digits.length >= 4) "•••• ${digits.takeLast(4)}" else digits
                 listOfNotNull(card?.brand?.takeIf { it.isNotBlank() }, last4.takeIf { it.isNotBlank() })
                     .joinToString(" · ")
-                    .ifBlank { card?.cardholderName.orEmpty().ifBlank { "Thẻ thanh toán" } }
+                    .ifBlank { card?.cardholderName.orEmpty().ifBlank { "Credit Card" } }
             }
             CipherType.IDENTITY -> identity?.fullName?.takeIf { it.isNotBlank() }
                 ?: identity?.email?.takeIf { it.isNotBlank() }
-                ?: "Danh tính"
+                ?: "Identity"
             CipherType.SECURE_NOTE -> notes.lineSequence().firstOrNull()?.take(48)
-                ?.takeIf { it.isNotBlank() } ?: "Ghi chú bảo mật"
+                ?.takeIf { it.isNotBlank() } ?: "Secure Note"
         }
+
+    companion object {
+        const val CUSTOM_ICON_FIELD_NAME = "_ov_icon"
+    }
 }
 
 data class WatchtowerReport(

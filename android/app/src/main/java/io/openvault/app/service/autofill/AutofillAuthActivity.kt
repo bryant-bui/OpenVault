@@ -139,7 +139,12 @@ class AutofillAuthActivity : FragmentActivity() {
             val lockState by container.sessionManager.lockState.collectAsState()
             val allItems by container.repository.items.collectAsState()
 
-            OpenVaultTheme(themeMode = settings.themeMode) {
+            OpenVaultTheme(
+                themeMode = settings.themeMode,
+                language = settings.language,
+                showWebsiteIcons = settings.showWebsiteIcons,
+                accountAvatarBase64 = settings.accountAvatarBase64,
+            ) {
                 ProvideFoldableLayout(activity = this@AutofillAuthActivity) {
                     if (lockState != VaultLockState.UNLOCKED) {
                         UnlockScreen(

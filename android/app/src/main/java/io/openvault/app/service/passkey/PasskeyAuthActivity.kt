@@ -171,7 +171,12 @@ class PasskeyAuthActivity : FragmentActivity() {
             var errorMessage by remember { mutableStateOf(initialError) }
             var showSlowProgressPill by remember { mutableStateOf(false) }
 
-            OpenVaultTheme(themeMode = settings.themeMode) {
+            OpenVaultTheme(
+                themeMode = settings.themeMode,
+                language = settings.language,
+                showWebsiteIcons = settings.showWebsiteIcons,
+                accountAvatarBase64 = settings.accountAvatarBase64,
+            ) {
                 ProvideFoldableLayout(activity = this@PasskeyAuthActivity) {
                     if (lockState != VaultLockState.UNLOCKED) {
                         UnlockScreen(

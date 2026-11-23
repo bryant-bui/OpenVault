@@ -55,6 +55,7 @@ import io.openvault.app.ui.components.OnePassChip
 import io.openvault.app.ui.components.SyntaxColoredPasswordText
 import io.openvault.app.ui.theme.LocalFoldableLayout
 import io.openvault.app.ui.theme.LocalOpenVaultColors
+import io.openvault.app.ui.theme.LocalStrings
 import kotlin.math.roundToInt
 
 @Composable
@@ -63,6 +64,7 @@ fun GeneratorScreen(
     onCopy: (String) -> Unit,
 ) {
     val c = LocalOpenVaultColors.current
+    val s = LocalStrings.current
     val fold = LocalFoldableLayout.current
     var isPassphrase by remember { mutableStateOf(false) }
 
@@ -140,7 +142,7 @@ fun GeneratorScreen(
                     Icon(Icons.Rounded.Close, contentDescription = "Đóng", tint = c.textPrimary)
                 }
                 Text(
-                    text = "Trình tạo mật khẩu",
+                    text = s.passwordGenerator,
                     color = c.textPrimary,
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
@@ -173,7 +175,10 @@ fun GeneratorScreen(
                     padding = PaddingValues(4.dp),
                 ) {
                     Row(modifier = Modifier.fillMaxWidth()) {
-                        listOf(false to "Ngẫu nhiên", true to "Cụm từ dễ nhớ").forEach { (phrase, label) ->
+                        listOf(
+                            false to if (s.isVi) "Ngẫu nhiên" else "Random Password",
+                            true to if (s.isVi) "Cụm từ dễ nhớ" else "Memorable Passphrase",
+                        ).forEach { (phrase, label) ->
                             val active = isPassphrase == phrase
                             Box(
                                 modifier = Modifier
@@ -220,13 +225,13 @@ fun GeneratorScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                             ) {
                                 Text(
-                                    text = "${strength.level.labelVi} · ${strength.entropyBits} bits",
+                                    text = "${strength.level.label(s.isVi)} · ${strength.entropyBits} bits",
                                     color = strengthColor,
                                     fontSize = 12.5.sp,
                                     fontWeight = FontWeight.SemiBold,
                                 )
                                 Text(
-                                    text = "${currentPassword.length} ký tự",
+                                    text = "${currentPassword.length} ${if (s.isVi) "ký tự" else "chars"}",
                                     color = c.textSecondary,
                                     fontSize = 12.sp,
                                 )
@@ -256,7 +261,7 @@ fun GeneratorScreen(
                             ) {
                                 Icon(Icons.Rounded.ContentCopy, contentDescription = null, modifier = Modifier.size(17.dp))
                                 Spacer(modifier = Modifier.size(8.dp))
-                                Text("Sao chép", fontWeight = FontWeight.SemiBold)
+                                Text(s.copy, fontWeight = FontWeight.SemiBold)
                             }
                             Button(
                                 onClick = { regenerate() },

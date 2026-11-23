@@ -4,6 +4,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -74,6 +75,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -90,14 +92,32 @@ import androidx.compose.ui.window.DialogProperties
 import io.openvault.app.core.crypto.CipherType
 import io.openvault.app.core.crypto.TotpCode
 import io.openvault.app.core.crypto.VaultItem
+import io.openvault.app.core.media.IconLoader
+import io.openvault.app.core.media.rememberWebsiteFavicon
+import io.openvault.app.ui.theme.AppStrings
+import io.openvault.app.ui.theme.LocalAccountAvatar
 import io.openvault.app.ui.theme.LocalFoldableLayout
 import io.openvault.app.ui.theme.LocalOpenVaultColors
+import io.openvault.app.ui.theme.LocalShowWebsiteIcons
+import io.openvault.app.ui.theme.LocalStrings
 import kotlin.math.abs
 
-enum class MainTab(val labelVi: String, val icon: ImageVector) {
-    HOME("Trang chủ", Icons.Rounded.Home),
-    ITEMS("Các mục", Icons.Rounded.ViewAgenda),
-    WATCHTOWER("Watchtower", Icons.Rounded.Security),
+enum class MainTab(val icon: ImageVector) {
+    HOME(Icons.Rounded.Home),
+    ITEMS(Icons.Rounded.ViewAgenda),
+    WATCHTOWER(Icons.Rounded.Security);
+
+    fun label(s: AppStrings): String = when (this) {
+        HOME -> s.tabHome
+        ITEMS -> s.tabItems
+        WATCHTOWER -> s.tabWatchtower
+    }
+
+    fun railLabel(s: AppStrings): String = when (this) {
+        HOME -> s.tabHome
+        ITEMS -> s.tabItems
+        WATCHTOWER -> s.tabSecurityShort
+    }
 }
 
 /**
@@ -137,10 +157,12 @@ fun OnePassCard(
 fun OnePassSearchBar(
     query: String,
     onQueryChange: (String) -> Unit,
-    placeholder: String = "Tìm trong OpenVault",
+    placeholder: String? = null,
     modifier: Modifier = Modifier,
 ) {
     val c = LocalOpenVaultColors.current
+    val s = LocalStrings.current
+    val hint = placeholder ?: s.searchInVault
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -160,7 +182,7 @@ fun OnePassSearchBar(
         Box(modifier = Modifier.weight(1f)) {
             if (query.isEmpty()) {
                 Text(
-                    text = placeholder,
+                    text = hint,
                     color = c.textSecondary,
                     fontSize = 15.sp,
                     maxLines = 1,
@@ -183,7 +205,7 @@ fun OnePassSearchBar(
         if (query.isNotEmpty()) {
             Icon(
                 imageVector = Icons.Rounded.Close,
-                contentDescription = "Xóa tìm kiếm",
+                contentDescription = s.close,
                 tint = c.textSecondary,
                 modifier = Modifier
                     .size(18.dp)
@@ -195,8 +217,7 @@ fun OnePassSearchBar(
 
 /**
  * Authentic 1Password 8 Android Single-Row Top Bar:
- * [ (🔍 Tìm trong OpenVault) ]  [Optional Action]  [⌄ Avatar -> Anchored Dropdown Menu]
- * Designed to stay spacious and uncrowded even on Galaxy Z Fold 3's 320dp outer cover display.
+ * [ (🔍 Search...) ]  [Optional Pencil/Action]  [⌄ Avatar -> Anchored Dropdown Menu]
  */
 @Composable
 fun OnePassTopSearchBar(
@@ -215,6 +236,7 @@ fun OnePassTopSearchBar(
     modifier: Modifier = Modifier,
 ) {
     val c = LocalOpenVaultColors.current
+    val s = LocalStrings.current
     val fold = LocalFoldableLayout.current
     var menuExpanded by remember { mutableStateOf(false) }
 
@@ -231,7 +253,7 @@ fun OnePassTopSearchBar(
                 vertical = if (fold.isNarrowCover) 8.dp else 10.dp,
             ),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(if (fold.isNarrowCover) 6.dp else 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(if (fold.isNarrowCover) 4.dp else 8.dp),
     ) {
         if (leadingAction != null) {
             leadingAction()
@@ -248,19 +270,19 @@ fun OnePassTopSearchBar(
             trailingAction()
         }
 
-        // Anchored Account Avatar + Dropdown (matching real 1Password Android!)
+        // Anchored Account Avatar + Dropdown
         Box {
             Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(12.dp))
                     .clickable { menuExpanded = true }
-                    .padding(horizontal = 3.dp, vertical = 3.dp),
+                    .padding(horizontal = 2.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 Icon(
                     imageVector = Icons.Rounded.KeyboardArrowDown,
-                    contentDescription = "Tài khoản",
+                    contentDescription = s.settingsAccounts,
                     tint = c.textSecondary,
                     modifier = Modifier.size(18.dp),
                 )
@@ -279,7 +301,6 @@ fun OnePassTopSearchBar(
                 border = BorderStroke(1.dp, c.cardBorder),
                 modifier = Modifier.widthIn(min = 235.dp, max = 280.dp),
             ) {
-                // Account identity header row
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -321,7 +342,7 @@ fun OnePassTopSearchBar(
                     DropdownMenuItem(
                         text = {
                             Text(
-                                text = if (isSyncing) "Đang đồng bộ…" else "Đồng bộ ngay",
+                                text = if (isSyncing) s.syncing else s.syncNow,
                                 color = c.textPrimary,
                                 fontSize = 15.sp,
                             )
@@ -346,7 +367,7 @@ fun OnePassTopSearchBar(
 
                 if (onOpenGenerator != null) {
                     DropdownMenuItem(
-                        text = { Text("Tạo mật khẩu…", color = c.textPrimary, fontSize = 15.sp) },
+                        text = { Text(s.passwordGenerator, color = c.textPrimary, fontSize = 15.sp) },
                         trailingIcon = {
                             Icon(Icons.Rounded.Key, contentDescription = null, tint = c.textSecondary, modifier = Modifier.size(19.dp))
                         },
@@ -359,7 +380,7 @@ fun OnePassTopSearchBar(
 
                 if (onOpenQrScanner != null) {
                     DropdownMenuItem(
-                        text = { Text("Quét mã QR 2FA…", color = c.textPrimary, fontSize = 15.sp) },
+                        text = { Text(s.scanQr2fa, color = c.textPrimary, fontSize = 15.sp) },
                         trailingIcon = {
                             Icon(Icons.Rounded.QrCodeScanner, contentDescription = null, tint = c.textSecondary, modifier = Modifier.size(19.dp))
                         },
@@ -373,7 +394,7 @@ fun OnePassTopSearchBar(
                 HorizontalDivider(color = c.divider, thickness = 0.8.dp)
 
                 DropdownMenuItem(
-                    text = { Text("Cài đặt…", color = c.textPrimary, fontSize = 15.sp) },
+                    text = { Text(s.settings, color = c.textPrimary, fontSize = 15.sp) },
                     trailingIcon = {
                         Icon(Icons.Rounded.Settings, contentDescription = null, tint = c.textSecondary, modifier = Modifier.size(19.dp))
                     },
@@ -384,7 +405,7 @@ fun OnePassTopSearchBar(
                 )
 
                 DropdownMenuItem(
-                    text = { Text("Khóa kho", color = c.textPrimary, fontSize = 15.sp) },
+                    text = { Text(s.lockVault, color = c.textPrimary, fontSize = 15.sp) },
                     trailingIcon = {
                         Icon(Icons.Rounded.Lock, contentDescription = null, tint = c.textSecondary, modifier = Modifier.size(19.dp))
                     },
@@ -399,15 +420,16 @@ fun OnePassTopSearchBar(
 }
 
 /**
- * Signature 1Password 8 Android Cobalt-Blue Extended FAB ("+ Mục mới").
+ * Signature 1Password 8 Android Cobalt-Blue Extended FAB ("+ New Item").
  */
 @Composable
 fun OnePassExtendedFab(
-    text: String = "Mục mới",
+    text: String? = null,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val c = LocalOpenVaultColors.current
+    val s = LocalStrings.current
     Surface(
         onClick = onClick,
         modifier = modifier.height(54.dp),
@@ -427,7 +449,7 @@ fun OnePassExtendedFab(
                 modifier = Modifier.size(22.dp),
             )
             Text(
-                text = text,
+                text = text ?: s.newItem,
                 fontSize = 15.5.sp,
                 fontWeight = FontWeight.SemiBold,
             )
@@ -445,6 +467,7 @@ fun OnePassBottomBar(
     modifier: Modifier = Modifier,
 ) {
     val c = LocalOpenVaultColors.current
+    val s = LocalStrings.current
     val fold = LocalFoldableLayout.current
     Column(
         modifier = modifier
@@ -464,6 +487,7 @@ fun OnePassBottomBar(
         ) {
             MainTab.entries.forEach { tab ->
                 val active = tab == selectedTab
+                val label = tab.label(s)
                 val tint by animateColorAsState(
                     targetValue = if (active) c.navActiveContent else c.navInactiveContent,
                     animationSpec = tween(150),
@@ -494,13 +518,13 @@ fun OnePassBottomBar(
                     ) {
                         Icon(
                             imageVector = tab.icon,
-                            contentDescription = tab.labelVi,
+                            contentDescription = label,
                             tint = tint,
                             modifier = Modifier.size(21.dp),
                         )
                     }
                     Text(
-                        text = tab.labelVi,
+                        text = label,
                         color = tint,
                         fontSize = if (fold.isNarrowCover) 11.5.sp else 12.sp,
                         fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
@@ -514,7 +538,7 @@ fun OnePassBottomBar(
 }
 
 /**
- * Unfolded Samsung Galaxy Z Fold 3 / Tablet Left Navigation Rail (1Password Android large-screen UX).
+ * Unfolded Samsung Galaxy Z Fold 3 / Tablet Left Navigation Rail.
  */
 @Composable
 fun OnePassNavigationRail(
@@ -529,6 +553,7 @@ fun OnePassNavigationRail(
     modifier: Modifier = Modifier,
 ) {
     val c = LocalOpenVaultColors.current
+    val s = LocalStrings.current
     Row(modifier = modifier.fillMaxHeight()) {
         Column(
             modifier = Modifier
@@ -545,7 +570,6 @@ fun OnePassNavigationRail(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
-                // Top Cobalt '+' FAB
                 Surface(
                     onClick = onNewItem,
                     modifier = Modifier.size(48.dp),
@@ -555,11 +579,10 @@ fun OnePassNavigationRail(
                     shadowElevation = 4.dp,
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Rounded.Add, contentDescription = "Mục mới", modifier = Modifier.size(24.dp))
+                        Icon(Icons.Rounded.Add, contentDescription = s.newItem, modifier = Modifier.size(24.dp))
                     }
                 }
 
-                // Primary 3 tabs
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -596,13 +619,13 @@ fun OnePassNavigationRail(
                             ) {
                                 Icon(
                                     imageVector = tab.icon,
-                                    contentDescription = tab.labelVi,
+                                    contentDescription = tab.label(s),
                                     tint = tint,
                                     modifier = Modifier.size(21.dp),
                                 )
                             }
                             Text(
-                                text = if (tab == MainTab.WATCHTOWER) "Bảo mật" else tab.labelVi,
+                                text = tab.railLabel(s),
                                 color = tint,
                                 fontSize = 11.sp,
                                 fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
@@ -614,7 +637,6 @@ fun OnePassNavigationRail(
                 }
             }
 
-            // Bottom utility shortcuts on Z Fold 3 unfolded rail
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -627,22 +649,21 @@ fun OnePassNavigationRail(
                             modifier = Modifier.size(18.dp),
                         )
                     } else {
-                        Icon(Icons.Rounded.Refresh, contentDescription = "Đồng bộ", tint = c.navInactiveContent, modifier = Modifier.size(20.dp))
+                        Icon(Icons.Rounded.Refresh, contentDescription = s.syncNow, tint = c.navInactiveContent, modifier = Modifier.size(20.dp))
                     }
                 }
                 IconButton(onClick = onOpenGenerator) {
-                    Icon(Icons.Rounded.Key, contentDescription = "Tạo mật khẩu", tint = c.navInactiveContent, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Rounded.Key, contentDescription = s.passwordGenerator, tint = c.navInactiveContent, modifier = Modifier.size(20.dp))
                 }
                 IconButton(onClick = onOpenSettings) {
-                    Icon(Icons.Rounded.Settings, contentDescription = "Cài đặt", tint = c.navInactiveContent, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Rounded.Settings, contentDescription = s.settings, tint = c.navInactiveContent, modifier = Modifier.size(20.dp))
                 }
                 IconButton(onClick = onLock) {
-                    Icon(Icons.Rounded.Lock, contentDescription = "Khóa kho", tint = c.navInactiveContent, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Rounded.Lock, contentDescription = s.lockVault, tint = c.navInactiveContent, modifier = Modifier.size(20.dp))
                 }
             }
         }
 
-        // Subtle right hairline separating Rail from Master Pane
         Box(
             modifier = Modifier
                 .width(0.8.dp)
@@ -653,39 +674,51 @@ fun OnePassNavigationRail(
 }
 
 /**
- * Rounded-square Account Avatar matching 1Password 8 Android.
+ * Rounded-square Account Avatar matching 1Password 8 Android — automatically shows custom user photo when set!
  */
 @Composable
 fun OnePassAccountAvatar(
     email: String,
-    onClick: () -> Unit,
+    onClick: (() -> Unit)? = null,
     size: Dp = 36.dp,
+    avatarBase64Override: String? = null,
     modifier: Modifier = Modifier,
 ) {
     val c = LocalOpenVaultColors.current
+    val avatarB64 = avatarBase64Override ?: LocalAccountAvatar.current
+    val bitmap = remember(avatarB64) { IconLoader.decodeBase64Bitmap(avatarB64) }
     val initial = email.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "O"
     val shape = RoundedCornerShape(size * 0.28f)
+
     Box(
         modifier = modifier
             .size(size)
             .clip(shape)
             .background(if (c.isDark) Color(0xFF28354D) else Color(0xFFDBEAFE))
             .border(1.dp, c.accent.copy(alpha = 0.4f), shape)
-            .clickable(onClick = onClick),
+            .let { if (onClick != null) it.clickable(onClick = onClick) else it },
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = initial,
-            color = c.accent,
-            fontSize = (size.value * 0.44f).sp,
-            fontWeight = FontWeight.Bold,
-        )
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Text(
+                text = initial,
+                color = c.accent,
+                fontSize = (size.value * 0.44f).sp,
+                fontWeight = FontWeight.Bold,
+            )
+        }
     }
 }
 
 /**
- * Signature 1Password 8 Android Purple Diagonal-Striped "Editing" Header
- * (✕ | Đang sửa / Tạo mới | [Lưu] solid cobalt pill button).
+ * Signature 1Password 8 Android Purple Diagonal-Striped "Editing" Header.
  */
 @Composable
 fun EditingStripedHeader(
@@ -696,13 +729,13 @@ fun EditingStripedHeader(
     onSave: () -> Unit,
 ) {
     val c = LocalOpenVaultColors.current
+    val s = LocalStrings.current
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .background(c.editBannerBg)
             .clipToBounds(),
     ) {
-        // Diagonal purple stripes matching real 1Password Android Editor
         Canvas(modifier = Modifier.matchParentSize()) {
             val stripeWidth = 14.dp.toPx()
             val spacing = 28.dp.toPx()
@@ -730,7 +763,7 @@ fun EditingStripedHeader(
             IconButton(onClick = onCancel) {
                 Icon(
                     imageVector = Icons.Rounded.Close,
-                    contentDescription = "Hủy",
+                    contentDescription = s.cancel,
                     tint = c.editBannerText,
                     modifier = Modifier.size(23.dp),
                 )
@@ -766,7 +799,7 @@ fun EditingStripedHeader(
                         modifier = Modifier.size(16.dp),
                     )
                 } else {
-                    Text("Lưu", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text(s.save, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
@@ -774,11 +807,11 @@ fun EditingStripedHeader(
 }
 
 /**
- * Clean circular Password Strength Donut Ring (exact 1Password Android Detail indicator!).
+ * Clean circular Password Strength Donut Ring.
  */
 @Composable
 fun StrengthDonutRing(
-    score: Int, // 0..4
+    score: Int,
     color: Color,
     size: Dp = 18.dp,
     modifier: Modifier = Modifier,
@@ -810,9 +843,6 @@ fun StrengthDonutRing(
     }
 }
 
-/**
- * Clean flat filter chip for Settings/Editor options.
- */
 @Composable
 fun OnePassChip(
     label: String,
@@ -840,9 +870,6 @@ fun OnePassChip(
     }
 }
 
-/**
- * Clean flat OpenVault keyhole crest for Auth/Unlock/Two-Pane Empty headers.
- */
 @Composable
 fun OpenVaultBrandCrest(
     size: Dp = 56.dp,
@@ -879,9 +906,6 @@ fun OpenVaultBrandCrest(
     }
 }
 
-/**
- * Clean rounded-square or circular category icon badge matching 1Password 8 Android.
- */
 @Composable
 fun CategoryIconBadge(
     icon: ImageVector,
@@ -919,7 +943,10 @@ private val ITEM_ICON_COLORS = listOf(
 )
 
 /**
- * Crisp 1Password-style rounded-square item icon (with optional gold star badge for favorites).
+ * 3-Tier 1Password-style rounded-square Item Icon:
+ * 1) Custom user-uploaded image (E2EE compressed WebP stored in `_ov_icon`)
+ * 2) Automatic cached Website Favicon (when enabled & login has a URL)
+ * 3) Crisp brand-colored monogram / category icon fallback
  */
 @Composable
 fun ItemIconTile(
@@ -927,8 +954,19 @@ fun ItemIconTile(
     type: CipherType,
     size: Dp = 38.dp,
     showFavoriteStar: Boolean = false,
+    customIconBase64: String? = null,
+    websiteUrl: String? = null,
+    showDropdownBadge: Boolean = false,
+    onClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
+    val showWebsiteIcons = LocalShowWebsiteIcons.current
+    val customBitmap = remember(customIconBase64) { IconLoader.decodeBase64Bitmap(customIconBase64) }
+    val faviconBitmap = rememberWebsiteFavicon(
+        websiteUrl = if (customBitmap == null && type == CipherType.LOGIN) websiteUrl else null,
+        enabled = showWebsiteIcons,
+    )
+
     val bgColor = when (type) {
         CipherType.LOGIN -> ITEM_ICON_COLORS[abs(title.hashCode()) % ITEM_ICON_COLORS.size]
         CipherType.CARD -> Color(0xFF0284C7)
@@ -937,51 +975,88 @@ fun ItemIconTile(
     }
     val shape = RoundedCornerShape(size * 0.25f)
 
-    Box(modifier = modifier.size(size)) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .clip(shape)
-                .background(bgColor),
-            contentAlignment = Alignment.Center,
-        ) {
-            when (type) {
-                CipherType.LOGIN -> {
-                    val initials = title.trim()
-                        .split(Regex("\\s+"))
-                        .take(2)
-                        .mapNotNull { it.firstOrNull()?.uppercaseChar() }
-                        .joinToString("")
-                        .ifBlank { "?" }
-                    Text(
-                        text = initials,
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = if (initials.length > 1) (size.value * 0.35f).sp else (size.value * 0.44f).sp,
+    Box(
+        modifier = modifier
+            .size(size)
+            .let { if (onClick != null) it.clickable(onClick = onClick) else it },
+    ) {
+        when {
+            customBitmap != null -> {
+                Image(
+                    bitmap = customBitmap,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(shape),
+                )
+            }
+
+            faviconBitmap != null -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(shape)
+                        .background(Color.White)
+                        .padding(size * 0.14f),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Image(
+                        bitmap = faviconBitmap,
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize(),
                     )
                 }
-                CipherType.CARD -> Icon(
-                    Icons.Rounded.CreditCard,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(size * 0.54f),
-                )
-                CipherType.SECURE_NOTE -> Icon(
-                    Icons.Rounded.Description,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(size * 0.54f),
-                )
-                CipherType.IDENTITY -> Icon(
-                    Icons.Rounded.Person,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(size * 0.54f),
-                )
+            }
+
+            else -> {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(shape)
+                        .background(bgColor),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    when (type) {
+                        CipherType.LOGIN -> {
+                            val initials = title.trim()
+                                .split(Regex("\\s+"))
+                                .take(2)
+                                .mapNotNull { it.firstOrNull()?.uppercaseChar() }
+                                .joinToString("")
+                                .ifBlank { "?" }
+                            Text(
+                                text = initials,
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = if (initials.length > 1) (size.value * 0.35f).sp else (size.value * 0.44f).sp,
+                            )
+                        }
+                        CipherType.CARD -> Icon(
+                            Icons.Rounded.CreditCard,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(size * 0.54f),
+                        )
+                        CipherType.SECURE_NOTE -> Icon(
+                            Icons.Rounded.Description,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(size * 0.54f),
+                        )
+                        CipherType.IDENTITY -> Icon(
+                            Icons.Rounded.Person,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(size * 0.54f),
+                        )
+                    }
+                }
             }
         }
 
-        if (showFavoriteStar) {
+        if (showFavoriteStar && !showDropdownBadge) {
             Icon(
                 imageVector = Icons.Rounded.Star,
                 contentDescription = null,
@@ -991,11 +1066,30 @@ fun ItemIconTile(
                     .size(14.dp),
             )
         }
+
+        if (showDropdownBadge) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .size(20.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Color(0xFF1C1D1F))
+                    .border(1.dp, Color(0xFF3E4148), RoundedCornerShape(6.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.KeyboardArrowDown,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(14.dp),
+                )
+            }
+        }
     }
 }
 
 /**
- * Clean 1Password 8 Android item row (no noisy trailing chevron; highlights smoothly when selected in Two-Pane Z Fold 3 mode).
+ * Clean 1Password 8 Android item row (auto-shows custom icon or real website favicon!).
  */
 @Composable
 fun OnePassItemRow(
@@ -1032,6 +1126,8 @@ fun OnePassItemRow(
             type = item.type,
             size = iconSize,
             showFavoriteStar = showFavoriteBadge && item.favorite,
+            customIconBase64 = item.customIconBase64,
+            websiteUrl = item.primaryWebsiteUrl,
         )
 
         Column(
@@ -1087,9 +1183,6 @@ fun OnePassItemRow(
     }
 }
 
-/**
- * Compact green circular pie/arc TOTP countdown matching 1Password 8 Home Pinned Cards.
- */
 @Composable
 fun TotpInlineCountdown(
     totp: TotpCode,
@@ -1172,10 +1265,6 @@ fun TotpCountdownRing(
     }
 }
 
-/**
- * 1Password-style monospace password renderer:
- * Letters = Primary, Digits = Blue, Symbols = Rose/Coral.
- */
 @Composable
 fun SyntaxColoredPasswordText(
     password: String,
@@ -1237,6 +1326,7 @@ fun LargeTypePasswordDialog(
     onDismiss: () -> Unit,
 ) {
     val c = LocalOpenVaultColors.current
+    val s = LocalStrings.current
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -1258,14 +1348,14 @@ fun LargeTypePasswordDialog(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Phóng to mật khẩu", color = c.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                        Text("$title · ${password.length} ký tự", color = c.textSecondary, fontSize = 12.5.sp)
+                        Text(s.largeType, color = c.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Text("$title · ${password.length} ${if (s.isVi) "ký tự" else "chars"}", color = c.textSecondary, fontSize = 12.5.sp)
                     }
                     IconButton(onClick = onCopy) {
-                        Icon(Icons.Rounded.ContentCopy, contentDescription = "Sao chép", tint = c.accent)
+                        Icon(Icons.Rounded.ContentCopy, contentDescription = s.copy, tint = c.accent)
                     }
                     IconButton(onClick = onDismiss) {
-                        Icon(Icons.Rounded.Close, contentDescription = "Đóng", tint = c.textSecondary)
+                        Icon(Icons.Rounded.Close, contentDescription = s.close, tint = c.textSecondary)
                     }
                 }
 
@@ -1299,9 +1389,9 @@ fun LargeTypePasswordDialog(
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    LegendDot("Chữ cái", c.textPrimary)
-                    LegendDot("Chữ số", c.passwordDigit)
-                    LegendDot("Ký tự đặc biệt", c.passwordSymbol)
+                    LegendDot(if (s.isVi) "Chữ cái" else "Letters", c.textPrimary)
+                    LegendDot(if (s.isVi) "Chữ số" else "Digits", c.passwordDigit)
+                    LegendDot(if (s.isVi) "Ký tự đặc biệt" else "Symbols", c.passwordSymbol)
                 }
             }
         }

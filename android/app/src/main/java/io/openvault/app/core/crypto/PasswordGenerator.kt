@@ -21,12 +21,14 @@ data class PassphraseOptions(
     val includeNumber: Boolean = true,
 )
 
-enum class StrengthLevel(val score: Int, val labelVi: String) {
-    WEAK(0, "Yếu"),
-    FAIR(1, "Trung bình"),
-    GOOD(2, "Khá"),
-    STRONG(3, "Mạnh"),
-    EXCELLENT(4, "Rất mạnh"),
+enum class StrengthLevel(val score: Int, val labelVi: String, val labelEn: String) {
+    WEAK(0, "Yếu", "Weak"),
+    FAIR(1, "Trung bình", "Fair"),
+    GOOD(2, "Khá", "Good"),
+    STRONG(3, "Mạnh", "Very Good"),
+    EXCELLENT(4, "Rất mạnh", "Fantastic");
+
+    fun label(isVi: Boolean): String = if (isVi) labelVi else labelEn
 }
 
 data class PasswordStrength(

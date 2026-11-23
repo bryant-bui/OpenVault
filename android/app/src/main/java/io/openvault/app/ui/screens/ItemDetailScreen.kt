@@ -79,17 +79,10 @@ import io.openvault.app.ui.components.SyntaxColoredPasswordText
 import io.openvault.app.ui.components.TotpInlineCountdown
 import io.openvault.app.ui.theme.LocalFoldableLayout
 import io.openvault.app.ui.theme.LocalOpenVaultColors
+import io.openvault.app.ui.theme.LocalStrings
+import io.openvault.app.ui.theme.formatLocalTimestamp
 import kotlinx.coroutines.delay
 
-/**
- * Authentic 1Password 8 Android Item Detail Screen:
- * - Elevated matte charcoal (#1C1D1F) canvas with clean top toolbar (← | ★ | ✎ | ⋮)
- * - Context bar: [Avatar] account | [Vault] Personal
- * - Large rounded-square icon + bold title
- * - Hairline-outlined primary credentials box (username + password w/ StrengthDonutRing + 2FA)
- * - Secondary fields (websites, passkeys, notes) laid cleanly on canvas + centered timestamps
- * - Seamlessly docks as Right Pane on unfolded Galaxy Z Fold 3 (showBackButton = false)
- */
 @Composable
 fun ItemDetailScreen(
     item: VaultItem,
@@ -105,6 +98,7 @@ fun ItemDetailScreen(
     onCopy: (label: String, value: String, sensitive: Boolean) -> Unit,
 ) {
     val c = LocalOpenVaultColors.current
+    val s = LocalStrings.current
     val fold = LocalFoldableLayout.current
     val context = LocalContext.current
 
@@ -133,6 +127,8 @@ fun ItemDetailScreen(
         if (local.isNotBlank()) local.replaceFirstChar { it.uppercaseChar() } else "OpenVault"
     }
 
+    val visibleCustomFields = remember(item.fields) { item.visibleFields }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -140,7 +136,6 @@ fun ItemDetailScreen(
             .statusBarsPadding()
             .navigationBarsPadding(),
     ) {
-        // 1Password Android Detail Top Action Bar (← | ★ | ✎ | ⋮)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -152,7 +147,7 @@ fun ItemDetailScreen(
                 IconButton(onClick = onBack) {
                     Icon(
                         Icons.AutoMirrored.Rounded.ArrowBack,
-                        contentDescription = "Quay lại",
+                        contentDescription = s.back,
                         tint = c.textPrimary,
                     )
                 }
@@ -164,7 +159,7 @@ fun ItemDetailScreen(
                 IconButton(onClick = onToggleFavorite) {
                     Icon(
                         imageVector = if (item.favorite) Icons.Rounded.Star else Icons.Rounded.StarBorder,
-                        contentDescription = "Yêu thích",
+                        contentDescription = s.favorites,
                         tint = if (item.favorite) c.warning else c.textPrimary,
                     )
                 }
@@ -172,7 +167,7 @@ fun ItemDetailScreen(
                     IconButton(onClick = onEdit) {
                         Icon(
                             Icons.Rounded.Edit,
-                            contentDescription = "Chỉnh sửa",
+                            contentDescription = s.edit,
                             tint = c.textPrimary,
                         )
                     }
@@ -180,7 +175,7 @@ fun ItemDetailScreen(
                     IconButton(onClick = onRestore) {
                         Icon(
                             Icons.Rounded.RestoreFromTrash,
-                            contentDescription = "Khôi phục",
+                            contentDescription = s.restore,
                             tint = c.success,
                         )
                     }
@@ -189,7 +184,7 @@ fun ItemDetailScreen(
                     IconButton(onClick = { overflowOpen = true }) {
                         Icon(
                             Icons.Rounded.MoreVert,
-                            contentDescription = "Thêm tùy chọn",
+                            contentDescription = "More",
                             tint = c.textPrimary,
                         )
                     }
@@ -202,7 +197,7 @@ fun ItemDetailScreen(
                     ) {
                         if (!item.login?.password.isNullOrBlank()) {
                             DropdownMenuItem(
-                                text = { Text("Phóng to mật khẩu", color = c.textPrimary, fontSize = 14.5.sp) },
+                                text = { Text(s.largeType, color = c.textPrimary, fontSize = 14.5.sp) },
                                 leadingIcon = { Icon(Icons.Rounded.Fullscreen, contentDescription = null, tint = c.textSecondary) },
                                 onClick = {
                                     overflowOpen = false
@@ -212,7 +207,7 @@ fun ItemDetailScreen(
                         }
                         if (item.isDeleted) {
                             DropdownMenuItem(
-                                text = { Text("Khôi phục mục", color = c.success, fontSize = 14.5.sp) },
+                                text = { Text(s.restore, color = c.success, fontSize = 14.5.sp) },
                                 leadingIcon = { Icon(Icons.Rounded.RestoreFromTrash, contentDescription = null, tint = c.success) },
                                 onClick = {
                                     overflowOpen = false
@@ -223,7 +218,7 @@ fun ItemDetailScreen(
                         DropdownMenuItem(
                             text = {
                                 Text(
-                                    text = if (item.isDeleted) "Xóa vĩnh viễn" else "Chuyển vào thùng rác",
+                                    text = if (item.isDeleted) s.deletePermanently else s.moveToTrash,
                                     color = c.danger,
                                     fontSize = 14.5.sp,
                                 )
@@ -252,12 +247,12 @@ fun ItemDetailScreen(
                     .padding(horizontal = if (fold.isNarrowCover) 14.dp else 20.dp, vertical = 6.dp),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
-                // Context Vault Row: [Avatar] Hoang | [Vault] Personal
+                // Context Vault Row
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    OnePassAccountAvatar(email = email, onClick = { }, size = 22.dp)
+                    OnePassAccountAvatar(email = email, size = 22.dp)
                     Text(
                         text = ownerName,
                         color = c.textSecondary,
@@ -277,7 +272,7 @@ fun ItemDetailScreen(
                         Icon(Icons.Rounded.Shield, contentDescription = null, tint = Color(0xFFCBD5E1), modifier = Modifier.size(12.dp))
                     }
                     Text(
-                        text = folder?.name ?: "Cá nhân",
+                        text = folder?.name ?: s.personalVault,
                         color = c.textSecondary,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium,
@@ -286,7 +281,7 @@ fun ItemDetailScreen(
                     )
                     if (item.isDeleted) {
                         Text(
-                            text = "Thùng rác",
+                            text = s.trashBadge,
                             color = c.danger,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -298,7 +293,7 @@ fun ItemDetailScreen(
                     }
                 }
 
-                // Item Hero Row: [56dp Icon]  Title
+                // Item Hero Row (shows custom icon OR website favicon OR monogram!)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -308,6 +303,8 @@ fun ItemDetailScreen(
                         type = item.type,
                         size = if (fold.isNarrowCover) 50.dp else 58.dp,
                         showFavoriteStar = item.favorite,
+                        customIconBase64 = item.customIconBase64,
+                        websiteUrl = item.primaryWebsiteUrl,
                     )
                     Text(
                         text = item.name,
@@ -319,7 +316,7 @@ fun ItemDetailScreen(
                     )
                 }
 
-                // LOGIN PRIMARY OUTLINED BOX (Exact 1Password Android hairline-bordered card!)
+                // LOGIN PRIMARY OUTLINED BOX
                 if (item.type == CipherType.LOGIN && item.login != null) {
                     val login = item.login
                     if (login.username.isNotBlank() || login.password.isNotBlank() || liveTotp != null) {
@@ -335,9 +332,9 @@ fun ItemDetailScreen(
 
                                 if (login.username.isNotBlank()) {
                                     DetailFieldRow(
-                                        label = "tên đăng nhập",
+                                        label = s.username,
                                         value = login.username,
-                                        onCopy = { onCopy("tên đăng nhập", login.username, false) },
+                                        onCopy = { onCopy(s.username, login.username, false) },
                                     )
                                     hasPrev = true
                                 }
@@ -355,7 +352,7 @@ fun ItemDetailScreen(
                                     Column(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .clickable { onCopy("mật khẩu", login.password, true) }
+                                            .clickable { onCopy(s.password, login.password, true) }
                                             .padding(horizontal = 16.dp, vertical = 13.dp),
                                         verticalArrangement = Arrangement.spacedBy(6.dp),
                                     ) {
@@ -365,7 +362,7 @@ fun ItemDetailScreen(
                                             verticalAlignment = Alignment.CenterVertically,
                                         ) {
                                             Text(
-                                                text = "mật khẩu",
+                                                text = s.password,
                                                 color = c.fieldLabel,
                                                 fontSize = 13.sp,
                                                 fontWeight = FontWeight.Medium,
@@ -375,7 +372,7 @@ fun ItemDetailScreen(
                                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                                             ) {
                                                 Text(
-                                                    text = strength.level.labelVi,
+                                                    text = strength.level.label(s.isVi),
                                                     color = c.textSecondary,
                                                     fontSize = 12.5.sp,
                                                     fontWeight = FontWeight.Medium,
@@ -410,7 +407,7 @@ fun ItemDetailScreen(
                                             ) {
                                                 Icon(
                                                     if (showPassword) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
-                                                    contentDescription = "Hiện/Ẩn",
+                                                    contentDescription = "Toggle password",
                                                     tint = c.textSecondary,
                                                     modifier = Modifier.size(19.dp),
                                                 )
@@ -422,19 +419,19 @@ fun ItemDetailScreen(
                                                 ) {
                                                     Icon(
                                                         Icons.Rounded.Fullscreen,
-                                                        contentDescription = "Phóng to",
+                                                        contentDescription = s.largeType,
                                                         tint = c.textSecondary,
                                                         modifier = Modifier.size(19.dp),
                                                     )
                                                 }
                                             }
                                             IconButton(
-                                                onClick = { onCopy("mật khẩu", login.password, true) },
+                                                onClick = { onCopy(s.password, login.password, true) },
                                                 modifier = Modifier.size(34.dp),
                                             ) {
                                                 Icon(
                                                     Icons.Rounded.ContentCopy,
-                                                    contentDescription = "Sao chép",
+                                                    contentDescription = s.copy,
                                                     tint = c.accent,
                                                     modifier = Modifier.size(18.dp),
                                                 )
@@ -454,14 +451,14 @@ fun ItemDetailScreen(
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .clickable { onCopy("mã 2FA", liveTotp.code, true) }
+                                            .clickable { onCopy("2FA", liveTotp.code, true) }
                                             .padding(horizontal = 16.dp, vertical = 13.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                     ) {
                                         Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                             Text(
-                                                text = "mã xác thực một lần (2FA)",
+                                                text = s.oneTimePassword,
                                                 color = c.fieldLabel,
                                                 fontSize = 13.sp,
                                                 fontWeight = FontWeight.Medium,
@@ -482,7 +479,7 @@ fun ItemDetailScreen(
                                         }
                                         Icon(
                                             Icons.Rounded.ContentCopy,
-                                            contentDescription = "Sao chép 2FA",
+                                            contentDescription = s.copy,
                                             tint = c.accent,
                                             modifier = Modifier.size(18.dp),
                                         )
@@ -492,21 +489,22 @@ fun ItemDetailScreen(
                         }
                     }
 
-                    // Websites directly on canvas (exact 1Password Android Detail rhythm!)
+                    // Websites: clean SINGLE-LINE truncated URLs with "..." (Requirement #3!)
                     if (login.uris.isNotEmpty()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             login.uris.forEachIndexed { idx, uri ->
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(10.dp))
-                                        .clickable { onCopy("trang web", uri.uri, false) }
-                                        .padding(horizontal = 4.dp, vertical = 6.dp),
+                                        .clickable { onCopy(s.website, uri.uri, false) }
+                                        .padding(horizontal = 4.dp, vertical = 5.dp),
                                     verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 ) {
-                                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                         Text(
-                                            text = if (idx == 0) "trang web" else "trang web #${idx + 1}",
+                                            text = if (idx == 0) s.website else "${s.website} #${idx + 1}",
                                             color = c.fieldLabel,
                                             fontSize = 13.sp,
                                             fontWeight = FontWeight.Medium,
@@ -514,8 +512,8 @@ fun ItemDetailScreen(
                                         Text(
                                             text = uri.uri,
                                             color = c.accent,
-                                            fontSize = 15.5.sp,
-                                            maxLines = 2,
+                                            fontSize = 15.sp,
+                                            maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
                                         )
                                     }
@@ -526,11 +524,11 @@ fun ItemDetailScreen(
                                                     context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(uri.uri)))
                                                 }
                                             },
-                                            modifier = Modifier.size(36.dp),
+                                            modifier = Modifier.size(34.dp),
                                         ) {
                                             Icon(
                                                 Icons.AutoMirrored.Rounded.OpenInNew,
-                                                contentDescription = "Mở trình duyệt",
+                                                contentDescription = "Open link",
                                                 tint = c.textSecondary,
                                                 modifier = Modifier.size(19.dp),
                                             )
@@ -557,7 +555,7 @@ fun ItemDetailScreen(
                                 ) {
                                     Icon(Icons.Rounded.Key, contentDescription = null, tint = Color(0xFFA78BFA), modifier = Modifier.size(16.dp))
                                     Text(
-                                        "khóa truy cập (passkeys)",
+                                        s.passkeys,
                                         color = Color(0xFFC4B5FD),
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.SemiBold,
@@ -568,6 +566,8 @@ fun ItemDetailScreen(
                                         text = "${pk.rpName ?: pk.rpId} · ${pk.userName ?: pk.credentialId.take(12)}",
                                         color = c.textPrimary,
                                         fontSize = 14.5.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
                                     )
                                 }
                             }
@@ -610,7 +610,7 @@ fun ItemDetailScreen(
                                 IconButton(onClick = { showCardSecrets = !showCardSecrets }, modifier = Modifier.size(30.dp)) {
                                     Icon(
                                         if (showCardSecrets) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
-                                        contentDescription = "Hiện/Ẩn",
+                                        contentDescription = "Toggle card",
                                         tint = Color.White,
                                         modifier = Modifier.size(18.dp),
                                     )
@@ -625,11 +625,11 @@ fun ItemDetailScreen(
                             )
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Column {
-                                    Text("CHỦ THẺ", color = Color.White.copy(alpha = 0.6f), fontSize = 10.sp)
+                                    Text(if (s.isVi) "CHỦ THẺ" else "CARDHOLDER", color = Color.White.copy(alpha = 0.6f), fontSize = 10.sp)
                                     Text(card.cardholderName.ifBlank { "—" }, color = Color.White, fontSize = 14.sp)
                                 }
                                 Column(horizontalAlignment = Alignment.End) {
-                                    Text("HẾT HẠN", color = Color.White.copy(alpha = 0.6f), fontSize = 10.sp)
+                                    Text(if (s.isVi) "HẾT HẠN" else "EXPIRES", color = Color.White.copy(alpha = 0.6f), fontSize = 10.sp)
                                     Text(
                                         "${card.expMonth.ifBlank { "--" }}/${card.expYear.takeLast(2).ifBlank { "--" }}",
                                         color = Color.White,
@@ -650,43 +650,41 @@ fun ItemDetailScreen(
                     ) {
                         Column {
                             if (card.number.isNotBlank()) {
-                                DetailFieldRow("số thẻ", displayNum) { onCopy("số thẻ", card.number, true) }
+                                DetailFieldRow(if (s.isVi) "số thẻ" else "number", displayNum) { onCopy("card number", card.number, true) }
                             }
                             if (card.code.isNotBlank()) {
                                 HorizontalDivider(color = c.divider, thickness = 0.8.dp)
-                                DetailFieldRow("mã bảo mật (cvv)", if (showCardSecrets) card.code else "•••") {
-                                    onCopy("CVV", card.code, true)
-                                }
+                                DetailFieldRow("cvv", if (showCardSecrets) card.code else "•••") { onCopy("CVV", card.code, true) }
                             }
                             if (card.cardholderName.isNotBlank()) {
                                 HorizontalDivider(color = c.divider, thickness = 0.8.dp)
-                                DetailFieldRow("chủ thẻ", card.cardholderName) { onCopy("chủ thẻ", card.cardholderName, false) }
+                                DetailFieldRow(if (s.isVi) "chủ thẻ" else "cardholder", card.cardholderName) { onCopy("cardholder", card.cardholderName, false) }
                             }
                         }
                     }
                 }
 
-                // IDENTITY SECTION (exact 1Password Android section header + outlined primary card!)
+                // IDENTITY SECTION
                 if (item.type == CipherType.IDENTITY && item.identity != null) {
                     val id = item.identity
                     val rows = listOfNotNull(
-                        id.fullName.takeIf { it.isNotBlank() }?.let { "họ và tên" to it },
+                        id.fullName.takeIf { it.isNotBlank() }?.let { (if (s.isVi) "họ và tên" else "full name") to it },
                         id.email.takeIf { it.isNotBlank() }?.let { "email" to it },
-                        id.phone.takeIf { it.isNotBlank() }?.let { "điện thoại" to it },
-                        id.company.takeIf { it.isNotBlank() }?.let { "công ty" to it },
-                        id.username.takeIf { it.isNotBlank() }?.let { "tên người dùng" to it },
+                        id.phone.takeIf { it.isNotBlank() }?.let { (if (s.isVi) "điện thoại" else "phone") to it },
+                        id.company.takeIf { it.isNotBlank() }?.let { (if (s.isVi) "công ty" else "company") to it },
+                        id.username.takeIf { it.isNotBlank() }?.let { s.username to it },
                         listOf(id.address1, id.address2, id.city, id.state, id.postalCode, id.country)
                             .filter { it.isNotBlank() }
                             .joinToString(", ")
                             .takeIf { it.isNotBlank() }
-                            ?.let { "địa chỉ" to it },
-                        id.passportNumber.takeIf { it.isNotBlank() }?.let { "hộ chiếu / cccd" to it },
-                        id.licenseNumber.takeIf { it.isNotBlank() }?.let { "giấy phép" to it },
+                            ?.let { (if (s.isVi) "địa chỉ" else "address") to it },
+                        id.passportNumber.takeIf { it.isNotBlank() }?.let { (if (s.isVi) "hộ chiếu / cccd" else "passport / id") to it },
+                        id.licenseNumber.takeIf { it.isNotBlank() }?.let { (if (s.isVi) "giấy phép" else "license") to it },
                     )
                     if (rows.isNotEmpty()) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(
-                                text = "THÔNG TIN ĐỊNH DANH",
+                                text = s.identificationHeader,
                                 color = c.textPrimary,
                                 fontSize = 12.5.sp,
                                 fontWeight = FontWeight.Bold,
@@ -710,23 +708,8 @@ fun ItemDetailScreen(
                     }
                 }
 
-                // NOTES cleanly rendered directly on elevated canvas
-                if (item.notes.isNotBlank()) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .clickable { onCopy("ghi chú", item.notes, true) }
-                            .padding(horizontal = 4.dp, vertical = 6.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        Text("ghi chú", color = c.fieldLabel, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                        Text(text = item.notes, color = c.textPrimary, fontSize = 15.sp, lineHeight = 22.sp)
-                    }
-                }
-
-                // CUSTOM FIELDS
-                if (item.fields.isNotEmpty()) {
+                // CUSTOM FIELDS (excludes hidden internal `_ov_icon`)
+                if (visibleCustomFields.isNotEmpty()) {
                     OnePassCard(
                         modifier = Modifier.fillMaxWidth(),
                         cornerRadius = 12.dp,
@@ -735,18 +718,37 @@ fun ItemDetailScreen(
                         padding = PaddingValues(0.dp),
                     ) {
                         Column {
-                            item.fields.forEachIndexed { idx, f ->
+                            visibleCustomFields.forEachIndexed { idx, f ->
                                 if (idx > 0) HorizontalDivider(color = c.divider, thickness = 0.8.dp)
-                                val displayVal = if (f.type == 1 && !showPassword) "••••••••" else f.value
-                                DetailFieldRow(f.name.ifBlank { "trường tùy chỉnh" }, displayVal) {
-                                    onCopy(f.name.ifBlank { "giá trị" }, f.value, f.type == 1)
+                                val isHidden = f.type == 1
+                                val displayVal = if (isHidden && !showPassword) "••••••••" else f.value
+                                DetailFieldRow(
+                                    label = f.name.ifBlank { if (s.isVi) "trường tùy chỉnh" else "custom field" },
+                                    value = displayVal,
+                                ) {
+                                    onCopy(f.name.ifBlank { "field" }, f.value, isHidden)
                                 }
                             }
                         }
                     }
                 }
 
-                // Centered muted timestamps (exact 1Password Android Detail footer!)
+                // NOTES
+                if (item.notes.isNotBlank()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { onCopy(s.notes, item.notes, true) }
+                            .padding(horizontal = 4.dp, vertical = 6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(s.notes, color = c.fieldLabel, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        Text(text = item.notes, color = c.textPrimary, fontSize = 15.sp, lineHeight = 22.sp)
+                    }
+                }
+
+                // Device Local Timezone Timestamps (Requirement #5 — exact Image 6!)
                 if (!item.revisionDate.isNullOrBlank() || !item.creationDate.isNullOrBlank()) {
                     Column(
                         modifier = Modifier
@@ -757,7 +759,7 @@ fun ItemDetailScreen(
                     ) {
                         if (!item.revisionDate.isNullOrBlank()) {
                             Text(
-                                text = "Chỉnh sửa lần cuối: ${item.revisionDate.take(19).replace('T', ' ')} UTC",
+                                text = "${s.lastEditedPrefix}${formatLocalTimestamp(item.revisionDate, s.isVi)}",
                                 color = c.textSecondary,
                                 fontSize = 12.sp,
                                 textAlign = TextAlign.Center,
@@ -765,7 +767,7 @@ fun ItemDetailScreen(
                         }
                         if (!item.creationDate.isNullOrBlank()) {
                             Text(
-                                text = "Đã thêm: ${item.creationDate.take(19).replace('T', ' ')} UTC",
+                                text = "${s.addedPrefix}${formatLocalTimestamp(item.creationDate, s.isVi)}",
                                 color = c.textMuted,
                                 fontSize = 12.sp,
                                 textAlign = TextAlign.Center,
@@ -783,7 +785,7 @@ fun ItemDetailScreen(
         LargeTypePasswordDialog(
             title = item.name,
             password = item.login!!.password,
-            onCopy = { onCopy("mật khẩu", item.login.password, true) },
+            onCopy = { onCopy(s.password, item.login.password, true) },
             onDismiss = { showLargeType = false },
         )
     }
@@ -794,18 +796,14 @@ fun ItemDetailScreen(
             containerColor = c.surfaceElevated,
             title = {
                 Text(
-                    if (item.isDeleted) "Xóa vĩnh viễn?" else "Chuyển vào thùng rác?",
+                    if (item.isDeleted) s.deleteConfirmPermTitle else s.deleteConfirmTrashTitle,
                     color = c.textPrimary,
                     fontWeight = FontWeight.Bold,
                 )
             },
             text = {
                 Text(
-                    if (item.isDeleted) {
-                        "Mục \"${item.name}\" sẽ bị xóa vĩnh viễn khỏi Cloudflare D1."
-                    } else {
-                        "Mục \"${item.name}\" sẽ chuyển sang Đã xóa gần đây và có thể khôi phục."
-                    },
+                    "\"${item.name}\" ${if (item.isDeleted) s.deleteConfirmPermMsg else s.deleteConfirmTrashMsg}",
                     color = c.textSecondary,
                 )
             },
@@ -817,7 +815,7 @@ fun ItemDetailScreen(
                     },
                 ) {
                     Text(
-                        if (item.isDeleted) "Xóa vĩnh viễn" else "Xóa",
+                        if (item.isDeleted) s.deletePermanently else s.delete,
                         color = c.danger,
                         fontWeight = FontWeight.SemiBold,
                     )
@@ -825,7 +823,7 @@ fun ItemDetailScreen(
             },
             dismissButton = {
                 TextButton(onClick = { confirmDelete = false }) {
-                    Text("Hủy", color = c.textSecondary)
+                    Text(s.cancel, color = c.textSecondary)
                 }
             },
         )
@@ -839,6 +837,7 @@ private fun DetailFieldRow(
     onCopy: () -> Unit,
 ) {
     val c = LocalOpenVaultColors.current
+    val s = LocalStrings.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -852,7 +851,7 @@ private fun DetailFieldRow(
         }
         Icon(
             Icons.Rounded.ContentCopy,
-            contentDescription = "Sao chép",
+            contentDescription = s.copy,
             tint = c.accent,
             modifier = Modifier.size(18.dp),
         )

@@ -58,6 +58,7 @@ import io.openvault.app.ui.components.OnePassItemRow
 import io.openvault.app.ui.components.OnePassTopSearchBar
 import io.openvault.app.ui.theme.LocalFoldableLayout
 import io.openvault.app.ui.theme.LocalOpenVaultColors
+import io.openvault.app.ui.theme.LocalStrings
 
 sealed interface ItemsScope {
     data object Root : ItemsScope
@@ -68,13 +69,6 @@ sealed interface ItemsScope {
     data class Folder(val folder: VaultFolder) : ItemsScope
 }
 
-/**
- * Authentic 1Password 8 Android "Items" Tab (matching real Android capture):
- * - Single-row Midnight-Navy Search Pill + Account Dropdown
- * - Standalone "Tất cả các mục" card at top
- * - Collapsible outside-card section headers ("Danh mục", "Kho & Thư mục") with sky-blue chevrons
- * - Clean matte cards without trailing chevrons; supports selectedItemId highlight on unfolded Z Fold 3
- */
 @Composable
 fun ItemsScreen(
     email: String,
@@ -92,6 +86,7 @@ fun ItemsScreen(
     onCreateFolder: (String) -> Unit,
 ) {
     val c = LocalOpenVaultColors.current
+    val s = LocalStrings.current
     val fold = LocalFoldableLayout.current
     var scope by remember { mutableStateOf<ItemsScope>(ItemsScope.Root) }
     var query by remember { mutableStateOf("") }
@@ -103,23 +98,23 @@ fun ItemsScreen(
     val activeItems = remember(items) { items.filter { !it.isDeleted } }
     val trashItems = remember(items) { items.filter { it.isDeleted } }
 
-    val listTitle = when (val s = scope) {
-        ItemsScope.Root -> "Các mục"
-        ItemsScope.AllItems -> "Tất cả các mục"
-        ItemsScope.Favorites -> "Yêu thích"
-        ItemsScope.Trash -> "Đã xóa gần đây"
-        is ItemsScope.Category -> s.type.labelVi
-        is ItemsScope.Folder -> s.folder.name
+    val listTitle = when (val sc = scope) {
+        ItemsScope.Root -> s.tabItems
+        ItemsScope.AllItems -> s.allItems
+        ItemsScope.Favorites -> s.favorites
+        ItemsScope.Trash -> s.recentlyDeleted
+        is ItemsScope.Category -> sc.type.label(s.isVi)
+        is ItemsScope.Folder -> sc.folder.name
     }
 
     val filteredList = remember(items, scope, query) {
         val q = query.trim().lowercase()
-        val base = when (val s = scope) {
+        val base = when (val sc = scope) {
             ItemsScope.Root, ItemsScope.AllItems -> activeItems
             ItemsScope.Favorites -> activeItems.filter { it.favorite }
             ItemsScope.Trash -> trashItems
-            is ItemsScope.Category -> activeItems.filter { it.type == s.type }
-            is ItemsScope.Folder -> activeItems.filter { it.folderId == s.folder.id }
+            is ItemsScope.Category -> activeItems.filter { it.type == sc.type }
+            is ItemsScope.Folder -> activeItems.filter { it.folderId == sc.folder.id }
         }
         if (q.isEmpty()) base
         else base.filter { item ->
@@ -143,9 +138,9 @@ fun ItemsScreen(
             query = query,
             onQueryChange = { query = it },
             placeholder = if (scope == ItemsScope.Root) {
-                if (fold.isNarrowCover) "Tìm trong kho..." else "Tìm tất cả các mục"
+                if (fold.isNarrowCover) s.searchShort else s.searchAllItems
             } else {
-                "Tìm trong $listTitle"
+                "${s.searchInPrefix}$listTitle"
             },
             isSyncing = isSyncing,
             onSync = onSync,
@@ -164,7 +159,7 @@ fun ItemsScreen(
                     ) {
                         Icon(
                             Icons.AutoMirrored.Rounded.ArrowBack,
-                            contentDescription = "Quay lại",
+                            contentDescription = s.back,
                             tint = c.textPrimary,
                         )
                     }
@@ -183,7 +178,6 @@ fun ItemsScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                // Top Standalone "All Items" Card (exact 1Password Android!)
                 item {
                     OnePassCard(
                         modifier = Modifier.fillMaxWidth(),
@@ -193,18 +187,17 @@ fun ItemsScreen(
                             icon = Icons.Rounded.Inventory2,
                             iconTint = Color(0xFF1A1C20),
                             iconBg = Color(0xFFA7B1C2),
-                            title = "Tất cả các mục",
+                            title = s.allItems,
                             count = activeItems.size,
                             onClick = { scope = ItemsScope.AllItems },
                         )
                     }
                 }
 
-                // SECTION 1: Categories (collapsible outside-card header + matte card!)
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         CollapsibleSectionHeader(
-                            title = "Danh mục",
+                            title = s.categories,
                             expanded = categoriesExpanded,
                             onToggle = { categoriesExpanded = !categoriesExpanded },
                         )
@@ -215,7 +208,7 @@ fun ItemsScreen(
                                         icon = Icons.Rounded.Key,
                                         iconTint = Color(0xFF042F2E),
                                         iconBg = Color(0xFF5EEAD4),
-                                        title = "Đăng nhập",
+                                        title = s.logins,
                                         count = activeItems.count { it.type == CipherType.LOGIN },
                                         onClick = { scope = ItemsScope.Category(CipherType.LOGIN) },
                                     )
@@ -223,7 +216,7 @@ fun ItemsScreen(
                                         icon = Icons.Rounded.QrCode2,
                                         iconTint = Color.White,
                                         iconBg = Color(0xFF6366F1),
-                                        title = "Mã xác thực 2FA",
+                                        title = s.twoFactorCodes,
                                         count = activeItems.count { it.hasTotp },
                                         onClick = onOpenTotpHub,
                                     )
@@ -231,7 +224,7 @@ fun ItemsScreen(
                                         icon = Icons.Rounded.CreditCard,
                                         iconTint = Color.White,
                                         iconBg = Color(0xFF0284C7),
-                                        title = "Thẻ tín dụng",
+                                        title = s.creditCards,
                                         count = activeItems.count { it.type == CipherType.CARD },
                                         onClick = { scope = ItemsScope.Category(CipherType.CARD) },
                                     )
@@ -239,7 +232,7 @@ fun ItemsScreen(
                                         icon = Icons.Rounded.Description,
                                         iconTint = Color(0xFF2E1E04),
                                         iconBg = Color(0xFFFBBF24),
-                                        title = "Ghi chú bảo mật",
+                                        title = s.secureNotes,
                                         count = activeItems.count { it.type == CipherType.SECURE_NOTE },
                                         onClick = { scope = ItemsScope.Category(CipherType.SECURE_NOTE) },
                                     )
@@ -247,7 +240,7 @@ fun ItemsScreen(
                                         icon = Icons.Rounded.Person,
                                         iconTint = Color(0xFF042F1A),
                                         iconBg = Color(0xFF4ADE80),
-                                        title = "Danh tính",
+                                        title = s.identities,
                                         count = activeItems.count { it.type == CipherType.IDENTITY },
                                         onClick = { scope = ItemsScope.Category(CipherType.IDENTITY) },
                                     )
@@ -257,11 +250,10 @@ fun ItemsScreen(
                     }
                 }
 
-                // SECTION 2: Vaults & Folders
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         CollapsibleSectionHeader(
-                            title = "Kho & Thư mục",
+                            title = s.vaultsAndFolders,
                             expanded = vaultsExpanded,
                             onToggle = { vaultsExpanded = !vaultsExpanded },
                         )
@@ -272,7 +264,7 @@ fun ItemsScreen(
                                         icon = Icons.Rounded.Shield,
                                         iconTint = Color(0xFF0D1E36),
                                         iconBg = Color(0xFF93C5FD),
-                                        title = "Cá nhân (Personal)",
+                                        title = s.personalVault,
                                         count = activeItems.size,
                                         circular = true,
                                         onClick = { scope = ItemsScope.AllItems },
@@ -299,7 +291,7 @@ fun ItemsScreen(
                                             Icon(Icons.Rounded.Add, contentDescription = null, tint = c.navActiveContent, modifier = Modifier.size(22.dp))
                                         }
                                         Text(
-                                            text = "Thư mục mới",
+                                            text = s.newFolder,
                                             color = c.navActiveContent,
                                             fontSize = 15.5.sp,
                                             fontWeight = FontWeight.Medium,
@@ -311,7 +303,6 @@ fun ItemsScreen(
                     }
                 }
 
-                // SECTION 3: Favorites & Recently Deleted
                 item {
                     OnePassCard(modifier = Modifier.fillMaxWidth(), padding = PaddingValues(vertical = 6.dp)) {
                         Column {
@@ -319,7 +310,7 @@ fun ItemsScreen(
                                 icon = Icons.Rounded.Star,
                                 iconTint = Color(0xFF1F1604),
                                 iconBg = Color(0xFFFBBF24),
-                                title = "Yêu thích",
+                                title = s.favorites,
                                 count = activeItems.count { it.favorite },
                                 circular = true,
                                 onClick = { scope = ItemsScope.Favorites },
@@ -328,7 +319,7 @@ fun ItemsScreen(
                                 icon = Icons.Rounded.DeleteOutline,
                                 iconTint = Color(0xFF1A1C20),
                                 iconBg = Color(0xFF9CA3AF),
-                                title = "Đã xóa gần đây",
+                                title = s.recentlyDeleted,
                                 count = trashItems.size,
                                 onClick = { scope = ItemsScope.Trash },
                             )
@@ -337,7 +328,6 @@ fun ItemsScreen(
                 }
             }
         } else {
-            // Drilled-In / Search Results List View
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(
@@ -364,7 +354,7 @@ fun ItemsScreen(
                     if (filteredList.isEmpty()) {
                         OnePassCard(modifier = Modifier.fillMaxWidth()) {
                             Text(
-                                text = "Chưa có mục nào trong \"$listTitle\".",
+                                text = "${s.emptyFolderPrefix} \"$listTitle\".",
                                 color = c.textSecondary,
                                 fontSize = 14.5.sp,
                             )
@@ -392,12 +382,12 @@ fun ItemsScreen(
         AlertDialog(
             onDismissRequest = { showNewFolderDialog = false },
             containerColor = c.surfaceElevated,
-            title = { Text("Tạo thư mục mới", color = c.textPrimary, fontWeight = FontWeight.Bold) },
+            title = { Text(s.createFolderTitle, color = c.textPrimary, fontWeight = FontWeight.Bold) },
             text = {
                 OutlinedTextField(
                     value = newFolderName,
                     onValueChange = { newFolderName = it },
-                    label = { Text("Tên thư mục (mã hóa E2EE)") },
+                    label = { Text(s.folderNameLabel) },
                     singleLine = true,
                     shape = RoundedCornerShape(10.dp),
                 )
@@ -413,12 +403,12 @@ fun ItemsScreen(
                         }
                     },
                 ) {
-                    Text("Tạo", color = c.accent, fontWeight = FontWeight.SemiBold)
+                    Text(s.create, color = c.accent, fontWeight = FontWeight.SemiBold)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showNewFolderDialog = false }) {
-                    Text("Hủy", color = c.textSecondary)
+                    Text(s.cancel, color = c.textSecondary)
                 }
             },
         )

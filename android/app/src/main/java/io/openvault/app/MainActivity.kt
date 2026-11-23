@@ -65,12 +65,14 @@ import io.openvault.app.ui.components.OnePassExtendedFab
 import io.openvault.app.ui.components.OnePassNavigationRail
 import io.openvault.app.ui.components.OpenVaultBrandCrest
 import io.openvault.app.ui.screens.AuthScreen
+import io.openvault.app.ui.screens.CustomizeHomeScreen
 import io.openvault.app.ui.screens.GeneratorScreen
 import io.openvault.app.ui.screens.HomeScreen
 import io.openvault.app.ui.screens.ItemDetailScreen
 import io.openvault.app.ui.screens.ItemEditorScreen
 import io.openvault.app.ui.screens.ItemsScreen
 import io.openvault.app.ui.screens.NewItemSheet
+import io.openvault.app.ui.screens.ProfileScreen
 import io.openvault.app.ui.screens.QrScannerScreen
 import io.openvault.app.ui.screens.SettingsScreen
 import io.openvault.app.ui.screens.TotpScreen
@@ -78,6 +80,7 @@ import io.openvault.app.ui.screens.UnlockScreen
 import io.openvault.app.ui.screens.WatchtowerTabScreen
 import io.openvault.app.ui.theme.LocalFoldableLayout
 import io.openvault.app.ui.theme.LocalOpenVaultColors
+import io.openvault.app.ui.theme.LocalStrings
 import io.openvault.app.ui.theme.OpenVaultTheme
 import io.openvault.app.ui.theme.ProvideFoldableLayout
 import kotlinx.coroutines.delay
@@ -127,7 +130,12 @@ class MainActivity : FragmentActivity() {
                 }
             }
 
-            OpenVaultTheme(themeMode = settings.themeMode) {
+            OpenVaultTheme(
+                themeMode = settings.themeMode,
+                language = settings.language,
+                showWebsiteIcons = settings.showWebsiteIcons,
+                accountAvatarBase64 = settings.accountAvatarBase64,
+            ) {
                 ProvideFoldableLayout(activity = this@MainActivity) {
                     OpenVaultRootApp(
                         container = container,
@@ -142,6 +150,8 @@ class MainActivity : FragmentActivity() {
 private sealed interface OverlayRoute {
     data object None : OverlayRoute
     data object NewItemPicker : OverlayRoute
+    data object Profile : OverlayRoute
+    data object CustomizeHome : OverlayRoute
     data object Settings : OverlayRoute
     data object Generator : OverlayRoute
     data object TotpHub : OverlayRoute
@@ -158,7 +168,10 @@ private fun OpenVaultRootApp(
     val scope = rememberCoroutineScope()
     val fold = LocalFoldableLayout.current
     val c = LocalOpenVaultColors.current
+    val s = LocalStrings.current
 
+    val settings by container.preferences.settings.collectAsState()
+    val usageCounts by container.preferences.itemUsageCounts.collectAsState()
     val lockState by container.sessionManager.lockState.collectAsState()
     val account by container.preferences.account.collectAsState()
     val items by container.repository.items.collectAsState()
@@ -200,19 +213,26 @@ private fun OpenVaultRootApp(
     fun copyToClipboard(label: String, value: String, sensitive: Boolean) {
         container.clipboard.copy(label, value, isSensitive = sensitive)
         val clearSec = container.preferences.settings.value.clipboardClearSeconds
-        val suffix = if (sensitive && clearSec > 0) " (tự xóa sau ${clearSec}s)" else ""
-        showToast("Đã sao chép $label$suffix")
+        val msg = if (s.isVi) {
+            val suffix = if (sensitive && clearSec > 0) " (tự xóa sau ${clearSec}s)" else ""
+            "Đã sao chép $label$suffix"
+        } else {
+            val suffix = if (sensitive && clearSec > 0) " (clears in ${clearSec}s)" else ""
+            "Copied $label$suffix"
+        }
+        showToast(msg)
     }
 
     fun triggerSync() {
         scope.launch {
             runCatching { container.repository.syncNow(force = true) }
-                .onSuccess { showToast("Đã đồng bộ kho thành công!") }
-                .onFailure { showToast("Lỗi đồng bộ: ${it.message}") }
+                .onSuccess { showToast(if (s.isVi) "Đã đồng bộ kho thành công!" else "Vault synced!") }
+                .onFailure { showToast("${it.message}") }
         }
     }
 
     fun openItem(item: VaultItem) {
+        container.preferences.recordItemUse(item.id)
         selectedItemId = item.id
         overlay = OverlayRoute.Detail(item.id)
     }
@@ -222,7 +242,6 @@ private fun OpenVaultRootApp(
         overlay = OverlayRoute.QrScanner(returnToEditor = returnToEditor)
     }
 
-    // Smart BackHandler: handles overlays on compact cover screen & secondary pane overlays on unfolded Z Fold 3
     val hasClosableOverlay = if (fold.isTwoPane) {
         overlay != OverlayRoute.None && overlay !is OverlayRoute.Detail
     } else {
@@ -244,8 +263,12 @@ private fun OpenVaultRootApp(
                 MainTab.HOME -> HomeScreen(
                     email = account.email,
                     items = items,
+                    homeSections = settings.homeSections,
+                    usageCounts = usageCounts,
                     isSyncing = isSyncing,
                     selectedItemId = selectedItemId,
+                    onOpenProfile = { overlay = OverlayRoute.Profile },
+                    onOpenCustomizeHome = { overlay = OverlayRoute.CustomizeHome },
                     onOpenSettings = { overlay = OverlayRoute.Settings },
                     onOpenGenerator = { overlay = OverlayRoute.Generator },
                     onOpenQrScanner = { openQrScanner(returnToEditor = false) },
@@ -253,7 +276,7 @@ private fun OpenVaultRootApp(
                     onSync = ::triggerSync,
                     onLock = { container.sessionManager.lock() },
                     onSelectItem = ::openItem,
-                    onCopyTotp = { title, code -> copyToClipboard("mã 2FA $title", code, true) },
+                    onCopyTotp = { title, code -> copyToClipboard("2FA $title", code, true) },
                 )
 
                 MainTab.ITEMS -> ItemsScreen(
@@ -272,8 +295,8 @@ private fun OpenVaultRootApp(
                     onCreateFolder = { name ->
                         scope.launch {
                             runCatching { container.repository.createFolder(name) }
-                                .onSuccess { showToast("Đã tạo thư mục \"$name\"") }
-                                .onFailure { showToast("Lỗi tạo thư mục: ${it.message}") }
+                                .onSuccess { showToast(if (s.isVi) "Đã tạo thư mục \"$name\"" else "Created folder \"$name\"") }
+                                .onFailure { showToast("${it.message}") }
                         }
                     },
                 )
@@ -281,6 +304,9 @@ private fun OpenVaultRootApp(
                 MainTab.WATCHTOWER -> WatchtowerTabScreen(
                     email = account.email,
                     report = watchtower,
+                    checkWeak = settings.checkWeakPasswords,
+                    checkReused = settings.checkReusedPasswords,
+                    checkTwoFactor = settings.checkTwoFactor,
                     isSyncing = isSyncing,
                     selectedItemId = selectedItemId,
                     onOpenSettings = { overlay = OverlayRoute.Settings },
@@ -310,7 +336,7 @@ private fun OpenVaultRootApp(
             onToggleFavorite = {
                 scope.launch {
                     runCatching { container.repository.toggleFavorite(item) }
-                        .onFailure { showToast("Lỗi cập nhật: ${it.message}") }
+                        .onFailure { showToast("${it.message}") }
                 }
             },
             onSoftDelete = {
@@ -319,16 +345,16 @@ private fun OpenVaultRootApp(
                         .onSuccess {
                             if (selectedItemId == item.id) selectedItemId = null
                             overlay = OverlayRoute.None
-                            showToast("Đã chuyển \"${item.name}\" vào Đã xóa gần đây.")
+                            showToast(if (s.isVi) "Đã chuyển \"${item.name}\" vào thùng rác." else "Moved \"${item.name}\" to Trash.")
                         }
-                        .onFailure { showToast("Lỗi xóa: ${it.message}") }
+                        .onFailure { showToast("${it.message}") }
                 }
             },
             onRestore = {
                 scope.launch {
                     runCatching { container.repository.restoreItem(item.id) }
-                        .onSuccess { showToast("Đã khôi phục \"${item.name}\".") }
-                        .onFailure { showToast("Lỗi khôi phục: ${it.message}") }
+                        .onSuccess { showToast(if (s.isVi) "Đã khôi phục \"${item.name}\"." else "Restored \"${item.name}\".") }
+                        .onFailure { showToast("${it.message}") }
                 }
             },
             onHardDelete = {
@@ -337,9 +363,9 @@ private fun OpenVaultRootApp(
                         .onSuccess {
                             if (selectedItemId == item.id) selectedItemId = null
                             overlay = OverlayRoute.None
-                            showToast("Đã xóa vĩnh viễn \"${item.name}\".")
+                            showToast(if (s.isVi) "Đã xóa vĩnh viễn \"${item.name}\"." else "Permanently deleted \"${item.name}\".")
                         }
-                        .onFailure { showToast("Lỗi xóa: ${it.message}") }
+                        .onFailure { showToast("${it.message}") }
                 }
             },
             onCopy = ::copyToClipboard,
@@ -352,6 +378,7 @@ private fun OpenVaultRootApp(
             initialItem = editor.initialItem,
             initialType = editor.initialType,
             email = account.email,
+            prefillUsername = settings.prefillUsername,
             folders = folders,
             scannedTotpUri = pendingScannedTotp,
             onConsumeScannedTotp = { pendingScannedTotp = null },
@@ -371,14 +398,42 @@ private fun OpenVaultRootApp(
                             isSavingItem = false
                             selectedItemId = saved.id
                             overlay = OverlayRoute.Detail(saved.id)
-                            showToast("Đã mã hóa & lưu \"${saved.name}\"!")
+                            showToast(if (s.isVi) "Đã mã hóa & lưu \"${saved.name}\"!" else "Encrypted & saved \"${saved.name}\"!")
                         }
                         .onFailure { ex ->
                             isSavingItem = false
-                            showToast("Không thể lưu: ${ex.message}")
+                            showToast("${ex.message}")
                         }
                 }
             },
+        )
+    }
+
+    @Composable
+    fun RenderProfile() {
+        ProfileScreen(
+            email = account.email,
+            items = items,
+            defaultIdentityId = settings.defaultIdentityId,
+            defaultCardId = settings.defaultCardId,
+            onSelectDefaultIdentity = { container.preferences.setDefaultIdentityId(it) },
+            onSelectDefaultCard = { container.preferences.setDefaultCardId(it) },
+            onUpdateAccountAvatar = { container.preferences.setAccountAvatarBase64(it) },
+            onCreateItemOfType = { cipherType ->
+                editingReturnItem = null
+                overlay = OverlayRoute.Editor(initialItem = null, initialType = cipherType)
+            },
+            onBack = { overlay = OverlayRoute.None },
+            onShowMessage = ::showToast,
+        )
+    }
+
+    @Composable
+    fun RenderCustomizeHome() {
+        CustomizeHomeScreen(
+            sections = settings.homeSections,
+            onUpdateSections = { container.preferences.setHomeSections(it) },
+            onBack = { overlay = OverlayRoute.None },
         )
     }
 
@@ -387,7 +442,7 @@ private fun OpenVaultRootApp(
             VaultLockState.LOGGED_OUT -> {
                 AuthScreen(
                     repository = container.repository,
-                    onAuthenticated = { showToast("Đăng nhập thành công & đã đồng bộ kho!") },
+                    onAuthenticated = { showToast(if (s.isVi) "Đăng nhập thành công & đã đồng bộ kho!" else "Signed in & vault synced!") },
                 )
             }
 
@@ -413,7 +468,7 @@ private fun OpenVaultRootApp(
                                     editingReturnItem = null
                                     OverlayRoute.Editor(null, CipherType.LOGIN)
                                 }
-                                showToast("Đã quét mã QR 2FA thành công!")
+                                showToast(if (s.isVi) "Đã quét mã QR 2FA thành công!" else "2FA QR code scanned!")
                             },
                             onCancel = {
                                 overlay = if (currentOverlay.returnToEditor) {
@@ -439,10 +494,7 @@ private fun OpenVaultRootApp(
 
                     else -> {
                         if (fold.isTwoPane) {
-                            // ================================================================
                             // UNFOLDED GALAXY Z FOLD 3 / TABLET: 3-COLUMN ADAPTIVE TWO-PANE UI
-                            // [Left Navigation Rail] | [Master List Pane] | [Hinge] | [Detail Pane]
-                            // ================================================================
                             Row(
                                 modifier = Modifier
                                     .fillMaxSize()
@@ -465,7 +517,6 @@ private fun OpenVaultRootApp(
                                         .fillMaxHeight(),
                                 )
 
-                                // Respect Z Fold 3 physical crease / separating hinge
                                 if (fold.hingeWidthDp > 0.dp) {
                                     Box(
                                         modifier = Modifier
@@ -482,7 +533,6 @@ private fun OpenVaultRootApp(
                                     )
                                 }
 
-                                // Right Detail / Editor / Settings / Generator Pane
                                 Box(
                                     modifier = Modifier
                                         .weight(1f - fold.leftPaneWeight)
@@ -490,6 +540,8 @@ private fun OpenVaultRootApp(
                                         .background(c.sheetBackground),
                                 ) {
                                     when (currentOverlay) {
+                                        OverlayRoute.Profile -> RenderProfile()
+                                        OverlayRoute.CustomizeHome -> RenderCustomizeHome()
                                         OverlayRoute.Settings -> SettingsScreen(
                                             repository = container.repository,
                                             activity = activity,
@@ -504,7 +556,7 @@ private fun OpenVaultRootApp(
 
                                         OverlayRoute.Generator -> GeneratorScreen(
                                             onBack = { overlay = OverlayRoute.None },
-                                            onCopy = { pwd -> copyToClipboard("mật khẩu mới", pwd, true) },
+                                            onCopy = { pwd -> copyToClipboard(s.password, pwd, true) },
                                         )
 
                                         OverlayRoute.TotpHub -> TotpScreen(
@@ -512,7 +564,7 @@ private fun OpenVaultRootApp(
                                             onBack = { overlay = OverlayRoute.None },
                                             onScanQrToAdd = { openQrScanner(returnToEditor = false) },
                                             onOpenItem = ::openItem,
-                                            onCopyCode = { title, code -> copyToClipboard("mã 2FA $title", code, true) },
+                                            onCopyCode = { title, code -> copyToClipboard("2FA $title", code, true) },
                                         )
 
                                         is OverlayRoute.Editor -> RenderItemEditor(currentOverlay)
@@ -538,10 +590,10 @@ private fun OpenVaultRootApp(
                                 }
                             }
                         } else {
-                            // ================================================================
                             // FOLDED Z FOLD 3 COVER SCREEN (320dp) / STANDARD PHONE SINGLE-PANE
-                            // ================================================================
                             when (currentOverlay) {
+                                OverlayRoute.Profile -> RenderProfile()
+                                OverlayRoute.CustomizeHome -> RenderCustomizeHome()
                                 OverlayRoute.Settings -> SettingsScreen(
                                     repository = container.repository,
                                     activity = activity,
@@ -556,7 +608,7 @@ private fun OpenVaultRootApp(
 
                                 OverlayRoute.Generator -> GeneratorScreen(
                                     onBack = { overlay = OverlayRoute.None },
-                                    onCopy = { pwd -> copyToClipboard("mật khẩu mới", pwd, true) },
+                                    onCopy = { pwd -> copyToClipboard(s.password, pwd, true) },
                                 )
 
                                 OverlayRoute.TotpHub -> TotpScreen(
@@ -564,7 +616,7 @@ private fun OpenVaultRootApp(
                                     onBack = { overlay = OverlayRoute.None },
                                     onScanQrToAdd = { openQrScanner(returnToEditor = false) },
                                     onOpenItem = ::openItem,
-                                    onCopyCode = { title, code -> copyToClipboard("mã 2FA $title", code, true) },
+                                    onCopyCode = { title, code -> copyToClipboard("2FA $title", code, true) },
                                 )
 
                                 is OverlayRoute.Detail -> {
@@ -586,10 +638,9 @@ private fun OpenVaultRootApp(
                                     ) {
                                         ActiveTabContent(modifier = Modifier.fillMaxSize())
 
-                                        // Signature 1Password Android Cobalt "+ Mục mới" Extended FAB above BottomBar
                                         if (selectedTab != MainTab.WATCHTOWER) {
                                             OnePassExtendedFab(
-                                                text = "Mục mới",
+                                                text = s.newItem,
                                                 onClick = { overlay = OverlayRoute.NewItemPicker },
                                                 modifier = Modifier
                                                     .align(Alignment.BottomEnd)
@@ -612,7 +663,6 @@ private fun OpenVaultRootApp(
             }
         }
 
-        // Clean solid toast notification
         AnimatedVisibility(
             visible = toastMessage != null,
             enter = fadeIn() + slideInVertically { -it },
@@ -646,6 +696,7 @@ private fun TwoPaneEmptyDetailState(
     onOpenGenerator: () -> Unit,
 ) {
     val c = LocalOpenVaultColors.current
+    val s = LocalStrings.current
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -664,11 +715,7 @@ private fun TwoPaneEmptyDetailState(
         )
         Spacer(modifier = Modifier.height(6.dp))
         Text(
-            text = if (totalItems > 0) {
-                "Chọn một mục ở danh sách bên trái để xem chi tiết ($totalItems mục trong kho)."
-            } else {
-                "Kho của bạn chưa có mục nào. Tạo mục đầu tiên hoặc tạo mật khẩu mạnh ngay."
-            },
+            text = if (totalItems > 0) "${s.twoPaneHintPrefix} ($totalItems)." else s.twoPaneEmptyHint,
             color = c.textSecondary,
             fontSize = 14.sp,
             textAlign = TextAlign.Center,
@@ -682,7 +729,7 @@ private fun TwoPaneEmptyDetailState(
             ) {
                 Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Mục mới", fontWeight = FontWeight.SemiBold)
+                Text(s.newItem, fontWeight = FontWeight.SemiBold)
             }
             OutlinedButton(
                 onClick = onOpenGenerator,
@@ -691,7 +738,7 @@ private fun TwoPaneEmptyDetailState(
             ) {
                 Icon(Icons.Rounded.Key, contentDescription = null, tint = c.accent, modifier = Modifier.size(17.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Tạo mật khẩu", color = c.textPrimary)
+                Text(s.passwordGenerator, color = c.textPrimary)
             }
         }
     }
