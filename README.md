@@ -57,19 +57,17 @@ npm install --global cf
 cf auth login
 
 cd backend
-# Create D1 database and R2 backup bucket
-cf d1 create openvault-db
-cf r2 bucket create openvault-backups
+# Create D1 database and R2 backup bucket (replace apac with your closest region if desired)
+cf d1 create --name openvault-db --primary-location-hint apac
+cf r2 buckets create --name openvault-backups --location-hint apac
 
-# Apply D1 schema migration remotely
-cf d1 migrations apply openvault-db --remote
+# Apply D1 schema migration remotely using the UUID returned by `cf d1 create`
+cf d1 migrations apply <YOUR_D1_DATABASE_UUID> --dir ./migrations
 
-# Set required Worker secrets (generate strong random 48-byte strings)
-npx wrangler secret put JWT_SIGNING_SECRET --name openvault-api
-npx wrangler secret put PASSWORD_PEPPER --name openvault-api
-
-# Deploy Worker
-cf deploy
+# Generate a temporary secrets file, deploy Worker + secrets, then delete the temporary file
+node -e "const c=require('node:crypto'),fs=require('node:fs'); fs.writeFileSync('.secrets.tmp.json', JSON.stringify({ JWT_SIGNING_SECRET: c.randomBytes(48).toString('base64url'), PASSWORD_PEPPER: c.randomBytes(48).toString('base64url') }), { mode: 0o600 });"
+cf deploy --secrets-file .secrets.tmp.json
+rm .secrets.tmp.json
 ```
 
 > **Tip:** After registering your personal account, set `ALLOW_SIGNUP: bindings.text("false")` in `backend/cloudflare.config.ts` and run `cf deploy` again to lock down signup permanently.
