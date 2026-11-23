@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# Build outputs
+dist/
+build/
+.cf/
+.cloudflare/
+.wrangler/
+coverage/
+*.tsbuildinfo
+
+# Secrets & environment
+.env
+.env.*
+!.env.example
+.dev.vars
+*.pem
+*.key
+*.jks
+*.keystore
+
+# Android / Gradle
+android/.gradle/
+android/local.properties
+android/**/build/
+android/.idea/
+*.apk
+*.aab
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log

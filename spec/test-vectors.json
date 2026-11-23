@@ -1,0 +1,129 @@
+{
+  "version": 1,
+  "generatedWith": "OpenSSL (node:crypto) + IETF RFC 6238 Appendix B + hash-wasm Argon2id",
+  "pbkdf2": {
+    "email": "User@OpenVault.io",
+    "masterPassword": "Correct-Horse-Battery-Staple!2026",
+    "iterations": 100000,
+    "expectedMasterKeyHex": "eb03186afcbea41ef3d20add7efd359ff5b13101bad9fca6e0d04f2f2c923ea1",
+    "expectedMasterPasswordHashB64": "m+sHm1nomrxG/o38tZV24mCjvVqVq24wHDujHw1Jm/4=",
+    "expectedLocalMasterPasswordHashB64": "xYjyjuepW5vzNadleyYhkyq8l3naQOboA8vE+40zaSE=",
+    "expectedStretchedEncKeyHex": "1907d2a90f44d00f244d13a645ca081d8fa4d8df510eb1e3c05a97d6a7762581",
+    "expectedStretchedMacKeyHex": "c6efec023a46c9e48bfa5ae29223b1dabc678c9c87f46da007cb15ce917cb945"
+  },
+  "argon2id": {
+    "email": "Argon@OpenVault.io",
+    "masterPassword": "Argon2id-Master-Pass#42",
+    "iterations": 3,
+    "memoryMiB": 64,
+    "parallelism": 4,
+    "expectedSaltHex": "ce2206ee86ef07c33af01d4351ed9745c25816f6c1768af902d97a639f129356",
+    "expectedMasterKeyHex": "efeefbe6f3a2cc74e72084df34efe8bb0cd9b64fd172a1240eb82c95f4330829",
+    "expectedMasterPasswordHashB64": "imooqQI6KxU+eu34LYdgR/ZtIqiMdHbosQBL4ZQIM8Q="
+  },
+  "cipherStringType2": {
+    "encKeyHex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+    "macKeyHex": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+    "ivHex": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+    "plaintext": "OpenVault Zero-Knowledge Vault 2026 — Mật khẩu an toàn!",
+    "expectedCipherString": "2.oKGio6SlpqeoqaqrrK2urw==|RWsSbolkEOUSdW4F5Kg7kCuzYqK4g8uSfivouVfE5nDh4Q9ec/KBAdt7IMF3k1T7kWdNgI5YIoJjX0mV8EMt8g==|+wpUlFlt1u52BS0Y/ddknESXaqRV384iojaPhy0ubf4="
+  },
+  "totpRfc6238": [
+    {
+      "secretBase32": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
+      "digits": 8,
+      "period": 30,
+      "algorithm": "SHA1",
+      "cases": [
+        {
+          "unixSeconds": 59,
+          "expectedCode": "94287082"
+        },
+        {
+          "unixSeconds": 1111111109,
+          "expectedCode": "07081804"
+        },
+        {
+          "unixSeconds": 1111111111,
+          "expectedCode": "14050471"
+        },
+        {
+          "unixSeconds": 1234567890,
+          "expectedCode": "89005924"
+        },
+        {
+          "unixSeconds": 2000000000,
+          "expectedCode": "69279037"
+        },
+        {
+          "unixSeconds": 20000000000,
+          "expectedCode": "65353130"
+        }
+      ]
+    },
+    {
+      "secretBase32": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZA",
+      "digits": 8,
+      "period": 30,
+      "algorithm": "SHA256",
+      "cases": [
+        {
+          "unixSeconds": 59,
+          "expectedCode": "46119246"
+        },
+        {
+          "unixSeconds": 1111111109,
+          "expectedCode": "68084774"
+        },
+        {
+          "unixSeconds": 1111111111,
+          "expectedCode": "67062674"
+        },
+        {
+          "unixSeconds": 1234567890,
+          "expectedCode": "91819424"
+        },
+        {
+          "unixSeconds": 2000000000,
+          "expectedCode": "90698825"
+        },
+        {
+          "unixSeconds": 20000000000,
+          "expectedCode": "77737706"
+        }
+      ]
+    },
+    {
+      "secretBase32": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNA",
+      "digits": 8,
+      "period": 30,
+      "algorithm": "SHA512",
+      "cases": [
+        {
+          "unixSeconds": 59,
+          "expectedCode": "90693936"
+        },
+        {
+          "unixSeconds": 1111111109,
+          "expectedCode": "25091201"
+        },
+        {
+          "unixSeconds": 1111111111,
+          "expectedCode": "99943326"
+        },
+        {
+          "unixSeconds": 1234567890,
+          "expectedCode": "93441116"
+        },
+        {
+          "unixSeconds": 2000000000,
+          "expectedCode": "38618901"
+        },
+        {
+          "unixSeconds": 20000000000,
+          "expectedCode": "47863826"
+        }
+      ]
+    }
+  ]
+}

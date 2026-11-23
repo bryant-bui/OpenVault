@@ -1,0 +1,5 @@
+# Copy this file to backend/.dev.vars for local `cf dev` development.
+# NEVER commit .dev.vars to Git!
+# Generate strong random secrets with: node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
+JWT_SIGNING_SECRET=replace-with-at-least-32-random-characters-for-local-dev-only
+PASSWORD_PEPPER=replace-with-at-least-32-random-characters-for-local-dev-only
