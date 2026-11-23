@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Outer glass ring -->
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M54,28 A26,26 0 1,1 53.99,28 Z"
+        android:strokeWidth="6"
+        android:strokeColor="#FFFFFFFF" />
+    <!-- Inner subtle ring -->
+    <path
+        android:fillColor="#33FFFFFF"
+        android:pathData="M54,37 A17,17 0 1,1 53.99,37 Z" />
+    <!-- Keyhole circle -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M54,44.5 A5.5,5.5 0 1,1 53.99,44.5 Z" />
+    <!-- Keyhole stem -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M51,52 L57,52 L58.2,64.5 A1.5,1.5 0 0,1 56.7,66 L51.3,66 A1.5,1.5 0 0,1 49.8,64.5 Z" />
+</vector>
