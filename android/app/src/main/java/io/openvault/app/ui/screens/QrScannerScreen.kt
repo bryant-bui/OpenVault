@@ -62,15 +62,11 @@ import com.google.zxing.MultiFormatReader
 import com.google.zxing.PlanarYUVLuminanceSource
 import com.google.zxing.common.HybridBinarizer
 import io.openvault.app.core.crypto.TotpEngine
-import io.openvault.app.ui.components.LiquidGlassBackground
-import io.openvault.app.ui.components.LiquidGlassCard
+import io.openvault.app.ui.components.OnePassCard
 import io.openvault.app.ui.theme.LocalOpenVaultColors
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
-/**
- * 100% offline CameraX + ZXing QR Code Scanner for otpauth://totp/... URIs.
- */
 @Composable
 fun QrScannerScreen(
     onResult: (String) -> Unit,
@@ -103,54 +99,49 @@ fun QrScannerScreen(
     val analyzerExecutor = remember { Executors.newSingleThreadExecutor() }
 
     DisposableEffect(Unit) {
-        onDispose {
-            analyzerExecutor.shutdown()
-        }
+        onDispose { analyzerExecutor.shutdown() }
     }
 
     if (!hasCameraPermission) {
-        LiquidGlassBackground {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding()
-                    .navigationBarsPadding()
-                    .padding(24.dp),
-                verticalArrangement = Arrangement.SpaceBetween,
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(c.background)
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(20.dp),
+            verticalArrangement = Arrangement.SpaceBetween,
+        ) {
+            IconButton(onClick = onCancel) {
+                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Quay lại", tint = c.accent)
+            }
+            OnePassCard(
+                modifier = Modifier.fillMaxWidth(),
+                padding = PaddingValues(22.dp),
             ) {
-                IconButton(onClick = onCancel) {
-                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Quay lại", tint = c.textPrimary)
-                }
-                LiquidGlassCard(
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxWidth(),
-                    cornerRadius = 26.dp,
-                    elevated = true,
-                    padding = PaddingValues(24.dp),
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(14.dp),
-                        modifier = Modifier.fillMaxWidth(),
+                    Icon(Icons.Rounded.CameraAlt, contentDescription = null, tint = c.accent, modifier = Modifier.size(44.dp))
+                    Text("Cần quyền Camera để quét QR 2FA", color = c.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        "OpenVault giải mã QR hoàn toàn offline trên thiết bị bằng ZXing.",
+                        color = c.textSecondary,
+                        fontSize = 13.5.sp,
+                        textAlign = TextAlign.Center,
+                    )
+                    Button(
+                        onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) },
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = c.accent, contentColor = Color.White),
                     ) {
-                        Icon(Icons.Rounded.CameraAlt, contentDescription = null, tint = c.accent, modifier = Modifier.size(48.dp))
-                        Text("Cần quyền Camera để quét QR 2FA", color = c.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                        Text(
-                            "OpenVault xử lý mã QR hoàn toàn offline trên thiết bị bằng ZXing — không gửi ảnh lên mạng.",
-                            color = c.textSecondary,
-                            fontSize = 13.5.sp,
-                            textAlign = TextAlign.Center,
-                        )
-                        Button(
-                            onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) },
-                            shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = c.accent, contentColor = Color.White),
-                        ) {
-                            Text("Cấp quyền Camera", fontWeight = FontWeight.SemiBold)
-                        }
+                        Text("Cấp quyền Camera", fontWeight = FontWeight.SemiBold)
                     }
                 }
-                Box(Modifier.size(1.dp))
             }
+            Box(Modifier.size(1.dp))
         }
         return
     }
@@ -184,9 +175,7 @@ fun QrScannerScreen(
                                             TotpEngine.parseTotpInput(raw)
                                         }.isSuccess
                                         if (isValidTotp && delivered.compareAndSet(false, true)) {
-                                            ContextCompat.getMainExecutor(ctx).execute {
-                                                onResult(raw)
-                                            }
+                                            ContextCompat.getMainExecutor(ctx).execute { onResult(raw) }
                                         } else if (!isValidTotp) {
                                             ContextCompat.getMainExecutor(ctx).execute {
                                                 scanHint = "Mã QR này không phải chuẩn otpauth://totp"
@@ -213,7 +202,6 @@ fun QrScannerScreen(
             modifier = Modifier.fillMaxSize(),
         )
 
-        // Top Liquid Glass Overlay Controls
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -224,22 +212,17 @@ fun QrScannerScreen(
         ) {
             IconButton(
                 onClick = onCancel,
-                modifier = Modifier
-                    .clip(CircleShape)
-                    .background(Color(0x880B1120)),
+                modifier = Modifier.clip(CircleShape).background(Color(0x99000000)),
             ) {
                 Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Đóng", tint = Color.White)
             }
-
             IconButton(
                 onClick = {
                     val next = !torchEnabled
                     torchEnabled = next
                     boundCamera?.cameraControl?.enableTorch(next)
                 },
-                modifier = Modifier
-                    .clip(CircleShape)
-                    .background(Color(0x880B1120)),
+                modifier = Modifier.clip(CircleShape).background(Color(0x99000000)),
             ) {
                 Icon(
                     imageVector = if (torchEnabled) Icons.Rounded.FlashOn else Icons.Rounded.FlashOff,
@@ -249,24 +232,22 @@ fun QrScannerScreen(
             }
         }
 
-        // Center Frosted Reticle
         Box(
             modifier = Modifier
                 .align(Alignment.Center)
-                .size(250.dp)
-                .clip(RoundedCornerShape(28.dp))
-                .border(2.5.dp, Color(0xFF3B8BFF), RoundedCornerShape(28.dp))
-                .background(Color(0x143B8BFF)),
+                .size(240.dp)
+                .clip(RoundedCornerShape(18.dp))
+                .border(2.5.dp, Color(0xFF0572EC), RoundedCornerShape(18.dp)),
         )
 
-        // Bottom Frosted Instruction Pill
-        LiquidGlassCard(
+        Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
-                .padding(horizontal = 24.dp, vertical = 28.dp),
-            cornerRadius = 20.dp,
-            padding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
+                .padding(horizontal = 24.dp, vertical = 28.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color(0xCC1C1C1E))
+                .padding(horizontal = 16.dp, vertical = 12.dp),
         ) {
             Text(
                 text = scanHint,

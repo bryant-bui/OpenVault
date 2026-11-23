@@ -1,5 +1,6 @@
 package io.openvault.app.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -16,21 +17,19 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.QrCodeScanner
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -39,7 +38,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -54,14 +55,21 @@ import io.openvault.app.core.crypto.VaultIdentity
 import io.openvault.app.core.crypto.VaultItem
 import io.openvault.app.core.crypto.VaultLogin
 import io.openvault.app.core.crypto.VaultUri
-import io.openvault.app.ui.components.LiquidGlassBackground
-import io.openvault.app.ui.components.LiquidGlassCard
-import io.openvault.app.ui.components.LiquidGlassChip
+import io.openvault.app.ui.components.ItemIconTile
+import io.openvault.app.ui.components.OnePassCard
+import io.openvault.app.ui.components.OnePassChip
 import io.openvault.app.ui.theme.LocalOpenVaultColors
 
+/**
+ * Clean 1Password 8 Item Editor (matching Image 2-left):
+ * - Top bar: Hủy | Mục mới / Chỉnh sửa | Lưu
+ * - Inline [Icon] [Title input]
+ * - Grouped matte card with label-above-input rows separated by thin hairlines
+ */
 @Composable
 fun ItemEditorScreen(
     initialItem: VaultItem?,
+    initialType: CipherType = CipherType.LOGIN,
     folders: List<VaultFolder>,
     scannedTotpUri: String?,
     onConsumeScannedTotp: () -> Unit,
@@ -73,13 +81,12 @@ fun ItemEditorScreen(
     val c = LocalOpenVaultColors.current
     val isEdit = initialItem != null && initialItem.id.isNotBlank()
 
-    var type by remember(initialItem) { mutableStateOf(initialItem?.type ?: CipherType.LOGIN) }
+    var type by remember(initialItem, initialType) { mutableStateOf(initialItem?.type ?: initialType) }
     var name by remember(initialItem) { mutableStateOf(initialItem?.name.orEmpty()) }
     var folderId by remember(initialItem) { mutableStateOf(initialItem?.folderId) }
     var favorite by remember(initialItem) { mutableStateOf(initialItem?.favorite ?: false) }
     var notes by remember(initialItem) { mutableStateOf(initialItem?.notes.orEmpty()) }
 
-    // Login fields
     var username by remember(initialItem) { mutableStateOf(initialItem?.login?.username.orEmpty()) }
     var password by remember(initialItem) { mutableStateOf(initialItem?.login?.password.orEmpty()) }
     var uriText by remember(initialItem) {
@@ -87,7 +94,6 @@ fun ItemEditorScreen(
     }
     var totp by remember(initialItem) { mutableStateOf(initialItem?.login?.totp.orEmpty()) }
 
-    // Card fields
     var cardholder by remember(initialItem) { mutableStateOf(initialItem?.card?.cardholderName.orEmpty()) }
     var cardBrand by remember(initialItem) { mutableStateOf(initialItem?.card?.brand.orEmpty()) }
     var cardNumber by remember(initialItem) { mutableStateOf(initialItem?.card?.number.orEmpty()) }
@@ -95,7 +101,6 @@ fun ItemEditorScreen(
     var expYear by remember(initialItem) { mutableStateOf(initialItem?.card?.expYear.orEmpty()) }
     var cardCvv by remember(initialItem) { mutableStateOf(initialItem?.card?.code.orEmpty()) }
 
-    // Identity fields
     var idFirstName by remember(initialItem) { mutableStateOf(initialItem?.identity?.firstName.orEmpty()) }
     var idLastName by remember(initialItem) { mutableStateOf(initialItem?.identity?.lastName.orEmpty()) }
     var idEmail by remember(initialItem) { mutableStateOf(initialItem?.identity?.email.orEmpty()) }
@@ -122,435 +127,325 @@ fun ItemEditorScreen(
         }
     }
 
-    val fieldColors = OutlinedTextFieldDefaults.colors(
-        focusedBorderColor = c.accent,
-        unfocusedBorderColor = c.glassBorderTop.copy(alpha = 0.25f),
-        focusedTextColor = c.textPrimary,
-        unfocusedTextColor = c.textPrimary,
-        focusedLabelColor = c.accent,
-        unfocusedLabelColor = c.textSecondary,
-        cursorColor = c.accent,
-    )
-
-    LiquidGlassBackground {
-        Column(
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(c.background)
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .imePadding(),
+    ) {
+        // Header: Hủy | Title | Lưu
+        Row(
             modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-                .navigationBarsPadding()
-                .imePadding(),
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
+            TextButton(onClick = onCancel) {
+                Text("Hủy", color = c.accent, fontSize = 15.5.sp)
+            }
+            Text(
+                text = if (isEdit) "Chỉnh sửa" else type.labelVi,
+                color = c.textPrimary,
+                fontSize = 16.5.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            TextButton(
+                enabled = !isSaving && name.isNotBlank(),
+                onClick = {
+                    val uris = uriText.lineSequence()
+                        .map { it.trim() }
+                        .filter { it.isNotEmpty() }
+                        .map { VaultUri(it) }
+                        .toList()
+
+                    val built = VaultItem(
+                        id = initialItem?.id.orEmpty(),
+                        folderId = folderId,
+                        type = type,
+                        name = name.trim().ifBlank { "Không có tiêu đề" },
+                        notes = notes,
+                        favorite = favorite,
+                        login = if (type == CipherType.LOGIN) {
+                            VaultLogin(
+                                uris = uris,
+                                username = username.trim(),
+                                password = password,
+                                totp = totp.trim().takeIf { it.isNotBlank() },
+                                fido2Credentials = initialItem?.login?.fido2Credentials.orEmpty(),
+                            )
+                        } else null,
+                        card = if (type == CipherType.CARD) {
+                            VaultCard(
+                                cardholderName = cardholder.trim(),
+                                brand = cardBrand.trim(),
+                                number = cardNumber.trim(),
+                                expMonth = expMonth.trim(),
+                                expYear = expYear.trim(),
+                                code = cardCvv.trim(),
+                            )
+                        } else null,
+                        identity = if (type == CipherType.IDENTITY) {
+                            VaultIdentity(
+                                firstName = idFirstName.trim(),
+                                lastName = idLastName.trim(),
+                                email = idEmail.trim(),
+                                phone = idPhone.trim(),
+                                company = idCompany.trim(),
+                                address1 = idAddress.trim(),
+                                city = idCity.trim(),
+                                country = idCountry.trim(),
+                                passportNumber = idPassport.trim(),
+                            )
+                        } else null,
+                        fields = initialItem?.fields.orEmpty(),
+                        passwordHistory = initialItem?.passwordHistory.orEmpty(),
+                    )
+                    onSave(built)
+                },
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onCancel) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Đóng", tint = c.textPrimary)
-                    }
+                if (isSaving) {
+                    CircularProgressIndicator(color = c.accent, strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
+                } else {
                     Text(
-                        text = if (isEdit) "Chỉnh sửa mục" else "Thêm mục mới",
-                        color = c.textPrimary,
-                        fontSize = 19.sp,
+                        text = "Lưu",
+                        color = if (name.isNotBlank()) c.accent else c.textMuted,
+                        fontSize = 15.5.sp,
                         fontWeight = FontWeight.Bold,
                     )
                 }
+            }
+        }
 
-                Button(
-                    onClick = {
-                        val uris = uriText.lineSequence()
-                            .map { it.trim() }
-                            .filter { it.isNotEmpty() }
-                            .map { VaultUri(it) }
-                            .toList()
-
-                        val built = VaultItem(
-                            id = initialItem?.id.orEmpty(),
-                            folderId = folderId,
-                            type = type,
-                            name = name.trim().ifBlank { "Không có tiêu đề" },
-                            notes = notes,
-                            favorite = favorite,
-                            login = if (type == CipherType.LOGIN) {
-                                VaultLogin(
-                                    uris = uris,
-                                    username = username.trim(),
-                                    password = password,
-                                    totp = totp.trim().takeIf { it.isNotBlank() },
-                                    fido2Credentials = initialItem?.login?.fido2Credentials.orEmpty(),
-                                )
-                            } else {
-                                null
-                            },
-                            card = if (type == CipherType.CARD) {
-                                VaultCard(
-                                    cardholderName = cardholder.trim(),
-                                    brand = cardBrand.trim(),
-                                    number = cardNumber.trim(),
-                                    expMonth = expMonth.trim(),
-                                    expYear = expYear.trim(),
-                                    code = cardCvv.trim(),
-                                )
-                            } else {
-                                null
-                            },
-                            identity = if (type == CipherType.IDENTITY) {
-                                VaultIdentity(
-                                    firstName = idFirstName.trim(),
-                                    lastName = idLastName.trim(),
-                                    email = idEmail.trim(),
-                                    phone = idPhone.trim(),
-                                    company = idCompany.trim(),
-                                    address1 = idAddress.trim(),
-                                    city = idCity.trim(),
-                                    country = idCountry.trim(),
-                                    passportNumber = idPassport.trim(),
-                                )
-                            } else {
-                                null
-                            },
-                            fields = initialItem?.fields.orEmpty(),
-                            passwordHistory = initialItem?.passwordHistory.orEmpty(),
-                        )
-                        onSave(built)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            // Inline [IconTile] [Title Box] (exact Image 2-left!)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                ItemIconTile(title = name.ifBlank { type.labelVi }, type = type, size = 48.dp)
+                BasicTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    singleLine = true,
+                    textStyle = TextStyle(
+                        color = c.textPrimary,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    ),
+                    cursorBrush = SolidColor(c.accent),
+                    decorationBox = { inner ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(c.surface)
+                                .padding(horizontal = 14.dp, vertical = 13.dp),
+                        ) {
+                            if (name.isEmpty()) {
+                                Text("Tiêu đề (VD: GitHub, Gmail…)", color = c.textMuted, fontSize = 16.sp)
+                            }
+                            inner()
+                        }
                     },
-                    enabled = !isSaving && name.isNotBlank(),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = c.accent, contentColor = Color.White),
-                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp),
+                    modifier = Modifier.weight(1f),
+                )
+            }
+
+            // Folder picker strip
+            if (folders.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    if (isSaving) {
-                        CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
-                    } else {
-                        Text("Lưu", fontWeight = FontWeight.SemiBold)
+                    OnePassChip(label = "Personal", selected = folderId == null) { folderId = null }
+                    folders.forEach { f ->
+                        OnePassChip(label = f.name, selected = folderId == f.id) { folderId = f.id }
                     }
                 }
             }
 
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
-            ) {
-                if (!isEdit) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        CipherType.entries.forEach { t ->
-                            LiquidGlassChip(
-                                label = t.labelVi,
-                                selected = type == t,
-                                onClick = { type = t },
+            // Type-specific grouped matte card
+            when (type) {
+                CipherType.LOGIN -> {
+                    OnePassCard(modifier = Modifier.fillMaxWidth(), padding = PaddingValues(0.dp)) {
+                        Column {
+                            EditorFieldRow(
+                                label = "tên đăng nhập",
+                                value = username,
+                                placeholder = "email@example.com",
+                                onValueChange = { username = it },
+                            )
+                            HorizontalDivider(color = c.divider, thickness = 0.7.dp)
+                            EditorFieldRow(
+                                label = "mật khẩu",
+                                value = password,
+                                placeholder = "Nhập hoặc tạo mật khẩu mạnh",
+                                onValueChange = { password = it },
+                                trailing = {
+                                    IconButton(
+                                        onClick = {
+                                            password = PasswordGenerator.generatePassword(
+                                                PasswordOptions(length = 20, symbols = true),
+                                            )
+                                        },
+                                        modifier = Modifier.size(34.dp),
+                                    ) {
+                                        Icon(Icons.Rounded.AutoAwesome, contentDescription = "Tạo mật khẩu", tint = c.accent, modifier = Modifier.size(19.dp))
+                                    }
+                                },
+                            )
+                            HorizontalDivider(color = c.divider, thickness = 0.7.dp)
+                            EditorFieldRow(
+                                label = "mã xác thực một lần (2FA)",
+                                value = totp,
+                                placeholder = "Secret Base32 hoặc otpauth://",
+                                onValueChange = { totp = it },
+                                trailing = {
+                                    IconButton(onClick = onRequestQrScan, modifier = Modifier.size(34.dp)) {
+                                        Icon(Icons.Rounded.QrCodeScanner, contentDescription = "Quét QR", tint = c.accent, modifier = Modifier.size(19.dp))
+                                    }
+                                },
                             )
                         }
                     }
-                }
 
-                // General Info Card
-                LiquidGlassCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 22.dp, elevated = true) {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        OutlinedTextField(
-                            value = name,
-                            onValueChange = { name = it },
-                            label = { Text("Tiêu đề *") },
-                            placeholder = { Text("Ví dụ: GitHub, Vietcombank, Gmail…") },
-                            singleLine = true,
-                            shape = RoundedCornerShape(14.dp),
-                            colors = fieldColors,
-                            modifier = Modifier.fillMaxWidth(),
+                    OnePassCard(modifier = Modifier.fillMaxWidth(), padding = PaddingValues(0.dp)) {
+                        EditorFieldRow(
+                            label = "trang web / ứng dụng (mỗi dòng 1 URI)",
+                            value = uriText,
+                            placeholder = "https://example.com",
+                            singleLine = false,
+                            onValueChange = { uriText = it },
                         )
+                    }
+                }
 
-                        if (folders.isNotEmpty()) {
-                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text("Thư mục", color = c.textSecondary, fontSize = 12.sp)
-                                Row(
-                                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                ) {
-                                    LiquidGlassChip(
-                                        label = "Không phân loại",
-                                        selected = folderId == null,
-                                        onClick = { folderId = null },
-                                    )
-                                    folders.forEach { f ->
-                                        LiquidGlassChip(
-                                            label = f.name,
-                                            selected = folderId == f.id,
-                                            onClick = { folderId = f.id },
-                                        )
-                                    }
-                                }
+                CipherType.CARD -> {
+                    OnePassCard(modifier = Modifier.fillMaxWidth(), padding = PaddingValues(0.dp)) {
+                        Column {
+                            EditorFieldRow("tên chủ thẻ", cardholder, "NGUYEN VAN A", onValueChange = { cardholder = it })
+                            HorizontalDivider(color = c.divider, thickness = 0.7.dp)
+                            EditorFieldRow("loại thẻ", cardBrand, "Visa / Mastercard", onValueChange = { cardBrand = it })
+                            HorizontalDivider(color = c.divider, thickness = 0.7.dp)
+                            EditorFieldRow("số thẻ", cardNumber, "4242 •••• •••• 4242", keyboardType = KeyboardType.Number, onValueChange = { cardNumber = it })
+                            HorizontalDivider(color = c.divider, thickness = 0.7.dp)
+                            Row {
+                                EditorFieldRow("tháng (MM)", expMonth, "08", keyboardType = KeyboardType.Number, modifier = Modifier.weight(1f), onValueChange = { expMonth = it })
+                                EditorFieldRow("năm (YYYY)", expYear, "2029", keyboardType = KeyboardType.Number, modifier = Modifier.weight(1f), onValueChange = { expYear = it })
+                                EditorFieldRow("cvv", cardCvv, "123", keyboardType = KeyboardType.Number, modifier = Modifier.weight(1f), onValueChange = { cardCvv = it })
                             }
-                        }
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text("Đánh dấu yêu thích", color = c.textPrimary, fontSize = 14.5.sp)
-                            Switch(checked = favorite, onCheckedChange = { favorite = it })
                         }
                     }
                 }
 
-                // Type-specific fields
-                when (type) {
-                    CipherType.LOGIN -> {
-                        LiquidGlassCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
-                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                OutlinedTextField(
-                                    value = username,
-                                    onValueChange = { username = it },
-                                    label = { Text("Tên đăng nhập / Email") },
-                                    singleLine = true,
-                                    shape = RoundedCornerShape(14.dp),
-                                    colors = fieldColors,
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
-                                OutlinedTextField(
-                                    value = password,
-                                    onValueChange = { password = it },
-                                    label = { Text("Mật khẩu") },
-                                    singleLine = true,
-                                    trailingIcon = {
-                                        IconButton(
-                                            onClick = {
-                                                password = PasswordGenerator.generatePassword(
-                                                    PasswordOptions(length = 20, symbols = true),
-                                                )
-                                            },
-                                        ) {
-                                            Icon(
-                                                Icons.Rounded.AutoAwesome,
-                                                contentDescription = "Tạo mật khẩu mạnh",
-                                                tint = c.accent,
-                                            )
-                                        }
-                                    },
-                                    shape = RoundedCornerShape(14.dp),
-                                    colors = fieldColors,
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
-                                OutlinedTextField(
-                                    value = totp,
-                                    onValueChange = { totp = it },
-                                    label = { Text("Khóa xác thực 2FA (Secret / otpauth://)") },
-                                    singleLine = true,
-                                    trailingIcon = {
-                                        IconButton(onClick = onRequestQrScan) {
-                                            Icon(
-                                                Icons.Rounded.QrCodeScanner,
-                                                contentDescription = "Quét mã QR 2FA",
-                                                tint = c.accent,
-                                            )
-                                        }
-                                    },
-                                    shape = RoundedCornerShape(14.dp),
-                                    colors = fieldColors,
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
-                                OutlinedTextField(
-                                    value = uriText,
-                                    onValueChange = { uriText = it },
-                                    label = { Text("Trang web / Android App URI (mỗi dòng 1 URI)") },
-                                    placeholder = { Text("https://github.com\nandroidapp://com.github.android") },
-                                    minLines = 2,
-                                    shape = RoundedCornerShape(14.dp),
-                                    colors = fieldColors,
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
+                CipherType.IDENTITY -> {
+                    OnePassCard(modifier = Modifier.fillMaxWidth(), padding = PaddingValues(0.dp)) {
+                        Column {
+                            Row {
+                                EditorFieldRow("tên", idFirstName, "Phi", modifier = Modifier.weight(1f), onValueChange = { idFirstName = it })
+                                EditorFieldRow("họ", idLastName, "Hoàng", modifier = Modifier.weight(1f), onValueChange = { idLastName = it })
                             }
+                            HorizontalDivider(color = c.divider, thickness = 0.7.dp)
+                            EditorFieldRow("email", idEmail, "email@example.com", keyboardType = KeyboardType.Email, onValueChange = { idEmail = it })
+                            HorizontalDivider(color = c.divider, thickness = 0.7.dp)
+                            EditorFieldRow("số điện thoại", idPhone, "+84...", keyboardType = KeyboardType.Phone, onValueChange = { idPhone = it })
+                            HorizontalDivider(color = c.divider, thickness = 0.7.dp)
+                            EditorFieldRow("công ty", idCompany, "Tên công ty", onValueChange = { idCompany = it })
+                            HorizontalDivider(color = c.divider, thickness = 0.7.dp)
+                            EditorFieldRow("địa chỉ", idAddress, "Số nhà, đường", onValueChange = { idAddress = it })
+                            HorizontalDivider(color = c.divider, thickness = 0.7.dp)
+                            Row {
+                                EditorFieldRow("thành phố", idCity, "TP. HCM", modifier = Modifier.weight(1f), onValueChange = { idCity = it })
+                                EditorFieldRow("quốc gia", idCountry, "Việt Nam", modifier = Modifier.weight(1f), onValueChange = { idCountry = it })
+                            }
+                            HorizontalDivider(color = c.divider, thickness = 0.7.dp)
+                            EditorFieldRow("cccd / hộ chiếu", idPassport, "Số định danh", onValueChange = { idPassport = it })
                         }
                     }
-
-                    CipherType.CARD -> {
-                        LiquidGlassCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
-                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                OutlinedTextField(
-                                    value = cardholder,
-                                    onValueChange = { cardholder = it },
-                                    label = { Text("Tên chủ thẻ") },
-                                    singleLine = true,
-                                    shape = RoundedCornerShape(14.dp),
-                                    colors = fieldColors,
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
-                                OutlinedTextField(
-                                    value = cardBrand,
-                                    onValueChange = { cardBrand = it },
-                                    label = { Text("Loại thẻ (Visa, Mastercard, JCB…)") },
-                                    singleLine = true,
-                                    shape = RoundedCornerShape(14.dp),
-                                    colors = fieldColors,
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
-                                OutlinedTextField(
-                                    value = cardNumber,
-                                    onValueChange = { cardNumber = it },
-                                    label = { Text("Số thẻ") },
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                    singleLine = true,
-                                    shape = RoundedCornerShape(14.dp),
-                                    colors = fieldColors,
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
-                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    OutlinedTextField(
-                                        value = expMonth,
-                                        onValueChange = { expMonth = it },
-                                        label = { Text("Tháng (MM)") },
-                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                        singleLine = true,
-                                        shape = RoundedCornerShape(14.dp),
-                                        colors = fieldColors,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    OutlinedTextField(
-                                        value = expYear,
-                                        onValueChange = { expYear = it },
-                                        label = { Text("Năm (YYYY)") },
-                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                        singleLine = true,
-                                        shape = RoundedCornerShape(14.dp),
-                                        colors = fieldColors,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    OutlinedTextField(
-                                        value = cardCvv,
-                                        onValueChange = { cardCvv = it },
-                                        label = { Text("CVV") },
-                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                        singleLine = true,
-                                        shape = RoundedCornerShape(14.dp),
-                                        colors = fieldColors,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    CipherType.IDENTITY -> {
-                        LiquidGlassCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
-                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    OutlinedTextField(
-                                        value = idFirstName,
-                                        onValueChange = { idFirstName = it },
-                                        label = { Text("Tên") },
-                                        singleLine = true,
-                                        shape = RoundedCornerShape(14.dp),
-                                        colors = fieldColors,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    OutlinedTextField(
-                                        value = idLastName,
-                                        onValueChange = { idLastName = it },
-                                        label = { Text("Họ") },
-                                        singleLine = true,
-                                        shape = RoundedCornerShape(14.dp),
-                                        colors = fieldColors,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                }
-                                OutlinedTextField(
-                                    value = idEmail,
-                                    onValueChange = { idEmail = it },
-                                    label = { Text("Email") },
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                                    singleLine = true,
-                                    shape = RoundedCornerShape(14.dp),
-                                    colors = fieldColors,
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
-                                OutlinedTextField(
-                                    value = idPhone,
-                                    onValueChange = { idPhone = it },
-                                    label = { Text("Số điện thoại") },
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
-                                    singleLine = true,
-                                    shape = RoundedCornerShape(14.dp),
-                                    colors = fieldColors,
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
-                                OutlinedTextField(
-                                    value = idCompany,
-                                    onValueChange = { idCompany = it },
-                                    label = { Text("Công ty") },
-                                    singleLine = true,
-                                    shape = RoundedCornerShape(14.dp),
-                                    colors = fieldColors,
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
-                                OutlinedTextField(
-                                    value = idAddress,
-                                    onValueChange = { idAddress = it },
-                                    label = { Text("Địa chỉ") },
-                                    singleLine = true,
-                                    shape = RoundedCornerShape(14.dp),
-                                    colors = fieldColors,
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
-                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    OutlinedTextField(
-                                        value = idCity,
-                                        onValueChange = { idCity = it },
-                                        label = { Text("Thành phố") },
-                                        singleLine = true,
-                                        shape = RoundedCornerShape(14.dp),
-                                        colors = fieldColors,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    OutlinedTextField(
-                                        value = idCountry,
-                                        onValueChange = { idCountry = it },
-                                        label = { Text("Quốc gia") },
-                                        singleLine = true,
-                                        shape = RoundedCornerShape(14.dp),
-                                        colors = fieldColors,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                }
-                                OutlinedTextField(
-                                    value = idPassport,
-                                    onValueChange = { idPassport = it },
-                                    label = { Text("Số CCCD / Hộ chiếu") },
-                                    singleLine = true,
-                                    shape = RoundedCornerShape(14.dp),
-                                    colors = fieldColors,
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
-                            }
-                        }
-                    }
-
-                    CipherType.SECURE_NOTE -> Unit
                 }
 
-                // Notes
-                LiquidGlassCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
-                    OutlinedTextField(
-                        value = notes,
-                        onValueChange = { notes = it },
-                        label = { Text("Ghi chú bảo mật") },
-                        minLines = if (type == CipherType.SECURE_NOTE) 6 else 3,
-                        shape = RoundedCornerShape(14.dp),
-                        colors = fieldColors,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(24.dp))
+                CipherType.SECURE_NOTE -> Unit
             }
+
+            // Notes Card
+            OnePassCard(modifier = Modifier.fillMaxWidth(), padding = PaddingValues(0.dp)) {
+                EditorFieldRow(
+                    label = "ghi chú",
+                    value = notes,
+                    placeholder = "Thêm ghi chú bảo mật…",
+                    singleLine = false,
+                    minLines = if (type == CipherType.SECURE_NOTE) 6 else 3,
+                    onValueChange = { notes = it },
+                )
+            }
+
+            // Favorite Switch
+            OnePassCard(modifier = Modifier.fillMaxWidth(), padding = PaddingValues(horizontal = 15.dp, vertical = 8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Ghim vào Yêu thích", color = c.textPrimary, fontSize = 15.sp)
+                    Switch(checked = favorite, onCheckedChange = { favorite = it })
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+        }
+    }
+}
+
+@Composable
+private fun EditorFieldRow(
+    label: String,
+    value: String,
+    placeholder: String,
+    singleLine: Boolean = true,
+    minLines: Int = 1,
+    keyboardType: KeyboardType = KeyboardType.Text,
+    trailing: (@Composable () -> Unit)? = null,
+    modifier: Modifier = Modifier,
+    onValueChange: (String) -> Unit,
+) {
+    val c = LocalOpenVaultColors.current
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 15.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(text = label, color = c.fieldLabel, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                singleLine = singleLine,
+                minLines = minLines,
+                keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+                textStyle = TextStyle(color = c.textPrimary, fontSize = 15.sp),
+                cursorBrush = SolidColor(c.accent),
+                decorationBox = { inner ->
+                    if (value.isEmpty()) {
+                        Text(text = placeholder, color = c.textMuted, fontSize = 15.sp)
+                    }
+                    inner()
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        if (trailing != null) {
+            trailing()
         }
     }
 }

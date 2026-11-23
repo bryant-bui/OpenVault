@@ -16,22 +16,26 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import io.openvault.app.core.security.AppThemeMode
 
+/**
+ * Clean, flat native design tokens inspired by 1Password 8 Mobile:
+ * - Pure OLED Black (#000000) + matte charcoal (#1C1C1E) cards in Dark Mode
+ * - Clean neutral light gray (#F3F4F6) + pure white (#FFFFFF) cards in Light Mode
+ * - Hairline dividers, crisp typography, ZERO glass/blur/aurora noise
+ */
 @Immutable
 data class OpenVaultColors(
     val isDark: Boolean,
-    val canvas: Color,
-    val canvasDeep: Color,
-    val orbPrimary: Color,
-    val orbSecondary: Color,
-    val orbTertiary: Color,
-    val glassSurface: Color,
-    val glassSurfaceElevated: Color,
-    val glassSurfaceActive: Color,
-    val glassBorderTop: Color,
-    val glassBorderBottom: Color,
+    val background: Color,
+    val surface: Color,
+    val surfaceElevated: Color,
+    val searchBackground: Color,
+    val divider: Color,
+    val cardBorder: Color,
     val accent: Color,
     val accentSoft: Color,
-    val accentGlow: Color,
+    val accentButtonBg: Color,
+    val accentButtonFg: Color,
+    val fieldLabel: Color,
     val textPrimary: Color,
     val textSecondary: Color,
     val textMuted: Color,
@@ -43,95 +47,101 @@ data class OpenVaultColors(
     val dangerSoft: Color,
     val passwordDigit: Color,
     val passwordSymbol: Color,
-    val dockBackground: Color,
+    val navBarBg: Color,
+    val navActivePill: Color,
 )
 
-private val DarkOpenVaultColors = OpenVaultColors(
+private val DarkOnePassColors = OpenVaultColors(
     isDark = true,
-    canvas = Color(0xFF070B14),
-    canvasDeep = Color(0xFF04070D),
-    orbPrimary = Color(0xFF1D4ED8),
-    orbSecondary = Color(0xFF6D28D9),
-    orbTertiary = Color(0xFF0284C7),
-    glassSurface = Color(0x99131B2E),
-    glassSurfaceElevated = Color(0xCC1B263F),
-    glassSurfaceActive = Color(0x383B8BFF),
-    glassBorderTop = Color(0x40FFFFFF),
-    glassBorderBottom = Color(0x14FFFFFF),
-    accent = Color(0xFF3B8BFF),
-    accentSoft = Color(0x2B3B8BFF),
-    accentGlow = Color(0x663B8BFF),
-    textPrimary = Color(0xFFF3F6FC),
-    textSecondary = Color(0xFFA0AEC8),
-    textMuted = Color(0xFF64748B),
-    success = Color(0xFF4ADE80),
-    successSoft = Color(0x244ADE80),
+    background = Color(0xFF000000),
+    surface = Color(0xFF1C1C1E),
+    surfaceElevated = Color(0xFF252528),
+    searchBackground = Color(0xFF242426),
+    divider = Color(0xFF2C2C2E),
+    cardBorder = Color(0xFF2A2A2D),
+    accent = Color(0xFF5BA8FF),
+    accentSoft = Color(0x245BA8FF),
+    accentButtonBg = Color(0xFF7CB9FF),
+    accentButtonFg = Color(0xFF071A33),
+    fieldLabel = Color(0xFF9E94E6),
+    textPrimary = Color(0xFFF5F5F7),
+    textSecondary = Color(0xFF9A9AA0),
+    textMuted = Color(0xFF6E6E73),
+    success = Color(0xFF34D399),
+    successSoft = Color(0x2034D399),
     warning = Color(0xFFFBBF24),
     warningSoft = Color(0x24FBBF24),
     danger = Color(0xFFF87171),
-    dangerSoft = Color(0x24F87171),
+    dangerSoft = Color(0x243D1B1E),
     passwordDigit = Color(0xFF60A5FA),
     passwordSymbol = Color(0xFFFB7185),
-    dockBackground = Color(0xCC0E1526),
+    navBarBg = Color(0xFF141416),
+    navActivePill = Color(0xFF232B3A),
 )
 
-private val LightOpenVaultColors = OpenVaultColors(
+private val LightOnePassColors = OpenVaultColors(
     isDark = false,
-    canvas = Color(0xFFEFF4FB),
-    canvasDeep = Color(0xFFE4ECF8),
-    orbPrimary = Color(0xFF60A5FA),
-    orbSecondary = Color(0xFFA78BFA),
-    orbTertiary = Color(0xFF38BDF8),
-    glassSurface = Color(0xC7FFFFFF),
-    glassSurfaceElevated = Color(0xE6FFFFFF),
-    glassSurfaceActive = Color(0x240572EC),
-    glassBorderTop = Color(0xF0FFFFFF),
-    glassBorderBottom = Color(0x3394A3B8),
+    background = Color(0xFFF3F4F7),
+    surface = Color(0xFFFFFFFF),
+    surfaceElevated = Color(0xFFFFFFFF),
+    searchBackground = Color(0xFFE7E9EE),
+    divider = Color(0xFFE8EAEF),
+    cardBorder = Color(0xFFE3E6EC),
     accent = Color(0xFF0572EC),
-    accentSoft = Color(0x1A0572EC),
-    accentGlow = Color(0x400572EC),
-    textPrimary = Color(0xFF0F172A),
-    textSecondary = Color(0xFF475569),
-    textMuted = Color(0xFF94A3B8),
+    accentSoft = Color(0x180572EC),
+    accentButtonBg = Color(0xFF0572EC),
+    accentButtonFg = Color(0xFFFFFFFF),
+    fieldLabel = Color(0xFF6958C7),
+    textPrimary = Color(0xFF111827),
+    textSecondary = Color(0xFF6B7280),
+    textMuted = Color(0xFF9CA3AF),
     success = Color(0xFF16A34A),
-    successSoft = Color(0x1F16A34A),
+    successSoft = Color(0x1A16A34A),
     warning = Color(0xFFD97706),
-    warningSoft = Color(0x1FD97706),
+    warningSoft = Color(0x1AD97706),
     danger = Color(0xFFDC2626),
-    dangerSoft = Color(0x1FDC2626),
+    dangerSoft = Color(0x1ADC2626),
     passwordDigit = Color(0xFF0572EC),
     passwordSymbol = Color(0xFFE11D48),
-    dockBackground = Color(0xD9FFFFFF),
+    navBarBg = Color(0xFFFFFFFF),
+    navActivePill = Color(0xFFEAF2FF),
 )
 
-val LocalOpenVaultColors = staticCompositionLocalOf { DarkOpenVaultColors }
+val LocalOpenVaultColors = staticCompositionLocalOf { DarkOnePassColors }
 
-private val OpenVaultTypography = Typography(
+private val OnePassTypography = Typography(
+    headlineLarge = TextStyle(
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.Bold,
+        fontSize = 31.sp,
+        lineHeight = 36.sp,
+        letterSpacing = (-0.7).sp,
+    ),
     headlineMedium = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.Bold,
-        fontSize = 26.sp,
-        lineHeight = 32.sp,
-        letterSpacing = (-0.5).sp,
+        fontSize = 24.sp,
+        lineHeight = 30.sp,
+        letterSpacing = (-0.4).sp,
     ),
     titleLarge = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 20.sp,
-        lineHeight = 26.sp,
+        fontSize = 18.sp,
+        lineHeight = 24.sp,
         letterSpacing = (-0.2).sp,
     ),
     titleMedium = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 16.sp,
-        lineHeight = 22.sp,
+        fontSize = 15.5.sp,
+        lineHeight = 21.sp,
     ),
     bodyLarge = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.Normal,
         fontSize = 15.sp,
-        lineHeight = 22.sp,
+        lineHeight = 21.sp,
     ),
     bodyMedium = TextStyle(
         fontFamily = FontFamily.SansSerif,
@@ -144,7 +154,6 @@ private val OpenVaultTypography = Typography(
         fontWeight = FontWeight.Medium,
         fontSize = 12.sp,
         lineHeight = 16.sp,
-        letterSpacing = 0.2.sp,
     ),
 )
 
@@ -158,40 +167,40 @@ fun OpenVaultTheme(
         AppThemeMode.LIGHT -> false
         AppThemeMode.SYSTEM -> isSystemInDarkTheme()
     }
-    val ovColors = if (isDark) DarkOpenVaultColors else LightOpenVaultColors
+    val ovColors = if (isDark) DarkOnePassColors else LightOnePassColors
 
     val materialColors = if (isDark) {
         darkColorScheme(
             primary = ovColors.accent,
             onPrimary = Color.White,
-            background = ovColors.canvas,
+            background = ovColors.background,
             onBackground = ovColors.textPrimary,
-            surface = ovColors.glassSurfaceElevated,
+            surface = ovColors.surface,
             onSurface = ovColors.textPrimary,
-            surfaceVariant = ovColors.glassSurface,
+            surfaceVariant = ovColors.surfaceElevated,
             onSurfaceVariant = ovColors.textSecondary,
             error = ovColors.danger,
-            outline = ovColors.glassBorderTop,
+            outline = ovColors.divider,
         )
     } else {
         lightColorScheme(
             primary = ovColors.accent,
             onPrimary = Color.White,
-            background = ovColors.canvas,
+            background = ovColors.background,
             onBackground = ovColors.textPrimary,
-            surface = ovColors.glassSurfaceElevated,
+            surface = ovColors.surface,
             onSurface = ovColors.textPrimary,
-            surfaceVariant = ovColors.glassSurface,
+            surfaceVariant = ovColors.searchBackground,
             onSurfaceVariant = ovColors.textSecondary,
             error = ovColors.danger,
-            outline = ovColors.glassBorderBottom,
+            outline = ovColors.divider,
         )
     }
 
     CompositionLocalProvider(LocalOpenVaultColors provides ovColors) {
         MaterialTheme(
             colorScheme = materialColors,
-            typography = OpenVaultTypography,
+            typography = OnePassTypography,
             content = content,
         )
     }

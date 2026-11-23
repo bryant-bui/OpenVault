@@ -9,9 +9,8 @@ import android.view.autofill.AutofillId
 import android.view.autofill.AutofillManager
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -19,14 +18,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -38,8 +34,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -52,9 +46,9 @@ import io.openvault.app.core.crypto.DomainMatcher
 import io.openvault.app.core.crypto.TotpEngine
 import io.openvault.app.core.crypto.VaultItem
 import io.openvault.app.core.security.VaultLockState
-import io.openvault.app.ui.components.BrandMonogramAvatar
-import io.openvault.app.ui.components.LiquidGlassBackground
-import io.openvault.app.ui.components.LiquidGlassCard
+import io.openvault.app.ui.components.OnePassCard
+import io.openvault.app.ui.components.OnePassItemRow
+import io.openvault.app.ui.components.OnePassSearchBar
 import io.openvault.app.ui.screens.UnlockScreen
 import io.openvault.app.ui.theme.LocalOpenVaultColors
 import io.openvault.app.ui.theme.OpenVaultTheme
@@ -127,7 +121,6 @@ class AutofillAuthActivity : FragmentActivity() {
                 finish()
                 return
             }
-            // Auto-copy 2FA code to sensitive clipboard when filling login fields
             item.login?.totp?.takeIf { it.isNotBlank() && otpIds.isEmpty() }?.let { totp ->
                 TotpEngine.generateFromInput(totp)?.code?.let { code ->
                     container.clipboard.copy("Mã 2FA OpenVault", code, isSensitive = true)
@@ -152,7 +145,7 @@ class AutofillAuthActivity : FragmentActivity() {
                         activity = this@AutofillAuthActivity,
                         autoTriggerBiometric = true,
                         allowLogout = false,
-                        onUnlocked = { /* Recomposition reveals picker immediately */ },
+                        onUnlocked = { },
                     )
                 } else {
                     AutofillPickerContent(
@@ -200,107 +193,62 @@ private fun AutofillPickerContent(
             }
     }
 
-    LiquidGlassBackground {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-                .navigationBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(c.background)
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Chọn tài khoản để điền",
-                        color = c.textPrimary,
-                        fontSize = 19.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        text = webDomain ?: targetPackage ?: "OpenVault Autofill",
-                        color = c.accent,
-                        fontSize = 12.5.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                IconButton(onClick = onCancel) {
-                    Icon(Icons.Rounded.Close, contentDescription = "Đóng", tint = c.textSecondary)
-                }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Chọn tài khoản để điền",
+                    color = c.textPrimary,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    text = webDomain ?: targetPackage ?: "OpenVault Autofill",
+                    color = c.accent,
+                    fontSize = 13.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
-
-            LiquidGlassCard(
-                modifier = Modifier.fillMaxWidth(),
-                cornerRadius = 18.dp,
-                padding = PaddingValues(horizontal = 14.dp, vertical = 11.dp),
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Icon(Icons.Rounded.Search, contentDescription = null, tint = c.textSecondary, modifier = Modifier.size(19.dp))
-                    Box(modifier = Modifier.weight(1f)) {
-                        if (query.isEmpty()) {
-                            Text("Tìm trong kho…", color = c.textMuted, fontSize = 14.5.sp)
-                        }
-                        BasicTextField(
-                            value = query,
-                            onValueChange = { query = it },
-                            singleLine = true,
-                            textStyle = TextStyle(color = c.textPrimary, fontSize = 14.5.sp),
-                            cursorBrush = SolidColor(c.accent),
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                }
+            IconButton(onClick = onCancel) {
+                Icon(Icons.Rounded.Close, contentDescription = "Đóng", tint = c.textSecondary)
             }
+        }
 
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                contentPadding = PaddingValues(bottom = 24.dp),
-            ) {
-                items(sortedLogins, key = { it.id }) { item ->
-                    LiquidGlassCard(
-                        modifier = Modifier.fillMaxWidth(),
-                        cornerRadius = 18.dp,
-                        padding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-                        onClick = { onSelect(item) },
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            BrandMonogramAvatar(title = item.name, type = item.type, size = 40.dp)
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = item.name,
-                                    color = c.textPrimary,
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                Text(
-                                    text = item.primarySubtitle,
-                                    color = c.textSecondary,
-                                    fontSize = 13.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
+        OnePassSearchBar(
+            query = query,
+            onQueryChange = { query = it },
+            placeholder = "Tìm tài khoản trong kho",
+        )
+
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 24.dp),
+        ) {
+            item {
+                OnePassCard(modifier = Modifier.fillMaxWidth(), padding = PaddingValues(0.dp)) {
+                    Column {
+                        sortedLogins.forEachIndexed { idx, item ->
+                            if (idx > 0) {
+                                HorizontalDivider(
+                                    color = c.divider,
+                                    thickness = 0.7.dp,
+                                    modifier = Modifier.padding(start = 62.dp),
                                 )
                             }
-                            Text(
-                                text = "Điền",
-                                color = c.accent,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.clickable { onSelect(item) },
-                            )
+                            OnePassItemRow(item = item, onClick = { onSelect(item) })
                         }
                     }
                 }

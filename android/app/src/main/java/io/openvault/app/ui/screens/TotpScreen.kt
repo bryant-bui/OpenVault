@@ -1,10 +1,8 @@
 package io.openvault.app.ui.screens
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -12,20 +10,20 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.QrCode2
 import androidx.compose.material.icons.rounded.QrCodeScanner
-import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -36,11 +34,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -48,8 +41,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.openvault.app.core.crypto.TotpEngine
 import io.openvault.app.core.crypto.VaultItem
-import io.openvault.app.ui.components.BrandMonogramAvatar
-import io.openvault.app.ui.components.LiquidGlassCard
+import io.openvault.app.ui.components.ItemIconTile
+import io.openvault.app.ui.components.OnePassCard
+import io.openvault.app.ui.components.OnePassSearchBar
 import io.openvault.app.ui.components.TotpCountdownRing
 import io.openvault.app.ui.theme.LocalOpenVaultColors
 import kotlinx.coroutines.delay
@@ -57,6 +51,7 @@ import kotlinx.coroutines.delay
 @Composable
 fun TotpScreen(
     items: List<VaultItem>,
+    onBack: () -> Unit,
     onScanQrToAdd: () -> Unit,
     onOpenItem: (VaultItem) -> Unit,
     onCopyCode: (title: String, code: String) -> Unit,
@@ -81,235 +76,142 @@ fun TotpScreen(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        Column(
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(c.background)
+            .statusBarsPadding()
+            .navigationBarsPadding(),
+    ) {
+        Row(
             modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding(),
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Row(
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Quay lại", tint = c.accent)
+            }
+            Text(
+                text = "Mã xác thực 2FA",
+                color = c.textPrimary,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            IconButton(onClick = onScanQrToAdd) {
+                Icon(Icons.Rounded.QrCodeScanner, contentDescription = "Quét QR", tint = c.accent)
+            }
+        }
+
+        OnePassSearchBar(
+            query = query,
+            onQueryChange = { query = it },
+            placeholder = "Tìm mã 2FA",
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        )
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        if (totpItems.isEmpty()) {
+            OnePassCard(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 18.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                padding = PaddingValues(24.dp),
             ) {
-                Column {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Rounded.QrCode2, contentDescription = null, tint = c.accent, modifier = Modifier.size(40.dp))
+                    Text("Chưa có mã 2FA nào", color = c.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                     Text(
-                        text = "Trình xác thực 2FA",
-                        color = c.textPrimary,
-                        fontSize = 23.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = (-0.4).sp,
-                    )
-                    Text(
-                        text = "${totpItems.size} mã TOTP đồng bộ E2EE",
+                        "Bấm biểu tượng Quét QR ở góc trên phải để thêm mã xác thực 2 bước mới.",
                         color = c.textSecondary,
-                        fontSize = 12.5.sp,
-                    )
-                }
-
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(c.accentSoft)
-                        .border(1.dp, c.accent.copy(alpha = 0.45f), RoundedCornerShape(14.dp))
-                        .clickable(onClick = onScanQrToAdd)
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Icon(
-                        Icons.Rounded.QrCodeScanner,
-                        contentDescription = "Quét QR",
-                        tint = c.accent,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Text(
-                        text = "Quét QR",
-                        color = c.accent,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.5.sp,
                     )
                 }
             }
-
-            LiquidGlassCard(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                cornerRadius = 18.dp,
-                padding = PaddingValues(horizontal = 14.dp, vertical = 11.dp),
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Icon(Icons.Rounded.Search, contentDescription = null, tint = c.textSecondary, modifier = Modifier.size(19.dp))
-                    Box(modifier = Modifier.weight(1f)) {
-                        if (query.isEmpty()) {
-                            Text("Tìm mã 2FA…", color = c.textMuted, fontSize = 14.5.sp)
+                items(totpItems, key = { it.id }) { item ->
+                    val totp = remember(item.login?.totp, nowSec) {
+                        item.login?.totp?.let { TotpEngine.generateFromInput(it, nowSec) }
+                    }
+                    if (totp != null) {
+                        val dotFormatted = if (totp.code.length == 6) {
+                            "${totp.code.substring(0, 3)} · ${totp.code.substring(3)}"
+                        } else {
+                            totp.formattedCode
                         }
-                        BasicTextField(
-                            value = query,
-                            onValueChange = { query = it },
-                            singleLine = true,
-                            textStyle = TextStyle(color = c.textPrimary, fontSize = 14.5.sp),
-                            cursorBrush = SolidColor(c.accent),
+                        OnePassCard(
                             modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                    if (query.isNotEmpty()) {
-                        Icon(
-                            Icons.Rounded.Close,
-                            contentDescription = "Xóa",
-                            tint = c.textSecondary,
-                            modifier = Modifier.size(18.dp).clickable { query = "" },
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            if (totpItems.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 24.dp, vertical = 40.dp),
-                    contentAlignment = Alignment.TopCenter,
-                ) {
-                    LiquidGlassCard(
-                        modifier = Modifier.fillMaxWidth(),
-                        cornerRadius = 26.dp,
-                        padding = PaddingValues(26.dp),
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.fillMaxWidth(),
+                            padding = PaddingValues(14.dp),
+                            onClick = { onCopyCode(item.name, totp.code) },
                         ) {
-                            Icon(Icons.Rounded.QrCode2, contentDescription = null, tint = c.accent, modifier = Modifier.size(44.dp))
-                            Text(
-                                text = "Chưa có mã 2FA nào",
-                                color = c.textPrimary,
-                                fontSize = 17.sp,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                            Text(
-                                text = "Quét mã QR 2FA từ Google, GitHub, Cloudflare hoặc ngân hàng để đồng bộ tức thì với Chrome Extension.",
-                                color = c.textSecondary,
-                                fontSize = 13.5.sp,
-                            )
-                        }
-                    }
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 128.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    items(totpItems, key = { it.id }) { item ->
-                        val secret = item.login?.totp.orEmpty()
-                        val totp = remember(secret, nowSec) {
-                            TotpEngine.generateFromInput(secret, nowSec)
-                        }
-                        if (totp != null) {
-                            LiquidGlassCard(
-                                modifier = Modifier.fillMaxWidth(),
-                                cornerRadius = 22.dp,
-                                elevated = true,
-                                padding = PaddingValues(16.dp),
-                                onClick = { onCopyCode(item.name, totp.code) },
-                            ) {
-                                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                    ) {
-                                        BrandMonogramAvatar(title = item.name, type = item.type, size = 38.dp)
-                                        Column(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .clickable { onOpenItem(item) },
-                                        ) {
-                                            Text(
-                                                text = item.name,
-                                                color = c.textPrimary,
-                                                fontSize = 15.5.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                            )
-                                            Text(
-                                                text = item.primarySubtitle,
-                                                color = c.textSecondary,
-                                                fontSize = 12.5.sp,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                            )
-                                        }
-                                        TotpCountdownRing(totp = totp, size = 42.dp)
-                                    }
-
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically,
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(11.dp),
+                                ) {
+                                    ItemIconTile(title = item.name, type = item.type, size = 36.dp)
+                                    Column(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clickable { onOpenItem(item) },
                                     ) {
                                         Text(
-                                            text = totp.formattedCode,
-                                            color = if (totp.remainingSeconds <= 5) c.danger else c.textPrimary,
-                                            fontFamily = FontFamily.Monospace,
-                                            fontSize = 30.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            letterSpacing = 2.5.sp,
+                                            text = item.name,
+                                            color = c.textPrimary,
+                                            fontSize = 15.5.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
                                         )
-                                        Row(
-                                            modifier = Modifier
-                                                .clip(RoundedCornerShape(10.dp))
-                                                .background(c.accentSoft)
-                                                .padding(horizontal = 10.dp, vertical = 6.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(5.dp),
-                                        ) {
-                                            Icon(
-                                                Icons.Rounded.ContentCopy,
-                                                contentDescription = "Sao chép",
-                                                tint = c.accent,
-                                                modifier = Modifier.size(15.dp),
-                                            )
-                                            Text("Chép mã", color = c.accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                                        }
+                                        Text(
+                                            text = item.primarySubtitle,
+                                            color = c.textSecondary,
+                                            fontSize = 13.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
                                     }
+                                    TotpCountdownRing(totp = totp, size = 38.dp)
+                                }
+
+                                HorizontalDivider(color = c.divider, thickness = 0.7.dp)
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        text = dotFormatted,
+                                        color = if (totp.remainingSeconds <= 5) c.danger else c.textPrimary,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 26.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                    Icon(
+                                        Icons.Rounded.ContentCopy,
+                                        contentDescription = "Sao chép",
+                                        tint = c.accent,
+                                        modifier = Modifier.size(19.dp),
+                                    )
                                 }
                             }
                         }
                     }
                 }
             }
-        }
-
-        // Quick QR Scanner FAB
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 20.dp, bottom = 98.dp)
-                .size(58.dp)
-                .clip(RoundedCornerShape(20.dp))
-                .background(Brush.linearGradient(listOf(Color(0xFF0A5CE6), c.accent, Color(0xFF6366F1))))
-                .border(1.2.dp, Color.White.copy(alpha = 0.45f), RoundedCornerShape(20.dp))
-                .clickable(onClick = onScanQrToAdd),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                Icons.Rounded.QrCodeScanner,
-                contentDescription = "Quét mã QR 2FA",
-                tint = Color.White,
-                modifier = Modifier.size(26.dp),
-            )
         }
     }
 }

@@ -51,8 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.openvault.app.core.security.AppPreferences
 import io.openvault.app.data.VaultRepository
-import io.openvault.app.ui.components.LiquidGlassBackground
-import io.openvault.app.ui.components.LiquidGlassCard
+import io.openvault.app.ui.components.OnePassCard
 import io.openvault.app.ui.components.OpenVaultBrandCrest
 import io.openvault.app.ui.theme.LocalOpenVaultColors
 import kotlinx.coroutines.launch
@@ -79,294 +78,247 @@ fun AuthScreen(
 
     val fieldColors = OutlinedTextFieldDefaults.colors(
         focusedBorderColor = c.accent,
-        unfocusedBorderColor = c.glassBorderTop.copy(alpha = 0.25f),
+        unfocusedBorderColor = c.divider,
         focusedTextColor = c.textPrimary,
         unfocusedTextColor = c.textPrimary,
         focusedLabelColor = c.accent,
         unfocusedLabelColor = c.textSecondary,
         cursorColor = c.accent,
-        focusedContainerColor = c.glassSurface.copy(alpha = 0.45f),
-        unfocusedContainerColor = c.glassSurface.copy(alpha = 0.30f),
     )
 
-    LiquidGlassBackground {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .statusBarsPadding()
-                .imePadding()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 28.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(18.dp),
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(c.background)
+            .statusBarsPadding()
+            .imePadding()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp, vertical = 28.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(18.dp),
+    ) {
+        Spacer(modifier = Modifier.height(10.dp))
+        OpenVaultBrandCrest(size = 64.dp)
+
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(
+                text = "OpenVault",
+                color = c.textPrimary,
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = (-0.6).sp,
+            )
+            Text(
+                text = "Kho mật khẩu Zero-Knowledge chuẩn Bitwarden",
+                color = c.textSecondary,
+                fontSize = 13.5.sp,
+            )
+        }
+
+        // Clean Segmented Switcher
+        OnePassCard(
+            cornerRadius = 12.dp,
+            padding = PaddingValues(3.dp),
+            modifier = Modifier.fillMaxWidth(),
         ) {
-            Spacer(modifier = Modifier.height(12.dp))
-            OpenVaultBrandCrest(size = 74.dp)
-
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = "OpenVault",
-                    color = c.textPrimary,
-                    fontSize = 30.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = (-0.6).sp,
-                )
-                Text(
-                    text = "Kho mật khẩu Zero-Knowledge chuẩn Bitwarden",
-                    color = c.textSecondary,
-                    fontSize = 13.5.sp,
-                )
-            }
-
-            // Segmented Liquid Glass switcher
-            LiquidGlassCard(
-                cornerRadius = 18.dp,
-                padding = PaddingValues(4.dp),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    listOf(false to "Đăng nhập", true to "Tạo tài khoản").forEach { (reg, label) ->
-                        val active = isRegister == reg
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(if (active) c.accent else Color.Transparent)
-                                .clickable {
-                                    isRegister = reg
-                                    error = null
-                                }
-                                .padding(vertical = 10.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                text = label,
-                                color = if (active) Color.White else c.textSecondary,
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 14.sp,
-                            )
-                        }
+            Row(modifier = Modifier.fillMaxWidth()) {
+                listOf(false to "Đăng nhập", true to "Tạo tài khoản").forEach { (reg, label) ->
+                    val active = isRegister == reg
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(9.dp))
+                            .background(if (active) c.accent else Color.Transparent)
+                            .clickable {
+                                isRegister = reg
+                                error = null
+                            }
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = label,
+                            color = if (active) Color.White else c.textSecondary,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 14.sp,
+                        )
                     }
                 }
             }
+        }
 
-            // Main frosted credentials card
-            LiquidGlassCard(
-                modifier = Modifier.fillMaxWidth(),
-                cornerRadius = 26.dp,
-                elevated = true,
-                padding = PaddingValues(20.dp),
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    // Server selector pill
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(c.accentSoft)
-                            .clickable { showServerEditor = !showServerEditor }
-                            .padding(horizontal = 12.dp, vertical = 9.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Icon(
-                            Icons.Rounded.Cloud,
-                            contentDescription = null,
-                            tint = c.accent,
-                            modifier = Modifier.size(16.dp),
-                        )
-                        Text(
-                            text = serverUrl.removePrefix("https://").removePrefix("http://"),
-                            color = c.accent,
-                            fontSize = 12.5.sp,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text(
-                            text = if (showServerEditor) "Ẩn" else "Đổi máy chủ",
-                            color = c.textSecondary,
-                            fontSize = 11.5.sp,
-                        )
-                    }
+        OnePassCard(
+            modifier = Modifier.fillMaxWidth(),
+            cornerRadius = 16.dp,
+            padding = PaddingValues(18.dp),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(13.dp)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(c.searchBackground)
+                        .clickable { showServerEditor = !showServerEditor }
+                        .padding(horizontal = 12.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(Icons.Rounded.Cloud, contentDescription = null, tint = c.accent, modifier = Modifier.size(16.dp))
+                    Text(
+                        text = serverUrl.removePrefix("https://").removePrefix("http://"),
+                        color = c.textPrimary,
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        text = if (showServerEditor) "Ẩn" else "Đổi máy chủ",
+                        color = c.accent,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
 
-                    AnimatedVisibility(visible = showServerEditor) {
-                        OutlinedTextField(
-                            value = serverUrl,
-                            onValueChange = { serverUrl = it },
-                            label = { Text("URL Cloudflare Worker / Bitwarden Server") },
-                            placeholder = { Text(AppPreferences.DEFAULT_SERVER_URL) },
-                            singleLine = true,
-                            shape = RoundedCornerShape(14.dp),
-                            colors = fieldColors,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-
+                AnimatedVisibility(visible = showServerEditor) {
                     OutlinedTextField(
-                        value = email,
-                        onValueChange = { email = it; error = null },
-                        label = { Text("Email") },
+                        value = serverUrl,
+                        onValueChange = { serverUrl = it },
+                        label = { Text("URL Máy chủ") },
+                        placeholder = { Text(AppPreferences.DEFAULT_SERVER_URL) },
                         singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(10.dp),
                         colors = fieldColors,
                         modifier = Modifier.fillMaxWidth(),
                     )
+                }
 
-                    if (isRegister) {
-                        OutlinedTextField(
-                            value = displayName,
-                            onValueChange = { displayName = it },
-                            label = { Text("Tên hiển thị (tùy chọn)") },
-                            singleLine = true,
-                            shape = RoundedCornerShape(14.dp),
-                            colors = fieldColors,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
+                OutlinedTextField(
+                    value = email,
+                    onValueChange = { email = it; error = null },
+                    label = { Text("Email") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                    shape = RoundedCornerShape(10.dp),
+                    colors = fieldColors,
+                    modifier = Modifier.fillMaxWidth(),
+                )
 
+                if (isRegister) {
                     OutlinedTextField(
-                        value = password,
-                        onValueChange = { password = it; error = null },
-                        label = { Text("Mật khẩu chính (Master Password)") },
+                        value = displayName,
+                        onValueChange = { displayName = it },
+                        label = { Text("Tên hiển thị (tùy chọn)") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(10.dp),
+                        colors = fieldColors,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it; error = null },
+                    label = { Text("Mật khẩu chính (Master Password)") },
+                    singleLine = true,
+                    visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        IconButton(onClick = { showPassword = !showPassword }) {
+                            Icon(
+                                if (showPassword) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                                contentDescription = "Hiện/Ẩn",
+                                tint = c.textSecondary,
+                            )
+                        }
+                    },
+                    shape = RoundedCornerShape(10.dp),
+                    colors = fieldColors,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                if (isRegister) {
+                    OutlinedTextField(
+                        value = confirmPassword,
+                        onValueChange = { confirmPassword = it; error = null },
+                        label = { Text("Xác nhận mật khẩu chính") },
                         singleLine = true,
                         visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
-                        trailingIcon = {
-                            IconButton(onClick = { showPassword = !showPassword }) {
-                                Icon(
-                                    imageVector = if (showPassword) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
-                                    contentDescription = "Hiện/Ẩn mật khẩu",
-                                    tint = c.textSecondary,
-                                )
-                            }
-                        },
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(10.dp),
                         colors = fieldColors,
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    OutlinedTextField(
+                        value = hint,
+                        onValueChange = { hint = it },
+                        label = { Text("Gợi ý mật khẩu (tùy chọn)") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(10.dp),
+                        colors = fieldColors,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
 
-                    if (isRegister) {
-                        OutlinedTextField(
-                            value = confirmPassword,
-                            onValueChange = { confirmPassword = it; error = null },
-                            label = { Text("Xác nhận mật khẩu chính") },
-                            singleLine = true,
-                            visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
-                            shape = RoundedCornerShape(14.dp),
-                            colors = fieldColors,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        OutlinedTextField(
-                            value = hint,
-                            onValueChange = { hint = it },
-                            label = { Text("Gợi ý mật khẩu (tùy chọn)") },
-                            singleLine = true,
-                            shape = RoundedCornerShape(14.dp),
-                            colors = fieldColors,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
+                if (error != null) {
+                    Text(text = error!!, color = c.danger, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                }
 
-                    if (error != null) {
-                        Text(
-                            text = error!!,
-                            color = c.danger,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium,
-                        )
-                    }
-
-                    Button(
-                        onClick = {
-                            val cleanEmail = email.trim()
-                            if (cleanEmail.isBlank() || !cleanEmail.contains("@")) {
-                                error = "Vui lòng nhập email hợp lệ."
-                                return@Button
-                            }
-                            if (password.length < 8) {
-                                error = "Mật khẩu chính cần tối thiểu 8 ký tự."
-                                return@Button
-                            }
-                            if (isRegister && password != confirmPassword) {
-                                error = "Mật khẩu xác nhận không khớp."
-                                return@Button
-                            }
-                            loading = true
-                            error = null
-                            scope.launch {
-                                runCatching {
-                                    if (isRegister) {
-                                        repository.register(
-                                            serverUrl = serverUrl,
-                                            email = cleanEmail,
-                                            name = displayName,
-                                            masterPassword = password,
-                                            hint = hint,
-                                        )
-                                    } else {
-                                        repository.login(
-                                            serverUrl = serverUrl,
-                                            email = cleanEmail,
-                                            masterPassword = password,
-                                        )
-                                    }
-                                }
-                                    .onSuccess {
-                                        loading = false
-                                        onAuthenticated()
-                                    }
-                                    .onFailure { ex ->
-                                        loading = false
-                                        error = ex.message ?: "Không thể kết nối máy chủ OpenVault."
-                                    }
-                            }
-                        },
-                        enabled = !loading,
-                        shape = RoundedCornerShape(16.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = c.accent,
-                            contentColor = Color.White,
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(52.dp),
-                    ) {
-                        if (loading) {
-                            CircularProgressIndicator(
-                                color = Color.White,
-                                strokeWidth = 2.5.dp,
-                                modifier = Modifier.size(20.dp),
-                            )
-                            Spacer(modifier = Modifier.size(10.dp))
-                            Text("Đang dẫn xuất khóa Argon2id…", fontWeight = FontWeight.SemiBold)
-                        } else {
-                            Text(
-                                text = if (isRegister) "Tạo kho Zero-Knowledge" else "Đăng nhập & Mở kho",
-                                fontSize = 15.5.sp,
-                                fontWeight = FontWeight.SemiBold,
-                            )
+                Button(
+                    onClick = {
+                        val cleanEmail = email.trim()
+                        if (cleanEmail.isBlank() || !cleanEmail.contains("@")) {
+                            error = "Vui lòng nhập email hợp lệ."
+                            return@Button
                         }
+                        if (password.length < 8) {
+                            error = "Mật khẩu chính cần tối thiểu 8 ký tự."
+                            return@Button
+                        }
+                        if (isRegister && password != confirmPassword) {
+                            error = "Mật khẩu xác nhận không khớp."
+                            return@Button
+                        }
+                        loading = true
+                        error = null
+                        scope.launch {
+                            runCatching {
+                                if (isRegister) {
+                                    repository.register(serverUrl, cleanEmail, displayName, password, hint)
+                                } else {
+                                    repository.login(serverUrl, cleanEmail, password)
+                                }
+                            }
+                                .onSuccess {
+                                    loading = false
+                                    onAuthenticated()
+                                }
+                                .onFailure { ex ->
+                                    loading = false
+                                    error = ex.message ?: "Không thể kết nối máy chủ."
+                                }
+                        }
+                    },
+                    enabled = !loading,
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = c.accent, contentColor = Color.White),
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                ) {
+                    if (loading) {
+                        CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(19.dp))
+                        Spacer(modifier = Modifier.size(10.dp))
+                        Text("Đang dẫn xuất khóa Argon2id…", fontWeight = FontWeight.SemiBold)
+                    } else {
+                        Text(
+                            text = if (isRegister) "Tạo kho Zero-Knowledge" else "Đăng nhập",
+                            fontSize = 15.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
                     }
                 }
             }
+        }
 
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier.padding(horizontal = 12.dp),
-            ) {
-                Icon(
-                    Icons.Rounded.Lock,
-                    contentDescription = null,
-                    tint = c.textMuted,
-                    modifier = Modifier.size(14.dp),
-                )
-                Text(
-                    text = "Mã hóa AES-256-CBC + HMAC-SHA256 ngay trên thiết bị",
-                    color = c.textMuted,
-                    fontSize = 12.sp,
-                )
-            }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Icon(Icons.Rounded.Lock, contentDescription = null, tint = c.textMuted, modifier = Modifier.size(14.dp))
+            Text("Mã hóa AES-256-CBC + HMAC-SHA256 hoàn toàn cục bộ", color = c.textMuted, fontSize = 12.sp)
         }
     }
 }
