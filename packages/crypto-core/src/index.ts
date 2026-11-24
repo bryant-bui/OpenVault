@@ -8,3 +8,4 @@ export * from "./passkey-crypto.js";
 export * from "./vault.js";
 export * from "./importers.js";
 export * from "./pin.js";
+export * from "./personal-safe.js";

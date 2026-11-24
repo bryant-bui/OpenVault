@@ -29,6 +29,9 @@ export default defineConfig({
       BACKUPS: bindings.r2({
         name: "openvault-backups",
       }),
+      SAFE_FILES: bindings.r2({
+        name: "openvault-safe",
+      }),
       // Set ALLOW_SIGNUP to "false" after registering your personal account
       ALLOW_SIGNUP: bindings.text("true"),
       // Hard cap on total registered users for personal self-hosting
@@ -36,6 +39,9 @@ export default defineConfig({
       ACCESS_TOKEN_TTL_SECONDS: bindings.text("3600"),
       REFRESH_TOKEN_TTL_DAYS: bindings.text("30"),
       BACKUP_RETENTION_DAYS: bindings.text("30"),
+      SAFE_MAX_FILE_BYTES: bindings.text("5242880"),
+      SAFE_MAX_THUMB_BYTES: bindings.text("131072"),
+      SAFE_TRASH_RETENTION_DAYS: bindings.text("30"),
       SERVER_KDF_ITERATIONS: bindings.text("100000"),
       // Provision via Cloudflare secrets (never commit plaintext secrets)
       JWT_SIGNING_SECRET: bindings.secret(),

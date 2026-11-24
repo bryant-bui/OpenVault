@@ -134,3 +134,39 @@ Each entry inside `login.fido2Credentials` follows Bitwarden's schema:
 - `credentialId`, `keyType` (`"public-key"`), `keyAlgorithm` (`"ECDSA"`), `keyCurve` (`"P-256"`), `keyValue` (PKCS#8 base64url private key), `rpId`, `rpName`, `userHandle`, `userName`, `userDisplayName`, `counter`, `discoverable` — all stored encrypted as Type 2 CipherStrings on the server.
 - `creationDate`: ISO-8601 UTC timestamp string.
 - WebAuthn signatures from Web Crypto (`ECDSA` P-256 IEEE P1363 64-byte `r || s`) MUST be encoded to **ASN.1 DER** `SEQUENCE { INTEGER r, INTEGER s }` before returning to relying parties.
+
+---
+
+## 9. Vault+ (Personal Safe) Cryptographic Protocol
+
+Vault+ provides an isolated Zero-Knowledge encrypted document storage space inside OpenVault, cryptographically independent from the main password vault's `userSymmetricKey`.
+
+### 9.1 `SafeKey` & 6-Digit Secondary PIN Wrapping
+- On Vault+ setup, the client generates a CSPRNG 64-byte `safeKey` (`encKey[0..32] || macKey[32..64]`).
+- Default secondary passcode is a **6-digit numeric PIN** (`^\d{6}$`).
+- Client generates a random 16-byte `passcodeSalt` and derives a 32-byte key using `Argon2id` (default: `t = 3`, `m = 64 MiB` / `65536 KiB`, `p = 4`, `hashLength = 32`, `PBKDF2-SHA256` also accepted as KDF fallback).
+- The 32-byte derived key is stretched via raw RFC 5869 `HKDF-Expand` (`"enc"` / `"mac"`) to a 64-byte `passcodeWrappingKey`, which encrypts `safeKey` as a Bitwarden Type 2 CipherString (`passcodeEncryptedSafeKey`).
+
+### 9.2 Independent Recovery Key (`OVRK-...`)
+- On Vault+ setup, the client generates 20 CSPRNG bytes (**160-bit entropy**) and encodes them using **Crockford Base32** (`0123456789ABCDEFGHJKMNPQRSTVWXYZ`, 32 chars) formatted as:
+  `OVRK-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX`
+- Decoding strips optional `OVRK-` prefix, whitespace, and hyphens, uppercases, and normalizes `I`/`L` → `1` and `O` → `0`.
+- Client generates a random 16-byte `recoverySalt` and derives a 32-byte key using `PBKDF2-HMAC-SHA256(password = recoveryRawBytes(20B), salt = recoverySalt, iterations = 100000, dkLen = 32)`, stretches it via raw `HKDF-Expand` (`"enc"` / `"mac"`), and encrypts `safeKey` as a Bitwarden Type 2 CipherString (`recoveryEncryptedSafeKey`).
+
+### 9.3 Binary File Envelope (`OVSF v1`)
+- Each document uses a fresh CSPRNG 32-byte `fileKey` (and optional 32-byte `thumbKey`) stored inside the item's `SafeKey`-encrypted metadata JSON (`SafeItemMetadata`).
+- Maximum plaintext file size: **5 MiB (`5,242,880` bytes)**; maximum plaintext thumbnail size: **128 KiB (`131,072` bytes)**.
+- Binary format (`AES-256-GCM`, 12-byte IV, 16-byte tag, total overhead = 34 bytes):
+  ```text
+  Bytes 0..3   : Magic ASCII "OVSF" (0x4F 0x56 0x53 0x46)
+  Byte  4      : Version = 0x01
+  Byte  5      : CipherSuite = 0x01 (AES-256-GCM)
+  Bytes 6..17  : Random 12-byte IV
+  Bytes 18..N  : Ciphertext || 16-byte GCM Authentication Tag
+  AAD          : UTF8("OVSF:v1:" + itemId)         // Main blob
+               | UTF8("OVSF:v1:thumb:" + itemId)   // Encrypted thumbnail
+  ```
+
+### 9.4 Server-Enforced Lockout Policy
+- **Cooldown:** Every 5 consecutive failed PIN attempts (`5`, `10`), the server sets a **15-minute cooldown** (`locked_until = now + 900000`) and withholds `passcodeEncryptedSafeKey` (`null`).
+- **Permanent PIN Lockout:** At **15 total consecutive failed PIN attempts**, the server sets `recovery_required = 1`, permanently withholds `passcodeEncryptedSafeKey`, and requires either Recovery Key recovery (`PUT /api/openvault/safe/passcode`) or Master Password-verified Vault+ wipe (`DELETE /api/openvault/safe/reset`).

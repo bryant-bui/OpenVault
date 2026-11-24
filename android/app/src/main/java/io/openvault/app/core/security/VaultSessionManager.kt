@@ -33,6 +33,9 @@ class VaultSessionManager(
     )
     val lockState: StateFlow<VaultLockState> = _lockState.asStateFlow()
 
+    @Volatile
+    var onVaultLocked: (() -> Unit)? = null
+
     fun registerProcessLifecycle() {
         ProcessLifecycleOwner.get().lifecycle.addObserver(this)
     }
@@ -51,6 +54,7 @@ class VaultSessionManager(
     fun lock() {
         userKey?.wipe()
         userKey = null
+        onVaultLocked?.invoke()
         _lockState.value =
             if (preferences.account.value.isLoggedIn) VaultLockState.LOCKED else VaultLockState.LOGGED_OUT
     }
@@ -58,6 +62,7 @@ class VaultSessionManager(
     fun markLoggedOut() {
         userKey?.wipe()
         userKey = null
+        onVaultLocked?.invoke()
         _lockState.value = VaultLockState.LOGGED_OUT
     }
 

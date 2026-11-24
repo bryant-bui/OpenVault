@@ -11,6 +11,7 @@ export const LOCAL_KEYS = {
   SETTINGS: "ov_settings",
   DEVICE_ID: "ov_device_id",
   PIN_LOCAL: "ov_pin_local",
+  SAFE_LOCKOUT: "ov_safe_lockout",
 } as const;
 
 export const SESSION_KEYS = {
@@ -18,10 +19,12 @@ export const SESSION_KEYS = {
   PENDING_SAVE: "ov_pending_save",
   PIN_SESSION: "ov_pin_session",
   BASIC_AUTH_ATTEMPTS: "ov_basic_auth_attempts",
+  SAFE_SECRETS: "ov_safe_secrets",
 } as const;
 
 export const ALARMS = {
   AUTO_LOCK: "ov_auto_lock",
+  SAFE_AUTO_LOCK: "ov_safe_auto_lock",
   SYNC_POLL: "ov_sync_poll",
   CLEAR_CLIPBOARD: "ov_clear_clipboard",
 } as const;

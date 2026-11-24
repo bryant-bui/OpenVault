@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { AppEnv } from "./env.js";
 import { identityRoutes } from "./routes/identity.js";
+import { pruneExpiredSafeItems, safeRoutes } from "./routes/safe.js";
 import { vaultRoutes } from "./routes/vault.js";
 import { runEncryptedR2Backup } from "./services/backup.js";
 
@@ -35,7 +36,7 @@ app.use(
       }
       return "";
     },
-    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowHeaders: [
       "Authorization",
       "Content-Type",
@@ -54,6 +55,7 @@ app.get("/health", (c) => {
 
 app.route("/", identityRoutes);
 app.route("/", vaultRoutes);
+app.route("/", safeRoutes);
 
 app.notFound((c) => {
   return c.json({ error: "not_found", message: "Endpoint not found" }, 404);
@@ -88,7 +90,10 @@ async function runMaintenanceAndBackup(env: AppEnv): Promise<void> {
     ),
   ]);
 
-  // 2. Snapshot encrypted D1 vault to Cloudflare R2
+  // 2. Prune stale pending uploads and expired Vault+ Trash items
+  const safePrune = await pruneExpiredSafeItems(env, now);
+
+  // 3. Snapshot encrypted D1 vault to Cloudflare R2
   const result = await runEncryptedR2Backup(env, "cron");
   console.log(
     JSON.stringify({
@@ -98,6 +103,8 @@ async function runMaintenanceAndBackup(env: AppEnv): Promise<void> {
       cipherCount: result.cipherCount,
       bytes: result.bytes,
       prunedCount: result.prunedCount,
+      safePrunedPending: safePrune.prunedPending,
+      safePrunedTrash: safePrune.prunedTrash,
     }),
   );
 }

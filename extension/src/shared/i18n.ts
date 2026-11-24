@@ -161,6 +161,27 @@ export interface ExtStrings {
   backupSection: string;
   aboutSection: string;
   lockNow: string;
+  // Vault+
+  vaultPlus: string;
+  vaultPlusSubtitle: string;
+  vaultPlusSetupTitle: string;
+  vaultPlusSetupDesc: string;
+  vaultPlusCreatePin: string;
+  vaultPlusConfirmPin: string;
+  vaultPlusRecoveryTitle: string;
+  vaultPlusRecoveryDesc: string;
+  vaultPlusRecoverySavedCheck: string;
+  vaultPlusSaveKit: string;
+  vaultPlusLockedTitle: string;
+  vaultPlusEnterPin: string;
+  vaultPlusCooldownTitle: string;
+  vaultPlusRecoveryRequiredTitle: string;
+  vaultPlusRecoveryRequiredDesc: string;
+  vaultPlusRecoverCta: string;
+  vaultPlusWipeCta: string;
+  vaultPlusAddDoc: string;
+  vaultPlusEmptyTitle: string;
+  vaultPlusEmptyHint: string;
 }
 
 const EN: ExtStrings = {
@@ -322,6 +343,26 @@ const EN: ExtStrings = {
   backupSection: "Backup & Migration",
   aboutSection: "About OpenVault",
   lockNow: "Lock now",
+  vaultPlus: "Vault+",
+  vaultPlusSubtitle: "Zero-Knowledge Encrypted Personal Safe",
+  vaultPlusSetupTitle: "Set Up Vault+",
+  vaultPlusSetupDesc: "Store sensitive IDs, passports, driver's licenses, medical PDFs, and photos (max 5 MB each) in an isolated Zero-Knowledge safe.",
+  vaultPlusCreatePin: "Create 6-Digit PIN",
+  vaultPlusConfirmPin: "Confirm 6-Digit PIN",
+  vaultPlusRecoveryTitle: "Save Your Recovery Key",
+  vaultPlusRecoveryDesc: "Vault+ uses an independent key. If you forget your 6-digit PIN, this Recovery Key is the ONLY way to unlock your files.",
+  vaultPlusRecoverySavedCheck: "I have saved this Recovery Key safely offline",
+  vaultPlusSaveKit: "Download .txt",
+  vaultPlusLockedTitle: "Vault+ Locked",
+  vaultPlusEnterPin: "Enter 6-Digit Vault+ PIN",
+  vaultPlusCooldownTitle: "Cooldown Active (15 Min)",
+  vaultPlusRecoveryRequiredTitle: "PIN Locked After 15 Failed Attempts",
+  vaultPlusRecoveryRequiredDesc: "PIN unlock is disabled. Restore access with your Recovery Key or permanently wipe Vault+.",
+  vaultPlusRecoverCta: "Recover With Recovery Key",
+  vaultPlusWipeCta: "Wipe Vault+ Data",
+  vaultPlusAddDoc: "Add Document",
+  vaultPlusEmptyTitle: "Vault+ Is Empty",
+  vaultPlusEmptyHint: "Drop a PDF or image (<= 5 MB) here to encrypt and store it safely.",
 };
 
 const VI: ExtStrings = {
@@ -483,6 +524,26 @@ const VI: ExtStrings = {
   backupSection: "Sao Lưu & Di Chuyển Dữ Liệu",
   aboutSection: "Giới Thiệu OpenVault",
   lockNow: "Khóa",
+  vaultPlus: "Vault+",
+  vaultPlusSubtitle: "Két Cá Nhân Mã Hóa Zero-Knowledge Độc Lập",
+  vaultPlusSetupTitle: "Thiết Lập Vault+",
+  vaultPlusSetupDesc: "Lưu giữ CCCD, hộ chiếu, bằng lái xe, hồ sơ y tế, PDF và ảnh riêng tư (tối đa 5 MB/tệp) trong két mã hóa độc lập.",
+  vaultPlusCreatePin: "Tạo Mã PIN 6 Số",
+  vaultPlusConfirmPin: "Xác Nhận Lại PIN 6 Số",
+  vaultPlusRecoveryTitle: "Lưu Ngay Mã Khôi Phục (Recovery Key)",
+  vaultPlusRecoveryDesc: "Vault+ dùng khóa mật mã độc lập. Nếu quên mã PIN 6 số, đây là CÁCH DUY NHẤT để khôi phục lại giấy tờ của bạn.",
+  vaultPlusRecoverySavedCheck: "Tôi xác nhận đã lưu giữ Recovery Key an toàn ngoại tuyến",
+  vaultPlusSaveKit: "Tải tệp .txt",
+  vaultPlusLockedTitle: "Vault+ Đang Khóa",
+  vaultPlusEnterPin: "Nhập Mã PIN 6 Số Vault+",
+  vaultPlusCooldownTitle: "Đang Tạm Khóa 15 Phút",
+  vaultPlusRecoveryRequiredTitle: "Đã Khóa PIN Sau 15 Lần Nhập Sai",
+  vaultPlusRecoveryRequiredDesc: "Mở khóa bằng PIN đã bị vô hiệu hóa. Hãy dùng Recovery Key để đặt mã mới hoặc xóa toàn bộ dữ liệu Vault+.",
+  vaultPlusRecoverCta: "Khôi Phục Bằng Recovery Key",
+  vaultPlusWipeCta: "Xóa Hoàn Toàn Dữ Liệu Vault+",
+  vaultPlusAddDoc: "Thêm Tài Liệu",
+  vaultPlusEmptyTitle: "Két Vault+ Chưa Có Tài Liệu",
+  vaultPlusEmptyHint: "Kéo thả PDF hoặc ảnh (<= 5 MB) vào đây để mã hóa và lưu trữ an toàn.",
 };
 
 export function getStrings(language?: AppLanguage): ExtStrings {

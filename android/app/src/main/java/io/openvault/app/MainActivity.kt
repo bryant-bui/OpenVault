@@ -79,6 +79,7 @@ import io.openvault.app.ui.screens.SettingsScreen
 import io.openvault.app.ui.screens.TotpScreen
 import io.openvault.app.ui.screens.UnlockScreen
 import io.openvault.app.ui.screens.WatchtowerTabScreen
+import io.openvault.app.ui.screens.safe.VaultPlusScreen
 import io.openvault.app.ui.theme.LocalFoldableLayout
 import io.openvault.app.ui.theme.LocalOpenVaultColors
 import io.openvault.app.ui.theme.LocalStrings
@@ -122,14 +123,6 @@ class MainActivity : FragmentActivity() {
                         )
                     },
                 )
-            }
-
-            LaunchedEffect(settings.flagSecureEnabled) {
-                if (settings.flagSecureEnabled) {
-                    window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
-                } else {
-                    window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
-                }
             }
 
             OpenVaultTheme(
@@ -212,6 +205,16 @@ private fun OpenVaultRootApp(
         showVaultDoorOverlay = true
     } else if (lockState == VaultLockState.LOGGED_OUT && showVaultDoorOverlay) {
         showVaultDoorOverlay = false
+    }
+
+    LaunchedEffect(settings.flagSecureEnabled, selectedTab, lockState) {
+        val enforceSecure = settings.flagSecureEnabled ||
+            (lockState == VaultLockState.UNLOCKED && selectedTab == MainTab.VAULT_PLUS)
+        if (enforceSecure) {
+            activity.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        } else {
+            activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
     }
 
     LaunchedEffect(toastMessage) {
@@ -321,6 +324,13 @@ private fun OpenVaultRootApp(
                     onLock = { container.sessionManager.lock() },
                     onSelectItem = ::openItem,
                     onCopyTotp = { title, code -> copyToClipboard("2FA $title", code, true) },
+                )
+
+                MainTab.VAULT_PLUS -> VaultPlusScreen(
+                    safeRepository = container.safeRepository,
+                    activity = activity,
+                    onCopySensitive = { label, value -> copyToClipboard(label, value, true) },
+                    onShowMessage = ::showToast,
                 )
 
                 MainTab.ITEMS -> ItemsScreen(
@@ -681,11 +691,11 @@ private fun OpenVaultRootApp(
                 ) {
                     ActiveTabContent(modifier = Modifier.fillMaxSize())
 
-                    if (selectedTab != MainTab.WATCHTOWER) {
+                    if (selectedTab != MainTab.WATCHTOWER && selectedTab != MainTab.VAULT_PLUS) {
                         val fabExpanded = when (selectedTab) {
                             MainTab.HOME -> homeFabExpanded
                             MainTab.ITEMS -> itemsFabExpanded
-                            MainTab.WATCHTOWER -> true
+                            MainTab.VAULT_PLUS, MainTab.WATCHTOWER -> true
                         }
                         OnePassExtendedFab(
                             text = s.newItem,

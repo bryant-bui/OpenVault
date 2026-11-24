@@ -66,6 +66,9 @@ class VaultRepository(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
+    @Volatile
+    var onLogoutCleanup: (suspend () -> Unit)? = null
+
     private val _isSyncing = MutableStateFlow(false)
     val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
 
@@ -516,6 +519,7 @@ class VaultRepository(
 
     suspend fun logout(allDevices: Boolean = false) = withContext(Dispatchers.IO) {
         api.logout(preferences.getRefreshToken(), allDevices)
+        onLogoutCleanup?.invoke()
         dao.clearAll()
         preferences.clearSessionForLogout()
         session.markLoggedOut()

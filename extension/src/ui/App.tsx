@@ -26,6 +26,7 @@ import {
   Settings,
   Shield,
   ShieldCheck,
+  ShieldPlus,
   Sparkles,
   Star,
   Trash2,
@@ -56,6 +57,7 @@ import { GeneratorScreen } from "./screens/GeneratorScreen.js";
 import { SettingsScreen } from "./screens/SettingsScreen.js";
 import { UnlockScreen } from "./screens/UnlockScreen.js";
 import { WatchtowerPanel } from "./screens/WatchtowerPanel.js";
+import { VaultPlusPanel } from "./screens/safe/VaultPlusPanel.js";
 
 type FilterKind =
   | "all"
@@ -71,7 +73,7 @@ type FilterKind =
   | "passport"
   | "idcard"
   | "trash";
-type RightPanelMode = "detail" | "editor" | "watchtower" | "settings";
+type RightPanelMode = "detail" | "editor" | "watchtower" | "vault-plus" | "settings";
 
 export function App() {
   const [booting, setBooting] = useState(true);
@@ -624,7 +626,10 @@ export function App() {
   };
 
   const isOverlayPanel =
-    rightMode === "editor" || rightMode === "watchtower" || rightMode === "settings";
+    rightMode === "editor" ||
+    rightMode === "watchtower" ||
+    rightMode === "vault-plus" ||
+    rightMode === "settings";
   const showLeftPane = !narrowWidth || (!mobileShowDetail && !isOverlayPanel);
   const showRightPane = !narrowWidth || mobileShowDetail || isOverlayPanel;
   const accountLabel = status.email?.split("@")[0] || "Account";
@@ -713,6 +718,17 @@ export function App() {
               className="ov-popover-item"
               onClick={() => {
                 accountPopoverRef.current?.hidePopover?.();
+                setRightMode("vault-plus");
+              }}
+            >
+              <ShieldPlus size={15} />
+              <span>{s.vaultPlus}</span>
+            </button>
+            <button
+              type="button"
+              className="ov-popover-item"
+              onClick={() => {
+                accountPopoverRef.current?.hidePopover?.();
                 setRightMode("settings");
               }}
             >
@@ -781,6 +797,17 @@ export function App() {
                 style={{ background: "var(--danger)" }}
               />
             ) : null}
+          </button>
+
+          <button
+            type="button"
+            data-active={rightMode === "vault-plus"}
+            onClick={() => setRightMode((m) => (m === "vault-plus" ? "detail" : "vault-plus"))}
+            className="ov-icon-btn w-8 h-8 relative shrink-0"
+            title={s.vaultPlus}
+            aria-label={s.vaultPlus}
+          >
+            <ShieldPlus size={18} />
           </button>
 
           <button
@@ -1038,6 +1065,12 @@ export function App() {
                   setMobileShowDetail(false);
                 }}
                 onClose={() => setRightMode("detail")}
+              />
+            ) : rightMode === "vault-plus" ? (
+              <VaultPlusPanel
+                language={lang}
+                onClose={() => setRightMode("detail")}
+                onToast={showToast}
               />
             ) : rightMode === "settings" ? (
               <SettingsScreen

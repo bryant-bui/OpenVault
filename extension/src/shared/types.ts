@@ -3,6 +3,7 @@ import type {
   FolderPayload,
   KdfConfig,
   PinProtectedRecord,
+  SafeDocumentCategory,
 } from "@openvault/crypto-core";
 
 export interface StoredPinState {
@@ -278,7 +279,45 @@ export type BgRequest =
       cipherId: string;
       credentialId: string;
     }
-  | { type: "TOUCH_ACTIVITY" };
+  | { type: "TOUCH_ACTIVITY" }
+  | { type: "SAFE_GET_STATUS"; forceSync?: boolean }
+  | { type: "SAFE_SETUP"; pin: string }
+  | { type: "SAFE_UNLOCK_PIN"; pin: string }
+  | {
+      type: "SAFE_RECOVER";
+      recoveryKey: string;
+      newPin: string;
+      rotateRecoveryKey?: boolean;
+    }
+  | { type: "SAFE_CHANGE_PIN"; currentPin: string; newPin: string }
+  | { type: "SAFE_UPDATE_SETTINGS"; autoLockMinutes: number }
+  | { type: "SAFE_LOCK" }
+  | { type: "SAFE_LIST_ITEMS" }
+  | {
+      type: "SAFE_PREPARE_UPLOAD";
+      title: string;
+      fileName: string;
+      mimeType: string;
+      category: SafeDocumentCategory;
+      notes?: string | null;
+      expiresAt?: string | null;
+      originalSize: number;
+      originalSha256: string;
+      hasThumb: boolean;
+    }
+  | { type: "SAFE_GET_AUTH_FOR_BLOB" }
+  | {
+      type: "SAFE_UPDATE_ITEM";
+      id: string;
+      title: string;
+      category: SafeDocumentCategory;
+      notes?: string | null;
+      expiresAt?: string | null;
+      favorite: boolean;
+    }
+  | { type: "SAFE_DELETE_ITEM"; id: string; permanent?: boolean }
+  | { type: "SAFE_RESTORE_ITEM"; id: string }
+  | { type: "SAFE_RESET"; masterPassword: string };
 
 export type BgResponse<T = unknown> =
   | { ok: true; data: T }

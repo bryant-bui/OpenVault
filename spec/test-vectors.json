@@ -125,5 +125,34 @@
         }
       ]
     }
-  ]
+  ],
+  "personalSafe": {
+    "safeKeyHex": "00112233445566778899aabbccddeeff0123456789abcdef0123456789abcdefffeeddccbbaa99887766554433221100fedcba9876543210fedcba9876543210",
+    "pinWrap": {
+      "pin": "482916",
+      "saltB64": "ECAwQFBgcICQoLDA0ODwAA==",
+      "ivHex": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+      "kdfType": 1,
+      "kdfIterations": 1,
+      "kdfMemoryMiB": 16,
+      "kdfParallelism": 1,
+      "expectedEncryptedSafeKey": "2.obLD1OX2BxgpOktcbX6PkA==|lCCvF0q98jn8tF/23gvwVmDfnDc1793tJRz8xBcSWxDk4sdhFYDePew4njvBAhUQjainYomG4wNB8VufDlvdvuxvE1g9Mg2ArUrsVkMXrG0=|rP/Li+Xk9s/LkDEBgm7tFXgdXNkFRt0Dy0umGG9OX5s="
+    },
+    "recoveryKey": {
+      "rawHex": "0102030405060708090a0b0c0d0e0f1011121314",
+      "expectedFormatted": "OVRK-0410-6105-0R3G-G28A-1C60-T3GF-208H-44RM",
+      "saltB64": "Dx4tPEtaaXiHlqW0w9Lh8A==",
+      "ivHex": "11223344556677889900aabbccddeeff",
+      "iterations": 100000,
+      "expectedEncryptedSafeKey": "2.ESIzRFVmd4iZAKq7zN3u/w==|J6zXrzUTfvtEw7Yf9Z6gc6iDyg7xZnkS7taZCEmuLrdG5F/LZLeBa1WbgspNVdZaZpWKCPLJXGVPcnpXN2wP2Sm1dn3TgScWJMYBa1RJv3o=|vjFhfmVXoiW22XvRDYSMKu15am+KfvSVDuVw+hVQ1Ng="
+    },
+    "ovsfBinary": {
+      "itemId": "7d9c2a44-5b6e-4f10-8a3c-91f20e123456",
+      "fileKeyHex": "abcdef0123456789abcdef0123456789fedcba9876543210fedcba9876543210",
+      "ivHex": "12131415161718191a1b1c1d",
+      "plaintextUtf8": "OpenVault Vault+ Binary Test Payload — CCCD & PDF 2026!",
+      "expectedBlobB64": "T1ZTRgEBEhMUFRYXGBkaGxwdu7Agx0OcDELimEMfCFcKi9QLYY8TH9qXEf2/zoT9+gi20vTqHg9hNzoUKUJuY4yFhSCL1ndwDb6VK3E7ml4K46aLVFwfaUdaEQ==",
+      "expectedThumbB64": "T1ZTRgEBEhMUFRYXGBkaGxwdu7Agx0OcDELimEMfCFcKi9QLYY8TH9qXEf2/zoT9+gi20vTqHg9hNzoUKUJuY4yFhSCL1ndwDb6VaI+6jkh38aEkpeAP72/FqA=="
+    }
+  }
 }

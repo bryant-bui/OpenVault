@@ -98,6 +98,12 @@ import type {
   TotpAutofillCandidate,
   VaultStatusResponse,
 } from "../shared/types.js";
+import {
+  clearSafeAllLocal,
+  clearSafeSession,
+  handleSafeMessage,
+  type SafeBgRequest,
+} from "./safe-handler.js";
 
 // --- Storage Helpers (Zero mutable global state in MV3 Service Worker) ---
 
@@ -1039,6 +1045,7 @@ async function handleMessage(
 
     case "LOCK": {
       await setSessionSecrets(null);
+      await clearSafeSession();
       await chrome.alarms.clear(ALARMS.AUTO_LOCK);
       await refreshActiveTabBadge();
       return { ok: true, data: { locked: true } };
@@ -1056,6 +1063,7 @@ async function handleMessage(
       }
       await Promise.all([
         setSessionSecrets(null),
+        clearSafeAllLocal(),
         setAccount(null),
         setVaultCache(null),
         clearAllPinData(),
@@ -1813,6 +1821,26 @@ async function handleMessage(
       if (secrets) await scheduleAutoLock();
       return { ok: true, data: { ok: true } };
     }
+
+    case "SAFE_GET_STATUS":
+    case "SAFE_SETUP":
+    case "SAFE_UNLOCK_PIN":
+    case "SAFE_RECOVER":
+    case "SAFE_CHANGE_PIN":
+    case "SAFE_UPDATE_SETTINGS":
+    case "SAFE_LOCK":
+    case "SAFE_LIST_ITEMS":
+    case "SAFE_PREPARE_UPLOAD":
+    case "SAFE_GET_AUTH_FOR_BLOB":
+    case "SAFE_UPDATE_ITEM":
+    case "SAFE_DELETE_ITEM":
+    case "SAFE_RESTORE_ITEM":
+    case "SAFE_RESET": {
+      return handleSafeMessage(request as SafeBgRequest, {
+        getAccount,
+        withValidAccessToken,
+      });
+    }
   }
 }
 
@@ -1848,7 +1876,10 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   void (async () => {
     if (alarm.name === ALARMS.AUTO_LOCK) {
       await setSessionSecrets(null);
+      await clearSafeSession();
       await refreshActiveTabBadge();
+    } else if (alarm.name === ALARMS.SAFE_AUTO_LOCK) {
+      await clearSafeSession();
     } else if (alarm.name === ALARMS.CLEAR_CLIPBOARD) {
       await writeClipboardViaOffscreen("");
     } else if (alarm.name === ALARMS.SYNC_POLL) {

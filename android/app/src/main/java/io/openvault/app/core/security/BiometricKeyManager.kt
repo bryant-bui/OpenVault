@@ -35,6 +35,7 @@ object BiometricKeyManager {
 
     private const val ANDROID_KEYSTORE = "AndroidKeyStore"
     private const val BIOMETRIC_KEY_ALIAS = "openvault_biometric_user_key_v1"
+    private const val SAFE_BIOMETRIC_KEY_ALIAS = "openvault_safe_biometric_key_v1"
     private const val TOKEN_KEY_ALIAS = "openvault_token_wrap_key_v1"
     private const val GCM_TAG_BITS = 128
 
@@ -47,18 +48,21 @@ object BiometricKeyManager {
     private fun loadKeyStore(): KeyStore =
         KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
 
-    private fun getOrCreateBiometricKey(recreate: Boolean = false): SecretKey {
+    private fun getOrCreateBiometricKey(
+        alias: String = BIOMETRIC_KEY_ALIAS,
+        recreate: Boolean = false,
+    ): SecretKey {
         val ks = loadKeyStore()
-        if (recreate && ks.containsAlias(BIOMETRIC_KEY_ALIAS)) {
-            ks.deleteEntry(BIOMETRIC_KEY_ALIAS)
+        if (recreate && ks.containsAlias(alias)) {
+            ks.deleteEntry(alias)
         }
-        if (!recreate && ks.containsAlias(BIOMETRIC_KEY_ALIAS)) {
-            return (ks.getKey(BIOMETRIC_KEY_ALIAS, null) as SecretKey)
+        if (!recreate && ks.containsAlias(alias)) {
+            return (ks.getKey(alias, null) as SecretKey)
         }
 
         val buildSpec: (Boolean) -> KeyGenParameterSpec = { strongBox ->
             val builder = KeyGenParameterSpec.Builder(
-                BIOMETRIC_KEY_ALIAS,
+                alias,
                 KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
             )
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
@@ -94,14 +98,29 @@ object BiometricKeyManager {
     }
 
     fun createBiometricEncryptCipher(): Cipher {
-        val key = getOrCreateBiometricKey(recreate = true)
+        val key = getOrCreateBiometricKey(alias = BIOMETRIC_KEY_ALIAS, recreate = true)
         return Cipher.getInstance("AES/GCM/NoPadding").apply {
             init(Cipher.ENCRYPT_MODE, key)
         }
     }
 
     fun createBiometricDecryptCipher(blob: BiometricWrappedBlob): Cipher {
-        val key = getOrCreateBiometricKey(recreate = false)
+        val key = getOrCreateBiometricKey(alias = BIOMETRIC_KEY_ALIAS, recreate = false)
+        val iv = Base64.getDecoder().decode(blob.ivB64)
+        return Cipher.getInstance("AES/GCM/NoPadding").apply {
+            init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(GCM_TAG_BITS, iv))
+        }
+    }
+
+    fun createSafeBiometricEncryptCipher(): Cipher {
+        val key = getOrCreateBiometricKey(alias = SAFE_BIOMETRIC_KEY_ALIAS, recreate = true)
+        return Cipher.getInstance("AES/GCM/NoPadding").apply {
+            init(Cipher.ENCRYPT_MODE, key)
+        }
+    }
+
+    fun createSafeBiometricDecryptCipher(blob: BiometricWrappedBlob): Cipher {
+        val key = getOrCreateBiometricKey(alias = SAFE_BIOMETRIC_KEY_ALIAS, recreate = false)
         val iv = Base64.getDecoder().decode(blob.ivB64)
         return Cipher.getInstance("AES/GCM/NoPadding").apply {
             init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(GCM_TAG_BITS, iv))
@@ -138,13 +157,21 @@ object BiometricKeyManager {
         }
     }
 
-    fun deleteBiometricKey() {
+    private fun deleteBiometricAlias(alias: String) {
         runCatching {
             val ks = loadKeyStore()
-            if (ks.containsAlias(BIOMETRIC_KEY_ALIAS)) {
-                ks.deleteEntry(BIOMETRIC_KEY_ALIAS)
+            if (ks.containsAlias(alias)) {
+                ks.deleteEntry(alias)
             }
         }
+    }
+
+    fun deleteBiometricKey() {
+        deleteBiometricAlias(BIOMETRIC_KEY_ALIAS)
+    }
+
+    fun deleteSafeBiometricKey() {
+        deleteBiometricAlias(SAFE_BIOMETRIC_KEY_ALIAS)
     }
 
     fun showBiometricPrompt(

@@ -24,7 +24,7 @@ export function normalizeServerUrl(url: string): string {
   return `${parsed.origin}${parsed.pathname.replace(/\/+$/, "")}`;
 }
 
-async function parseErrorMessage(res: Response): Promise<string> {
+export async function parseErrorMessage(res: Response): Promise<string> {
   try {
     const body = (await res.json()) as {
       message?: string;
@@ -44,7 +44,7 @@ async function parseErrorMessage(res: Response): Promise<string> {
   }
 }
 
-async function requestJson<T>(
+export async function requestJson<T>(
   serverUrl: string,
   path: string,
   init: RequestInit = {},

@@ -49,6 +49,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.CreditCard
 import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.EnhancedEncryption
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
@@ -123,17 +124,20 @@ import kotlin.math.abs
 
 enum class MainTab(val icon: ImageVector) {
     HOME(Icons.Rounded.Home),
+    VAULT_PLUS(Icons.Rounded.EnhancedEncryption),
     ITEMS(Icons.Rounded.ViewAgenda),
     WATCHTOWER(Icons.Rounded.Security);
 
     fun label(s: AppStrings): String = when (this) {
         HOME -> s.tabHome
+        VAULT_PLUS -> s.tabVaultPlus
         ITEMS -> s.tabItems
         WATCHTOWER -> s.tabWatchtower
     }
 
     fun railLabel(s: AppStrings): String = when (this) {
         HOME -> s.tabHome
+        VAULT_PLUS -> s.tabVaultPlus
         ITEMS -> s.tabItems
         WATCHTOWER -> s.tabSecurityShort
     }
@@ -607,7 +611,7 @@ fun OnePassBottomBar(
                 ) {
                     Box(
                         modifier = Modifier
-                            .width(if (fold.isNarrowCover) 54.dp else 64.dp)
+                            .width(if (fold.isNarrowCover) 44.dp else 56.dp)
                             .height(34.dp)
                             .clip(CircleShape)
                             .background(pillBg),
@@ -617,13 +621,13 @@ fun OnePassBottomBar(
                             imageVector = tab.icon,
                             contentDescription = label,
                             tint = tint,
-                            modifier = Modifier.size(23.dp),
+                            modifier = Modifier.size(if (fold.isNarrowCover) 21.dp else 23.dp),
                         )
                     }
                     Text(
                         text = label,
                         color = tint,
-                        fontSize = if (fold.isNarrowCover) 12.sp else 12.5.sp,
+                        fontSize = if (fold.isNarrowCover) 10.5.sp else 11.5.sp,
                         fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,

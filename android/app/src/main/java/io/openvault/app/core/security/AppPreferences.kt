@@ -48,6 +48,7 @@ data class SecuritySettings(
     val themeMode: AppThemeMode = AppThemeMode.DARK,
     val language: AppLanguage = AppLanguage.ENGLISH,
     val biometricEnabled: Boolean = false,
+    val safeBiometricEnabled: Boolean = false,
     val pinEnabled: Boolean = false,
     val pinLength: Int = 6,
     val pinMaxAttempts: Int = PinCrypto.DEFAULT_PIN_MAX_ATTEMPTS,
@@ -72,6 +73,12 @@ data class SecuritySettings(
         )
     }
 }
+
+data class SafeLockoutLocalState(
+    val failedAttempts: Int = 0,
+    val lockedUntilMs: Long? = null,
+    val recoveryRequired: Boolean = false,
+)
 
 data class AccountMeta(
     val serverUrl: String = AppPreferences.DEFAULT_SERVER_URL,
@@ -122,6 +129,11 @@ class AppPreferences(context: Context) {
         private const val KEY_HOME_SECTIONS = "home_sections_json"
         private const val KEY_ITEM_USAGE_COUNTS = "item_usage_counts_json"
         private const val KEY_ONBOARDING_SEEN = "onboarding_seen"
+        private const val KEY_SAFE_BIO_BLOB = "safe_bio_blob_json"
+        private const val KEY_SAFE_FAILED_ATTEMPTS = "safe_failed_attempts"
+        private const val KEY_SAFE_LOCKED_UNTIL_MS = "safe_locked_until_ms"
+        private const val KEY_SAFE_RECOVERY_REQUIRED = "safe_recovery_required"
+        private const val KEY_SAFE_AUTO_LOCK_MIN = "safe_auto_lock_minutes"
     }
 
     private val prefs: SharedPreferences =
@@ -258,6 +270,57 @@ class AppPreferences(context: Context) {
         _settings.value = readSettings()
     }
 
+    fun saveSafeBiometricBlob(blob: BiometricWrappedBlob) {
+        prefs.edit().putString(KEY_SAFE_BIO_BLOB, json.encodeToString(blob)).apply()
+        _settings.value = readSettings()
+    }
+
+    fun getSafeBiometricBlob(): BiometricWrappedBlob? {
+        val raw = prefs.getString(KEY_SAFE_BIO_BLOB, null) ?: return null
+        return runCatching { json.decodeFromString<BiometricWrappedBlob>(raw) }.getOrNull()
+    }
+
+    fun clearSafeBiometricBlob() {
+        prefs.edit().remove(KEY_SAFE_BIO_BLOB).apply()
+        BiometricKeyManager.deleteSafeBiometricKey()
+        _settings.value = readSettings()
+    }
+
+    fun getSafeLockoutState(): SafeLockoutLocalState {
+        val lockedRaw = prefs.getLong(KEY_SAFE_LOCKED_UNTIL_MS, 0L)
+        return SafeLockoutLocalState(
+            failedAttempts = prefs.getInt(KEY_SAFE_FAILED_ATTEMPTS, 0),
+            lockedUntilMs = lockedRaw.takeIf { it > 0L },
+            recoveryRequired = prefs.getBoolean(KEY_SAFE_RECOVERY_REQUIRED, false),
+        )
+    }
+
+    fun saveSafeLockoutState(state: SafeLockoutLocalState) {
+        prefs.edit()
+            .putInt(KEY_SAFE_FAILED_ATTEMPTS, state.failedAttempts.coerceAtLeast(0))
+            .putLong(KEY_SAFE_LOCKED_UNTIL_MS, state.lockedUntilMs ?: 0L)
+            .putBoolean(KEY_SAFE_RECOVERY_REQUIRED, state.recoveryRequired)
+            .apply()
+    }
+
+    fun getSafeAutoLockMinutes(): Int = prefs.getInt(KEY_SAFE_AUTO_LOCK_MIN, 3).coerceIn(1, 15)
+
+    fun setSafeAutoLockMinutes(minutes: Int) {
+        prefs.edit().putInt(KEY_SAFE_AUTO_LOCK_MIN, minutes.coerceIn(1, 15)).apply()
+    }
+
+    fun clearSafeAllLocalState() {
+        BiometricKeyManager.deleteSafeBiometricKey()
+        prefs.edit()
+            .remove(KEY_SAFE_BIO_BLOB)
+            .remove(KEY_SAFE_FAILED_ATTEMPTS)
+            .remove(KEY_SAFE_LOCKED_UNTIL_MS)
+            .remove(KEY_SAFE_RECOVERY_REQUIRED)
+            .remove(KEY_SAFE_AUTO_LOCK_MIN)
+            .apply()
+        _settings.value = readSettings()
+    }
+
     fun setAutoLockMinutes(minutes: Int) {
         prefs.edit().putInt(KEY_AUTO_LOCK_MIN, minutes).apply()
         _settings.value = readSettings()
@@ -353,6 +416,7 @@ class AppPreferences(context: Context) {
         val savedTheme = _settings.value.themeMode
         val savedLang = _settings.value.language
         BiometricKeyManager.deleteBiometricKey()
+        BiometricKeyManager.deleteSafeBiometricKey()
         prefs.edit()
             .remove(KEY_EMAIL)
             .remove(KEY_PROTECTED_KEY)
@@ -363,6 +427,11 @@ class AppPreferences(context: Context) {
             .remove(KEY_PIN_RECORD)
             .remove(KEY_PIN_FAILED)
             .remove(KEY_BIO_BLOB)
+            .remove(KEY_SAFE_BIO_BLOB)
+            .remove(KEY_SAFE_FAILED_ATTEMPTS)
+            .remove(KEY_SAFE_LOCKED_UNTIL_MS)
+            .remove(KEY_SAFE_RECOVERY_REQUIRED)
+            .remove(KEY_SAFE_AUTO_LOCK_MIN)
             .remove(KEY_DEFAULT_IDENTITY_ID)
             .remove(KEY_DEFAULT_CARD_ID)
             .remove(KEY_ACCOUNT_AVATAR_B64)
@@ -410,6 +479,7 @@ class AppPreferences(context: Context) {
     private fun readSettings(): SecuritySettings {
         val pinRec = getPinRecord()
         val bioBlob = getBiometricBlob()
+        val safeBioBlob = getSafeBiometricBlob()
         val themeName = prefs.getString(KEY_THEME_MODE, AppThemeMode.DARK.name)
         val theme = runCatching { AppThemeMode.valueOf(themeName ?: AppThemeMode.DARK.name) }
             .getOrDefault(AppThemeMode.DARK)
@@ -424,6 +494,7 @@ class AppPreferences(context: Context) {
             themeMode = theme,
             language = language,
             biometricEnabled = bioBlob != null,
+            safeBiometricEnabled = safeBioBlob != null,
             pinEnabled = pinRec != null,
             pinLength = pinRec?.pinLength ?: 6,
             pinMaxAttempts = prefs.getInt(KEY_PIN_MAX_ATTEMPTS, PinCrypto.DEFAULT_PIN_MAX_ATTEMPTS),

@@ -29,6 +29,7 @@ class BitwardenApiClient(
         explicitNulls = true
     }
 
+    internal val sharedJson: Json get() = json
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
     private val refreshMutex = Mutex()
 
@@ -38,7 +39,14 @@ class BitwardenApiClient(
         .writeTimeout(25, TimeUnit.SECONDS)
         .build()
 
-    private fun baseUrl(override: String? = null): String =
+    internal val binaryClient: OkHttpClient by lazy {
+        client.newBuilder()
+            .readTimeout(45, TimeUnit.SECONDS)
+            .writeTimeout(45, TimeUnit.SECONDS)
+            .build()
+    }
+
+    internal fun baseUrl(override: String? = null): String =
         (override ?: preferences.getServerUrl()).trim().removeSuffix("/")
 
     suspend fun prelogin(serverUrl: String, email: String): PreloginResponse =
@@ -237,7 +245,7 @@ class BitwardenApiClient(
         }
     }
 
-    private suspend fun <T> authedRequest(block: suspend (String) -> T): T =
+    internal suspend fun <T> authedRequest(block: suspend (String) -> T): T =
         withContext(Dispatchers.IO) {
             val token = preferences.getAccessToken()
                 ?: throw ApiException(401, "Chưa đăng nhập.")
@@ -269,7 +277,7 @@ class BitwardenApiClient(
         }
     }
 
-    private fun parseErrorMessage(code: Int, rawBody: String): String {
+    internal fun parseErrorMessage(code: Int, rawBody: String): String {
         val parsed = runCatching { json.decodeFromString<ApiErrorResponse>(rawBody) }.getOrNull()
         val detail = parsed?.errorModel?.message
             ?: parsed?.message
