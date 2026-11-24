@@ -14,7 +14,7 @@ import {
 import { classifyField, formatTotpCode, maskCardNumber } from "../src/shared/field-classifier.js";
 import { isValidRpIdForOrigin } from "../src/shared/passkey-bridge.js";
 import {
-  RECOVERY_CODES_SLOT_COUNT,
+  RECOVERY_CODES_DEFAULT_SLOTS,
   applyRecoveryCodesPaste,
   parseRecoveryCodesPaste,
   parseRecoveryCodesToSlots,
@@ -91,6 +91,7 @@ describe("OpenVault Extension — Manifest V3 & Asset Integrity", () => {
     const manifestPath = path.join(EXT_ROOT, "public/manifest.json");
     const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as {
       manifest_version: number;
+      version: string;
       icons: Record<string, string>;
       action: { default_popup?: string; default_icon?: Record<string, string> };
       side_panel?: unknown;
@@ -106,6 +107,7 @@ describe("OpenVault Extension — Manifest V3 & Asset Integrity", () => {
     };
 
     expect(manifest.manifest_version).toBe(3);
+    expect(manifest.version).toBe("0.6.0");
     expect(manifest.background.service_worker).toBe("background.js");
     expect(manifest.action.default_popup).toBe("popup.html");
     expect(manifest.side_panel).toBeUndefined();
@@ -209,6 +211,11 @@ describe("OpenVault Extension — Smart Field Classifier (Login, 2FA, Card, Iden
       classifyField({ ...base, autocomplete: "street-address", formHasPasswordField: true }),
     ).toBeNull();
   });
+
+  it("detects Adobe-style autocomplete='username webauthn' and label-only email inputs", () => {
+    expect(classifyField({ ...base, autocomplete: "username webauthn" })).toBe("login");
+    expect(classifyField({ ...base, labelText: "Email address", type: "text" })).toBe("login");
+  });
 });
 
 describe("OpenVault Extension — WebAuthn Passkey RP ID Security Validation", () => {
@@ -235,28 +242,64 @@ describe("OpenVault Extension — WebAuthn Passkey RP ID Security Validation", (
   });
 });
 
-describe("OpenVault Extension — Recovery Codes 20-Slot Auto-Paste & Existing Account Update Matching", () => {
-  it("parses numbered lists, 8-digit Google codes, and leading zeros into up to 20 x 4-char slots", () => {
+describe("OpenVault Extension — Recovery Codes Flexible Pairs, Legacy Migration & >10 Slots", () => {
+  it("preserves 6-digit codes, 6-digit pairs, Google 4+4 codes, GitHub hyphenated codes, and expands >10 slots", () => {
     const pasted = [
       "1. 0421 8899",
-      "2) 1234-5678",
-      "3. 00078910",
-      "4. ABCD EFGH",
+      "2) 123456",
+      "3. abcde-12345",
+      "4. 123456 789012",
+      "5. 000789",
+      "6. 111222",
+      "7. 333444",
+      "8. 555666",
+      "9. 777888",
+      "10. 999000",
+      "11. 121212",
+      "12. 343434",
     ].join("\n");
 
-    const chunks = parseRecoveryCodesPaste(pasted);
-    expect(chunks).toEqual(["0421", "8899", "1234", "5678", "0007", "8910", "ABCD", "EFGH"]);
+    const parsed = parseRecoveryCodesPaste(pasted);
+    expect(parsed).toEqual([
+      "0421 8899",
+      "123456",
+      "abcde-12345",
+      "123456 789012",
+      "000789",
+      "111222",
+      "333444",
+      "555666",
+      "777888",
+      "999000",
+      "121212",
+      "343434",
+    ]);
 
-    const applied = applyRecoveryCodesPaste(Array(RECOVERY_CODES_SLOT_COUNT).fill(""), 0, pasted, false);
-    expect(applied.slots[0]).toBe("0421");
-    expect(applied.slots[7]).toBe("EFGH");
-    expect(applied.slots[8]).toBe("");
-    expect(applied.nextFocusIndex).toBe(8);
+    const applied = applyRecoveryCodesPaste(Array(RECOVERY_CODES_DEFAULT_SLOTS).fill(""), 0, pasted, false);
+    expect(applied.slots).toHaveLength(12);
+    expect(applied.slots[0]).toBe("0421 8899");
+    expect(applied.slots[1]).toBe("123456");
+    expect(applied.slots[3]).toBe("123456 789012");
+    expect(applied.slots[11]).toBe("343434");
 
     const serialized = serializeRecoveryCodesSlots(applied.slots);
     const roundTripped = parseRecoveryCodesToSlots(serialized);
-    expect(roundTripped.slice(0, 8)).toEqual(chunks);
-    expect(roundTripped).toHaveLength(RECOVERY_CODES_SLOT_COUNT);
+    expect(roundTripped).toEqual(parsed);
+  });
+
+  it("auto-migrates legacy 20x4 serialized Google backup codes into 10 paired codes", () => {
+    const legacy = [
+      "0642 0983 7890 4684",
+      "9027 0949 6644 9527",
+      "3650 1793 1091 1009",
+      "7446 0168 5156 5150",
+      "3191 9860 3847 8943",
+    ].join("\n");
+
+    const migrated = parseRecoveryCodesPaste(legacy);
+    expect(migrated).toHaveLength(10);
+    expect(migrated[0]).toBe("0642 0983");
+    expect(migrated[9]).toBe("3847 8943");
   });
 
   it("matches existing logins for password updates and passkey registration via local-part and single-account fallback", () => {

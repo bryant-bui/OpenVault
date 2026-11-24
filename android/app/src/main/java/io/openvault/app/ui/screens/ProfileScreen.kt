@@ -61,11 +61,13 @@ import androidx.compose.ui.unit.sp
 import io.openvault.app.core.crypto.CipherType
 import io.openvault.app.core.crypto.VaultItem
 import io.openvault.app.core.media.IconLoader
+import io.openvault.app.suppressAutoLockForPicker
 import io.openvault.app.ui.components.CategoryIconBadge
 import io.openvault.app.ui.components.OnePassAccountAvatar
 import io.openvault.app.ui.components.OnePassCard
 import io.openvault.app.ui.components.OnePassItemRow
 import io.openvault.app.ui.theme.LocalAccountAvatar
+import io.openvault.app.ui.theme.LocalAccountDisplayName
 import io.openvault.app.ui.theme.LocalFoldableLayout
 import io.openvault.app.ui.theme.LocalOpenVaultColors
 import io.openvault.app.ui.theme.LocalStrings
@@ -97,6 +99,7 @@ fun ProfileScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val currentAvatar = LocalAccountAvatar.current
+    val customDisplayName = LocalAccountDisplayName.current
 
     val identities = remember(items) { items.filter { !it.isDeleted && it.type == CipherType.IDENTITY } }
     val cards = remember(items) { items.filter { !it.isDeleted && it.type == CipherType.CARD } }
@@ -109,26 +112,60 @@ fun ProfileScreen(
 
     var pickerMode by remember { mutableStateOf<CipherType?>(null) }
     var showAvatarOptions by remember { mutableStateOf(false) }
+    var avatarBusy by remember { mutableStateOf(false) }
 
-    val avatarPicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia(),
-    ) { uri ->
-        if (uri != null) {
-            scope.launch {
-                val b64 = IconLoader.compressPickedImageToBase64(context, uri, targetPx = 144, quality = 80)
-                if (b64 != null) {
-                    onUpdateAccountAvatar(b64)
-                    onShowMessage(if (s.isVi) "Đã Cập Nhật Ảnh Đại Diện!" else "Profile Avatar Updated!")
-                } else {
-                    onShowMessage(if (s.isVi) "Không Thể Đọc Ảnh Đã Chọn." else "Could Not Process Selected Photo.")
-                }
+    fun handlePickedAvatarUri(uri: android.net.Uri?) {
+        if (uri == null) return
+        avatarBusy = true
+        scope.launch {
+            val b64 = IconLoader.compressPickedImageToBase64(context, uri, targetPx = 192, quality = 82)
+            avatarBusy = false
+            if (b64 != null) {
+                onUpdateAccountAvatar(b64)
+                onShowMessage(if (s.isVi) "Đã cập nhật ảnh đại diện!" else "Profile avatar updated!")
+            } else {
+                onShowMessage(if (s.isVi) "Không thể đọc ảnh đã chọn." else "Could not process selected photo.")
             }
         }
     }
 
-    val ownerName = remember(email) {
-        val local = email.substringBefore("@").trim()
-        if (local.isNotBlank()) local.replaceFirstChar { it.uppercaseChar() } else "OpenVault"
+    val avatarPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri -> handlePickedAvatarUri(uri) }
+
+    val avatarFallbackPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent(),
+    ) { uri -> handlePickedAvatarUri(uri) }
+
+    fun launchAvatarPicker() {
+        context.suppressAutoLockForPicker()
+        val usePhotoPicker = runCatching {
+            ActivityResultContracts.PickVisualMedia.isPhotoPickerAvailable(context)
+        }.getOrDefault(false)
+        val launched = if (usePhotoPicker) {
+            runCatching {
+                avatarPicker.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                )
+            }.isSuccess
+        } else {
+            false
+        }
+        if (!launched) {
+            runCatching { avatarFallbackPicker.launch("image/*") }
+                .onFailure {
+                    onShowMessage(if (s.isVi) "Không thể mở thư viện ảnh." else "Could not open image picker.")
+                }
+        }
+    }
+
+    val ownerName = remember(email, customDisplayName) {
+        val custom = customDisplayName?.trim()?.takeIf { it.isNotEmpty() }
+        if (custom != null) custom
+        else {
+            val local = email.substringBefore("@").trim()
+            if (local.isNotBlank()) local.replaceFirstChar { it.uppercaseChar() } else "OpenVault"
+        }
     }
 
     val heroBg = if (c.isDark) Color(0xFF151E34) else Color(0xFFE7F0FE)
@@ -244,20 +281,22 @@ fun ProfileScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
-                            .clickable {
+                            .clickable(enabled = !avatarBusy) {
                                 if (currentAvatar != null) {
                                     showAvatarOptions = true
                                 } else {
-                                    avatarPicker.launch(
-                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                                    )
+                                    launchAvatarPicker()
                                 }
                             }
                             .padding(vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        OnePassAccountAvatar(email = email, size = 42.dp)
+                        OnePassAccountAvatar(
+                            email = email,
+                            size = 44.dp,
+                            avatarBase64Override = currentAvatar,
+                        )
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = ownerName,
@@ -282,7 +321,12 @@ fun ProfileScreen(
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
                             Icon(Icons.Rounded.CameraAlt, contentDescription = null, tint = c.accent, modifier = Modifier.size(16.dp))
-                            Text(s.changeAvatar, color = c.accent, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                            Text(
+                                text = if (avatarBusy) (if (s.isVi) "Đang xử lý…" else "Processing…") else s.changeAvatar,
+                                color = c.accent,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                            )
                         }
                     }
 
@@ -418,9 +462,7 @@ fun ProfileScreen(
                     TextButton(
                         onClick = {
                             showAvatarOptions = false
-                            avatarPicker.launch(
-                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                            )
+                            launchAvatarPicker()
                         },
                         modifier = Modifier.fillMaxWidth(),
                     ) {

@@ -5,14 +5,14 @@ import { parseHostname } from "../../shared/domain-match.js";
 import { getCustomIconDataUrl } from "../../shared/media.js";
 
 const PALETTE: [string, string][] = [
-  ["#0A84FF", "#0455BF"],
-  ["#6366F1", "#4338CA"],
-  ["#0EA5E9", "#0369A1"],
-  ["#10B981", "#047857"],
-  ["#F59E0B", "#B45309"],
-  ["#EC4899", "#BE185D"],
-  ["#8B5CF6", "#6D28D9"],
-  ["#14B8A6", "#0F766E"],
+  ["#0C74F2", "#0558C9"],
+  ["#7C3AED", "#5B21B6"],
+  ["#0D9488", "#0F766E"],
+  ["#D97706", "#B45309"],
+  ["#E11D48", "#BE123C"],
+  ["#2563EB", "#1D4ED8"],
+  ["#059669", "#047857"],
+  ["#EA580C", "#C2410C"],
 ];
 
 function hashIndex(text: string): number {

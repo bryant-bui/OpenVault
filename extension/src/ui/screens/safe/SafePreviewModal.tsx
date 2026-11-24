@@ -8,6 +8,7 @@ import {
   Download,
   Edit3,
   ExternalLink,
+  FileWarning,
   Loader2,
   RotateCcw,
   Star,
@@ -25,6 +26,7 @@ import { ConfirmDialog } from "../../components/ConfirmDialog.js";
 
 interface SafePreviewModalProps {
   item: DecryptedSafeItem;
+  folders?: string[];
   language: AppLanguage;
   onClose: () => void;
   onUpdated: () => Promise<void>;
@@ -42,8 +44,25 @@ const CATEGORIES: { value: SafeDocumentCategory; en: string; vi: string }[] = [
   { value: "other", en: "Other", vi: "Khác" },
 ];
 
+export function resolveEffectiveMimeType(mimeType: string | undefined, fileName: string | undefined): string {
+  const raw = (mimeType ?? "").trim().toLowerCase();
+  if (raw && raw !== "application/octet-stream") {
+    return raw;
+  }
+  const lowerName = (fileName ?? "").trim().toLowerCase();
+  if (lowerName.endsWith(".pdf")) return "application/pdf";
+  if (lowerName.endsWith(".png")) return "image/png";
+  if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) return "image/jpeg";
+  if (lowerName.endsWith(".webp")) return "image/webp";
+  if (lowerName.endsWith(".gif")) return "image/gif";
+  if (lowerName.endsWith(".svg")) return "image/svg+xml";
+  if (lowerName.endsWith(".bmp")) return "image/bmp";
+  return raw || "application/octet-stream";
+}
+
 export function SafePreviewModal({
   item,
+  folders = [],
   language,
   onClose,
   onUpdated,
@@ -54,11 +73,13 @@ export function SafePreviewModal({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  const [imgLoadError, setImgLoadError] = useState(false);
   const [zoom, setZoom] = useState(1);
 
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(item.metadata.title);
   const [category, setCategory] = useState<SafeDocumentCategory>(item.category);
+  const [folderName, setFolderName] = useState<string>(item.metadata.folderName ?? "");
   const [expiresAt, setExpiresAt] = useState(item.metadata.expiresAt ?? "");
   const [notes, setNotes] = useState(item.metadata.notes ?? "");
   const [saving, setSaving] = useState(false);
@@ -67,9 +88,34 @@ export function SafePreviewModal({
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const activeUrlRef = useRef<string | null>(null);
+  const onCloseRef = useRef(onClose);
+  const onSafeLockedRef = useRef(onSafeLocked);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+    onSafeLockedRef.current = onSafeLocked;
+  }, [onClose, onSafeLocked]);
+
+  useEffect(() => {
+    setTitle(item.metadata.title);
+    setCategory(item.category);
+    setFolderName(item.metadata.folderName ?? "");
+    setExpiresAt(item.metadata.expiresAt ?? "");
+    setNotes(item.metadata.notes ?? "");
+  }, [
+    item.id,
+    item.category,
+    item.metadata.title,
+    item.metadata.folderName,
+    item.metadata.expiresAt,
+    item.metadata.notes,
+  ]);
+
+  const effectiveMime = resolveEffectiveMimeType(item.metadata.mimeType, item.metadata.fileName);
 
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
 
     const revokeActive = () => {
       if (activeUrlRef.current) {
@@ -79,10 +125,12 @@ export function SafePreviewModal({
     };
 
     window.addEventListener("beforeunload", revokeActive);
+    setLoading(true);
+    setError(null);
+    setObjectUrl(null);
+    setImgLoadError(false);
 
     void (async () => {
-      setLoading(true);
-      setError(null);
       try {
         const auth = await sendBg<SafeBlobAuthResult>({ type: "SAFE_GET_AUTH_FOR_BLOB" });
         const encrypted = await apiDownloadSafeBinary(
@@ -90,6 +138,7 @@ export function SafePreviewModal({
           auth.accessToken,
           item.id,
           "blob",
+          controller.signal,
         );
         const fileKey = base64ToBytes(item.metadata.fileKeyB64);
         const plain = await decryptSafeFileBinary(encrypted, fileKey, item.id, "blob");
@@ -100,19 +149,22 @@ export function SafePreviewModal({
           return;
         }
 
-        const blob = new Blob([plain], { type: item.metadata.mimeType });
+        const blob = new Blob([plain], { type: effectiveMime });
         zeroize(plain);
         const url = URL.createObjectURL(blob);
         activeUrlRef.current = url;
         setObjectUrl(url);
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Failed to decrypt document";
-        if (msg.includes("Vault+ đang khóa")) {
-          onSafeLocked();
-          onClose();
+        if (cancelled || (err instanceof DOMException && err.name === "AbortError")) {
           return;
         }
-        if (!cancelled) setError(msg);
+        const msg = err instanceof Error ? err.message : "Failed to decrypt document";
+        if (msg.includes("Vault+ đang khóa")) {
+          onSafeLockedRef.current();
+          onCloseRef.current();
+          return;
+        }
+        setError(msg);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -120,10 +172,11 @@ export function SafePreviewModal({
 
     return () => {
       cancelled = true;
+      controller.abort();
       window.removeEventListener("beforeunload", revokeActive);
       revokeActive();
     };
-  }, [item.id, item.metadata.fileKeyB64, item.metadata.mimeType, onClose, onSafeLocked]);
+  }, [item.id, item.metadata.fileKeyB64, effectiveMime]);
 
   const handleSaveMetadata = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -135,6 +188,7 @@ export function SafePreviewModal({
         id: item.id,
         title: title.trim(),
         category,
+        folderName: folderName.trim() || null,
         notes: notes.trim() || null,
         expiresAt: expiresAt.trim() || null,
         favorite: item.favorite,
@@ -156,6 +210,7 @@ export function SafePreviewModal({
         id: item.id,
         title: item.metadata.title,
         category: item.category,
+        folderName: item.metadata.folderName ?? null,
         notes: item.metadata.notes ?? null,
         expiresAt: item.metadata.expiresAt ?? null,
         favorite: !item.favorite,
@@ -211,7 +266,7 @@ export function SafePreviewModal({
     }
   };
 
-  const isPdf = item.metadata.mimeType === "application/pdf";
+  const isPdf = effectiveMime === "application/pdf";
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-[2px] flex items-center justify-center p-3">
@@ -224,10 +279,11 @@ export function SafePreviewModal({
             </div>
             <div className="text-[11.5px] text-[var(--text-secondary)] truncate">
               {item.metadata.fileName} · {(item.metadata.originalSize / 1024).toFixed(1)} KB
+              {item.metadata.folderName ? ` · ${item.metadata.folderName}` : ""}
             </div>
           </div>
 
-          {!isPdf && objectUrl ? (
+          {!isPdf && !imgLoadError && objectUrl ? (
             <>
               <button
                 type="button"
@@ -322,7 +378,7 @@ export function SafePreviewModal({
             onSubmit={handleSaveMetadata}
             className="p-3 bg-[var(--surface-subtle)] border-b border-[var(--border)] flex flex-col gap-2 shrink-0"
           >
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               <input
                 type="text"
                 value={title}
@@ -341,6 +397,26 @@ export function SafePreviewModal({
                     {s.isVi ? cat.vi : cat.en}
                   </option>
                 ))}
+              </select>
+              <select
+                value={folderName}
+                onChange={(e) => setFolderName(e.target.value)}
+                className="ov-input text-[12.5px] py-1.5"
+                aria-label={s.folderLabel}
+              >
+                <option value="">{s.noFolder}</option>
+                {Array.from(
+                  new Set([
+                    ...folders,
+                    ...(folderName.trim() ? [folderName.trim()] : []),
+                  ]),
+                )
+                  .sort((a, b) => a.localeCompare(b))
+                  .map((fname) => (
+                    <option key={fname} value={fname}>
+                      {fname}
+                    </option>
+                  ))}
               </select>
             </div>
             <div className="grid grid-cols-2 gap-2">
@@ -395,13 +471,31 @@ export function SafePreviewModal({
               title={item.metadata.title}
               className="w-full h-full border-0 rounded-[8px] bg-white"
             />
-          ) : objectUrl ? (
+          ) : objectUrl && !imgLoadError ? (
             <img
               src={objectUrl}
               alt={item.metadata.title}
               style={{ transform: `scale(${zoom})`, transformOrigin: "center" }}
               className="max-w-full max-h-full object-contain rounded-[6px] transition-transform duration-150"
+              onError={() => setImgLoadError(true)}
             />
+          ) : objectUrl ? (
+            <div className="flex flex-col items-center gap-3 text-center px-4">
+              <FileWarning size={32} className="text-[var(--warning)]" />
+              <div className="text-[13px] text-[var(--text-secondary)] max-w-[320px]">
+                {s.isVi
+                  ? "Trình duyệt không hỗ trợ xem trực tiếp định dạng ảnh/tệp này. Bạn có thể xuất bản giải mã để mở trên máy."
+                  : "This image or file format cannot be rendered directly in the popup. You can export the decrypted file instead."}
+              </div>
+              <button
+                type="button"
+                onClick={() => setConfirmExport(true)}
+                className="ov-btn-primary px-4 py-2 text-[12.5px] inline-flex items-center gap-1.5"
+              >
+                <Download size={14} />
+                <span>{s.isVi ? "Xuất bản giải mã" : "Export Decrypted Copy"}</span>
+              </button>
+            </div>
           ) : null}
         </div>
 

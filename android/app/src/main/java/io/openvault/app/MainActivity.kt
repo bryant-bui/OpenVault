@@ -22,8 +22,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
@@ -32,10 +32,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -53,6 +60,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.fragment.app.FragmentActivity
@@ -66,7 +74,6 @@ import io.openvault.app.core.security.ClipboardNotificationHelper
 import io.openvault.app.core.security.VaultLockState
 import io.openvault.app.ui.components.MainTab
 import io.openvault.app.ui.components.OnePassBottomBar
-import io.openvault.app.ui.components.OnePassCard
 import io.openvault.app.ui.components.OnePassExtendedFab
 import io.openvault.app.ui.components.OnePassNavigationRail
 import io.openvault.app.ui.screens.AuthScreen
@@ -135,6 +142,7 @@ class MainActivity : FragmentActivity() {
                 language = settings.language,
                 showWebsiteIcons = settings.showWebsiteIcons,
                 accountAvatarBase64 = settings.accountAvatarBase64,
+                accountDisplayName = settings.accountProfile.displayName.takeIf { it.isNotBlank() },
             ) {
                 ProvideFoldableLayout(activity = this@MainActivity) {
                     OpenVaultRootApp(
@@ -285,6 +293,8 @@ private fun OpenVaultRootApp(
         ) {
             askedNotificationPermThisSession = true
             requestedPermNow = true
+            container.sessionManager.suppressNextBackgroundLock()
+            container.safeSessionManager.suppressNextBackgroundLock()
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
         if (!(notificationsEnabled && hasNotifPerm) && !requestedPermNow) {
@@ -325,7 +335,7 @@ private fun OpenVaultRootApp(
     }
 
     // Overlay back handling: always returns from Detail/Editor/Settings cleanly
-    BackHandler(enabled = overlay != OverlayRoute.None) {
+    BackHandler(enabled = overlay != OverlayRoute.None && overlay != OverlayRoute.NewItemPicker) {
         overlay = when (val current = overlay) {
             is OverlayRoute.QrScanner -> if (current.returnToEditor) OverlayRoute.Editor(editingReturnItem) else OverlayRoute.None
             is OverlayRoute.Editor -> current.initialItem?.let { OverlayRoute.Detail(it.id) } ?: OverlayRoute.None
@@ -500,17 +510,7 @@ private fun OpenVaultRootApp(
     @Composable
     fun RenderOverlayContent(currentOverlay: OverlayRoute) {
         when (currentOverlay) {
-            OverlayRoute.None -> Unit
-
-            OverlayRoute.NewItemPicker -> NewItemSheet(
-                onCreateType = { type, noteType ->
-                    editingReturnItem = null
-                    overlay = OverlayRoute.Editor(initialItem = null, initialType = type, initialSecureNoteType = noteType)
-                },
-                onOpenGenerator = { overlay = OverlayRoute.Generator },
-                onOpenQrScanner = { openQrScanner(returnToEditor = false) },
-                onDismiss = { overlay = OverlayRoute.None },
-            )
+            OverlayRoute.None, OverlayRoute.NewItemPicker -> Unit
 
             OverlayRoute.Profile -> ProfileScreen(
                 email = account.email,
@@ -663,12 +663,15 @@ private fun OpenVaultRootApp(
 
                     // Floating Elevated Overlay Sheet above the spacious canvas
                     var cachedFloatingOverlay by remember { mutableStateOf<OverlayRoute>(OverlayRoute.None) }
-                    if (currentOverlay != OverlayRoute.None && currentOverlay !is OverlayRoute.QrScanner) {
+                    if (currentOverlay != OverlayRoute.None &&
+                        currentOverlay !is OverlayRoute.QrScanner &&
+                        currentOverlay != OverlayRoute.NewItemPicker
+                    ) {
                         cachedFloatingOverlay = currentOverlay
                     }
                     val allowScrimDismiss = currentOverlay !is OverlayRoute.Editor
                     AnimatedVisibility(
-                        visible = currentOverlay != OverlayRoute.None,
+                        visible = currentOverlay != OverlayRoute.None && currentOverlay != OverlayRoute.NewItemPicker,
                         enter = fadeIn() + scaleIn(initialScale = 0.95f),
                         exit = fadeOut() + scaleOut(targetScale = 0.95f),
                     ) {
@@ -745,7 +748,7 @@ private fun OpenVaultRootApp(
                         modifier = Modifier.align(Alignment.BottomCenter),
                     )
 
-                    if (currentOverlay != OverlayRoute.None) {
+                    if (currentOverlay != OverlayRoute.None && currentOverlay != OverlayRoute.NewItemPicker) {
                         Surface(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -759,6 +762,18 @@ private fun OpenVaultRootApp(
                         }
                     }
                 }
+            }
+
+            if (currentOverlay == OverlayRoute.NewItemPicker) {
+                NewItemSheet(
+                    onCreateType = { type, noteType ->
+                        editingReturnItem = null
+                        overlay = OverlayRoute.Editor(initialItem = null, initialType = type, initialSecureNoteType = noteType)
+                    },
+                    onOpenGenerator = { overlay = OverlayRoute.Generator },
+                    onOpenQrScanner = { openQrScanner(returnToEditor = false) },
+                    onDismiss = { overlay = OverlayRoute.None },
+                )
             }
         }
 
@@ -776,7 +791,7 @@ private fun OpenVaultRootApp(
             )
         }
 
-        // ── 4. TOP TOAST BANNER ─────────────────────────────────────────────
+        // ── 4. FLOATING PILL TOAST BANNER ────────────────────────────────────
         AnimatedVisibility(
             visible = toastMessage != null,
             enter = fadeIn() + slideInVertically { -it },
@@ -784,20 +799,88 @@ private fun OpenVaultRootApp(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .statusBarsPadding()
-                .padding(horizontal = 20.dp, vertical = 12.dp),
+                .padding(horizontal = 20.dp, vertical = 10.dp),
         ) {
-            OnePassCard(
-                cornerRadius = 12.dp,
-                backgroundColor = if (c.isDark) Color(0xFF282B30) else Color(0xFF1F2937),
-                borderColor = c.cardBorder,
-                padding = PaddingValues(horizontal = 16.dp, vertical = 11.dp),
-            ) {
-                Text(
-                    text = toastMessage.orEmpty(),
-                    color = Color.White,
-                    fontSize = 13.5.sp,
-                    fontWeight = FontWeight.Medium,
+            val msg = toastMessage.orEmpty()
+            val lower = msg.lowercase()
+            val isError = lower.contains("lỗi") ||
+                lower.contains("thất bại") ||
+                lower.contains("không thể") ||
+                lower.contains("không đúng") ||
+                lower.contains("vượt quá") ||
+                lower.contains("error") ||
+                lower.contains("failed") ||
+                lower.contains("could not") ||
+                lower.contains("exceeds")
+            val isSuccess = !isError && (
+                lower.contains("đã") ||
+                    lower.contains("saved") ||
+                    lower.contains("synced") ||
+                    lower.contains("updated") ||
+                    lower.contains("restored") ||
+                    lower.contains("created") ||
+                    lower.contains("enabled") ||
+                    lower.contains("copied") ||
+                    lower.contains("!")
                 )
+            val statusColor = when {
+                isError -> c.danger
+                isSuccess -> c.success
+                else -> c.accent
+            }
+            val statusSoftBg = when {
+                isError -> c.dangerSoft
+                isSuccess -> c.successSoft
+                else -> c.accentSoft
+            }
+            val statusIcon = when {
+                isError -> Icons.Rounded.ErrorOutline
+                isSuccess -> Icons.Rounded.CheckCircle
+                else -> Icons.Rounded.Info
+            }
+
+            Surface(
+                shape = RoundedCornerShape(26.dp),
+                color = if (c.isDark) Color(0xFF1A1D24) else Color.White,
+                border = BorderStroke(
+                    0.8.dp,
+                    if (c.isDark) Color.White.copy(alpha = 0.12f) else c.cardBorder,
+                ),
+                shadowElevation = 10.dp,
+                modifier = Modifier
+                    .widthIn(max = 420.dp)
+                    .clip(RoundedCornerShape(26.dp))
+                    .clickable { toastMessage = null },
+            ) {
+                Row(
+                    modifier = Modifier.padding(start = 10.dp, end = 16.dp, top = 9.dp, bottom = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .background(statusSoftBg),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = statusIcon,
+                            contentDescription = null,
+                            tint = statusColor,
+                            modifier = Modifier.size(15.dp),
+                        )
+                    }
+                    Text(
+                        text = msg,
+                        color = if (c.isDark) Color(0xFFF3F4F6) else c.textPrimary,
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.Medium,
+                        lineHeight = 18.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
     }

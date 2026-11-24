@@ -31,8 +31,8 @@ object ClipboardNotificationHelper {
     fun ensureChannel(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val appCtx = context.applicationContext
-        val isVi = (appCtx as? OpenVaultApplication)?.container?.preferences?.settings?.value?.language ==
-            AppLanguage.VIETNAMESE
+        val isVi = (appCtx as? OpenVaultApplication)?.container?.preferences?.settings?.value
+            ?.language?.isVietnameseActive() == true
         val manager = appCtx.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
         val channel = NotificationChannel(
             CHANNEL_ID,
@@ -65,7 +65,7 @@ object ClipboardNotificationHelper {
     fun showCountdownNotification(
         context: Context,
         label: String,
-        remainingSeconds: Int,
+        expiresAtMs: Long,
         totalSeconds: Int,
         isVi: Boolean,
     ) {
@@ -73,24 +73,33 @@ object ClipboardNotificationHelper {
         if (!hasNotificationPermission(appCtx)) return
         ensureChannel(appCtx)
 
+        val remainingMs = (expiresAtMs - System.currentTimeMillis()).coerceAtLeast(1_000L)
         val title = if (isVi) "Đã sao chép $label" else "Copied $label"
         val body = if (isVi) {
-            "Cảnh báo: tự xóa khỏi bộ nhớ tạm sau ${remainingSeconds}s"
+            "Tự xóa khỏi bộ nhớ tạm khi hết giờ"
         } else {
-            "Warning: auto-clearing from clipboard in ${remainingSeconds}s"
+            "Auto-clears from clipboard when timer ends"
         }
+        val subText = if (isVi) "Bộ nhớ tạm · ${totalSeconds}s" else "Clipboard · ${totalSeconds}s"
+
         val publicVersion = NotificationCompat.Builder(appCtx, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_openvault)
+            .setSubText(subText)
             .setContentTitle(if (isVi) "Bảo vệ bộ nhớ tạm OpenVault" else "OpenVault Clipboard Guard")
             .setContentText(
-                if (isVi) "Tự động xóa dữ liệu nhạy cảm sau ${remainingSeconds}s"
-                else "Auto-clearing copied secret in ${remainingSeconds}s",
+                if (isVi) "Tự động xóa dữ liệu nhạy cảm khi hết giờ"
+                else "Auto-clearing copied secret when timer ends",
             )
+            .setUsesChronometer(true)
+            .setChronometerCountDown(true)
+            .setWhen(expiresAtMs)
+            .setShowWhen(true)
             .setColor(ACCENT_COLOR)
             .build()
 
         val notification = NotificationCompat.Builder(appCtx, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_openvault)
+            .setSubText(subText)
             .setContentTitle(title)
             .setContentText(body)
             .setColor(ACCENT_COLOR)
@@ -98,10 +107,13 @@ object ClipboardNotificationHelper {
             .setCategory(NotificationCompat.CATEGORY_STATUS)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPublicVersion(publicVersion)
+            .setUsesChronometer(true)
+            .setChronometerCountDown(true)
+            .setWhen(expiresAtMs)
+            .setShowWhen(true)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .setSilent(remainingSeconds < totalSeconds)
-            .setProgress(totalSeconds.coerceAtLeast(1), remainingSeconds.coerceIn(0, totalSeconds.coerceAtLeast(1)), false)
+            .setTimeoutAfter(remainingMs + 1_500L)
             .setContentIntent(openAppPendingIntent(appCtx))
             .addAction(
                 0,
@@ -172,19 +184,21 @@ object ClipboardNotificationHelper {
             ?: if (isVi) "dữ liệu nhạy cảm" else "sensitive data"
         val notification = NotificationCompat.Builder(appCtx, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_openvault)
-            .setContentTitle(if (isVi) "Đã xóa bộ nhớ tạm an toàn" else "Clipboard Cleared")
+            .setSubText("OpenVault")
+            .setContentTitle(if (isVi) "Đã xóa bộ nhớ tạm" else "Clipboard Cleared")
             .setContentText(
-                if (isVi) "Đã xóa $target khỏi bộ nhớ tạm."
-                else "Cleared $target from clipboard.",
+                if (isVi) "Đã xóa $target một cách an toàn."
+                else "Safely cleared $target from clipboard.",
             )
             .setColor(ACCENT_COLOR)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
+            .setShowWhen(false)
+            .setUsesChronometer(false)
             .setOngoing(false)
             .setSilent(true)
             .setAutoCancel(true)
-            .setProgress(0, 0, false)
-            .setTimeoutAfter(4_000L)
+            .setTimeoutAfter(3_500L)
             .build()
 
         runCatching {

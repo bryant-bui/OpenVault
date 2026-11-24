@@ -175,6 +175,13 @@ export interface R2BackupItem {
   cipherCount?: string;
 }
 
+export type DefaultManagerControlStatus =
+  | "controlled_by_this_extension"
+  | "controllable_by_this_extension"
+  | "controlled_by_other_extensions"
+  | "not_controllable"
+  | "unsupported";
+
 export interface VaultStatusResponse {
   hasAccount: boolean;
   unlocked: boolean;
@@ -189,6 +196,7 @@ export interface VaultStatusResponse {
   pinRemainingAttempts: number;
   pinMaxAttempts: number;
   pinLength: number;
+  defaultManagerControl?: DefaultManagerControlStatus;
 }
 
 export type BgRequest =
@@ -299,8 +307,10 @@ export type BgRequest =
       fileName: string;
       mimeType: string;
       category: SafeDocumentCategory;
+      folderName?: string | null;
       notes?: string | null;
       expiresAt?: string | null;
+      favorite?: boolean;
       originalSize: number;
       originalSha256: string;
       hasThumb: boolean;
@@ -311,12 +321,17 @@ export type BgRequest =
       id: string;
       title: string;
       category: SafeDocumentCategory;
+      folderName?: string | null;
       notes?: string | null;
       expiresAt?: string | null;
       favorite: boolean;
     }
   | { type: "SAFE_DELETE_ITEM"; id: string; permanent?: boolean }
   | { type: "SAFE_RESTORE_ITEM"; id: string }
+  | { type: "SAFE_LIST_FOLDERS" }
+  | { type: "SAFE_CREATE_FOLDER"; name: string }
+  | { type: "SAFE_RENAME_FOLDER"; oldName: string; newName: string }
+  | { type: "SAFE_DELETE_FOLDER"; name: string }
   | { type: "SAFE_RESET"; masterPassword: string };
 
 export type BgResponse<T = unknown> =

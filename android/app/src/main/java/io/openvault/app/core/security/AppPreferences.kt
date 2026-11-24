@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import java.util.Locale
 import java.util.UUID
 
 enum class AppThemeMode(val labelEn: String, val labelVi: String) {
@@ -20,10 +21,29 @@ enum class AppThemeMode(val labelEn: String, val labelVi: String) {
     LIGHT("Light", "Sáng"),
 }
 
-enum class AppLanguage(val labelNative: String) {
-    ENGLISH("English"),
-    VIETNAMESE("Tiếng Việt"),
+enum class AppLanguage(val labelEn: String, val labelVi: String) {
+    SYSTEM("System default", "Theo hệ thống"),
+    ENGLISH("English", "English"),
+    VIETNAMESE("Tiếng Việt", "Tiếng Việt");
+
+    fun displayLabel(isVi: Boolean): String = if (isVi) labelVi else labelEn
+
+    fun isVietnameseActive(locale: Locale = Locale.getDefault()): Boolean = when (this) {
+        VIETNAMESE -> true
+        ENGLISH -> false
+        SYSTEM -> locale.language.equals("vi", ignoreCase = true)
+    }
 }
+
+@Serializable
+data class AccountProfileInfo(
+    val displayName: String = "",
+    val birthDate: String = "",
+    val phone: String = "",
+    val city: String = "",
+    val address: String = "",
+    val bio: String = "",
+)
 
 enum class HomeSectionType {
     PINNED_TOTP,
@@ -47,10 +67,11 @@ data class SecuritySettings(
     val clipboardNotificationsEnabled: Boolean = true,
     val flagSecureEnabled: Boolean = true,
     val themeMode: AppThemeMode = AppThemeMode.DARK,
-    val language: AppLanguage = AppLanguage.ENGLISH,
+    val language: AppLanguage = AppLanguage.SYSTEM,
     val biometricEnabled: Boolean = false,
     val safeBiometricEnabled: Boolean = false,
     val safeFlagSecureEnabled: Boolean = true,
+    val safeLockOnExit: Boolean = false,
     val pinEnabled: Boolean = false,
     val pinLength: Int = 6,
     val pinMaxAttempts: Int = PinCrypto.DEFAULT_PIN_MAX_ATTEMPTS,
@@ -63,6 +84,7 @@ data class SecuritySettings(
     val defaultIdentityId: String? = null,
     val defaultCardId: String? = null,
     val accountAvatarBase64: String? = null,
+    val accountProfile: AccountProfileInfo = AccountProfileInfo(),
     val homeSections: List<HomeSectionPref> = DEFAULT_HOME_SECTIONS,
 ) {
     companion object {
@@ -97,6 +119,8 @@ class AppPreferences(context: Context) {
 
     companion object {
         val DEFAULT_SERVER_URL: String = BuildConfig.DEFAULT_SERVER_URL
+        const val AUTO_LOCK_IMMEDIATELY = -1
+        const val AUTO_LOCK_NEVER = 0
 
         private const val PREF_NAME = "openvault_prefs_v1"
         private const val KEY_SERVER_URL = "server_url"
@@ -129,6 +153,7 @@ class AppPreferences(context: Context) {
         private const val KEY_DEFAULT_IDENTITY_ID = "default_identity_id"
         private const val KEY_DEFAULT_CARD_ID = "default_card_id"
         private const val KEY_ACCOUNT_AVATAR_B64 = "account_avatar_b64"
+        private const val KEY_ACCOUNT_PROFILE_JSON = "account_profile_json"
         private const val KEY_HOME_SECTIONS = "home_sections_json"
         private const val KEY_ITEM_USAGE_COUNTS = "item_usage_counts_json"
         private const val KEY_ONBOARDING_SEEN = "onboarding_seen"
@@ -138,6 +163,7 @@ class AppPreferences(context: Context) {
         private const val KEY_SAFE_RECOVERY_REQUIRED = "safe_recovery_required"
         private const val KEY_SAFE_AUTO_LOCK_MIN = "safe_auto_lock_minutes"
         private const val KEY_SAFE_FLAG_SECURE = "safe_flag_secure_enabled"
+        private const val KEY_SAFE_LOCK_ON_EXIT = "safe_lock_on_exit"
         private const val KEY_SAFE_CUSTOM_FOLDERS = "safe_custom_folders_json"
         private const val KEY_SAFE_VIEW_MODE = "safe_view_mode"
         private const val KEY_SAFE_SORT_MODE = "safe_sort_mode"
@@ -324,6 +350,13 @@ class AppPreferences(context: Context) {
         _settings.value = readSettings()
     }
 
+    fun getSafeLockOnExit(): Boolean = prefs.getBoolean(KEY_SAFE_LOCK_ON_EXIT, false)
+
+    fun setSafeLockOnExit(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_SAFE_LOCK_ON_EXIT, enabled).apply()
+        _settings.value = readSettings()
+    }
+
     fun getSafeViewMode(): String = prefs.getString(KEY_SAFE_VIEW_MODE, "LIST") ?: "LIST"
 
     fun setSafeViewMode(mode: String) {
@@ -380,6 +413,7 @@ class AppPreferences(context: Context) {
             .remove(KEY_SAFE_RECOVERY_REQUIRED)
             .remove(KEY_SAFE_AUTO_LOCK_MIN)
             .remove(KEY_SAFE_FLAG_SECURE)
+            .remove(KEY_SAFE_LOCK_ON_EXIT)
             .remove(KEY_SAFE_CUSTOM_FOLDERS)
             .apply()
         _safeCustomFolders.value = emptyList()
@@ -456,6 +490,16 @@ class AppPreferences(context: Context) {
         _settings.value = readSettings()
     }
 
+    fun setAccountProfile(profile: AccountProfileInfo) {
+        prefs.edit().putString(KEY_ACCOUNT_PROFILE_JSON, json.encodeToString(profile)).apply()
+        _settings.value = readSettings()
+    }
+
+    private fun readAccountProfile(): AccountProfileInfo {
+        val raw = prefs.getString(KEY_ACCOUNT_PROFILE_JSON, null) ?: return AccountProfileInfo()
+        return runCatching { json.decodeFromString<AccountProfileInfo>(raw) }.getOrDefault(AccountProfileInfo())
+    }
+
     fun setHomeSections(sections: List<HomeSectionPref>) {
         prefs.edit().putString(KEY_HOME_SECTIONS, json.encodeToString(sections)).apply()
         _settings.value = readSettings()
@@ -503,10 +547,12 @@ class AppPreferences(context: Context) {
             .remove(KEY_SAFE_RECOVERY_REQUIRED)
             .remove(KEY_SAFE_AUTO_LOCK_MIN)
             .remove(KEY_SAFE_FLAG_SECURE)
+            .remove(KEY_SAFE_LOCK_ON_EXIT)
             .remove(KEY_SAFE_CUSTOM_FOLDERS)
             .remove(KEY_DEFAULT_IDENTITY_ID)
             .remove(KEY_DEFAULT_CARD_ID)
             .remove(KEY_ACCOUNT_AVATAR_B64)
+            .remove(KEY_ACCOUNT_PROFILE_JSON)
             .remove(KEY_ITEM_USAGE_COUNTS)
             .putString(KEY_SERVER_URL, savedServer)
             .putString(KEY_THEME_MODE, savedTheme.name)
@@ -556,9 +602,9 @@ class AppPreferences(context: Context) {
         val themeName = prefs.getString(KEY_THEME_MODE, AppThemeMode.DARK.name)
         val theme = runCatching { AppThemeMode.valueOf(themeName ?: AppThemeMode.DARK.name) }
             .getOrDefault(AppThemeMode.DARK)
-        val langName = prefs.getString(KEY_LANGUAGE, AppLanguage.ENGLISH.name)
-        val language = runCatching { AppLanguage.valueOf(langName ?: AppLanguage.ENGLISH.name) }
-            .getOrDefault(AppLanguage.ENGLISH)
+        val langName = prefs.getString(KEY_LANGUAGE, AppLanguage.SYSTEM.name)
+        val language = runCatching { AppLanguage.valueOf(langName ?: AppLanguage.SYSTEM.name) }
+            .getOrDefault(AppLanguage.SYSTEM)
 
         return SecuritySettings(
             autoLockMinutes = prefs.getInt(KEY_AUTO_LOCK_MIN, 5),
@@ -570,6 +616,7 @@ class AppPreferences(context: Context) {
             biometricEnabled = bioBlob != null,
             safeBiometricEnabled = safeBioBlob != null,
             safeFlagSecureEnabled = prefs.getBoolean(KEY_SAFE_FLAG_SECURE, true),
+            safeLockOnExit = prefs.getBoolean(KEY_SAFE_LOCK_ON_EXIT, false),
             pinEnabled = pinRec != null,
             pinLength = pinRec?.pinLength ?: 6,
             pinMaxAttempts = prefs.getInt(KEY_PIN_MAX_ATTEMPTS, PinCrypto.DEFAULT_PIN_MAX_ATTEMPTS),
@@ -582,6 +629,7 @@ class AppPreferences(context: Context) {
             defaultIdentityId = prefs.getString(KEY_DEFAULT_IDENTITY_ID, null),
             defaultCardId = prefs.getString(KEY_DEFAULT_CARD_ID, null),
             accountAvatarBase64 = prefs.getString(KEY_ACCOUNT_AVATAR_B64, null),
+            accountProfile = readAccountProfile(),
             homeSections = readHomeSections(),
         )
     }

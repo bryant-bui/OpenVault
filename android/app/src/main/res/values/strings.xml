@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">OpenVault</string>
-    <string name="autofill_service_label">OpenVault — Trình điền mật khẩu</string>
-    <string name="credential_provider_label">OpenVault — Passkeys &amp; Mật khẩu</string>
+    <string name="autofill_service_label">OpenVault</string>
+    <string name="credential_provider_label">OpenVault</string>
 </resources>

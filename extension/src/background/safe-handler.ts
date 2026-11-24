@@ -69,6 +69,10 @@ export type SafeBgRequest = Extract<
       | "SAFE_UPDATE_ITEM"
       | "SAFE_DELETE_ITEM"
       | "SAFE_RESTORE_ITEM"
+      | "SAFE_LIST_FOLDERS"
+      | "SAFE_CREATE_FOLDER"
+      | "SAFE_RENAME_FOLDER"
+      | "SAFE_DELETE_FOLDER"
       | "SAFE_RESET";
   }
 >;
@@ -109,8 +113,46 @@ export async function clearSafeSession(): Promise<void> {
 export async function clearSafeAllLocal(): Promise<void> {
   await Promise.all([
     clearSafeSession(),
-    chrome.storage.local.remove(LOCAL_KEYS.SAFE_LOCKOUT),
+    chrome.storage.local.remove([LOCAL_KEYS.SAFE_LOCKOUT, LOCAL_KEYS.SAFE_FOLDERS]),
   ]);
+}
+
+function normalizeFolderName(raw: string): string {
+  return raw.replace(/\s+/g, " ").trim().slice(0, 60);
+}
+
+async function getSafeCustomFolders(): Promise<string[]> {
+  const res = await chrome.storage.local.get(LOCAL_KEYS.SAFE_FOLDERS);
+  const raw = res[LOCAL_KEYS.SAFE_FOLDERS];
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of raw) {
+    if (typeof item !== "string") continue;
+    const clean = normalizeFolderName(item);
+    if (!clean) continue;
+    const key = clean.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(clean);
+  }
+  return out.sort((a, b) => a.localeCompare(b));
+}
+
+async function saveSafeCustomFolders(folders: string[]): Promise<string[]> {
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const f of folders) {
+    const clean = normalizeFolderName(f);
+    if (!clean) continue;
+    const key = clean.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    normalized.push(clean);
+  }
+  normalized.sort((a, b) => a.localeCompare(b));
+  await chrome.storage.local.set({ [LOCAL_KEYS.SAFE_FOLDERS]: normalized });
+  return normalized;
 }
 
 async function getLocalLockout(): Promise<SafeLockoutState> {
@@ -663,6 +705,7 @@ export async function handleSafeMessage(
       const thumbKeyB64 = thumbKey ? bytesToBase64(thumbKey) : null;
       zeroize(fileKey, thumbKey);
 
+      const cleanFolder = request.folderName ? normalizeFolderName(request.folderName) : "";
       try {
         const encryptedMetadata = await encryptSafeMetadata(
           {
@@ -671,6 +714,7 @@ export async function handleSafeMessage(
             fileName: request.fileName,
             mimeType: request.mimeType,
             category: request.category,
+            folderName: cleanFolder || null,
             notes: request.notes ?? null,
             fileKeyB64,
             thumbKeyB64,
@@ -686,7 +730,7 @@ export async function handleSafeMessage(
           const created = await apiCreateSafeItem(serverUrl, accessToken, {
             category: request.category,
             encryptedMetadata,
-            favorite: false,
+            favorite: request.favorite ?? false,
           });
           resultPayload = {
             serverUrl,
@@ -696,6 +740,10 @@ export async function handleSafeMessage(
             thumbKeyB64,
           };
         });
+        if (cleanFolder) {
+          const existingFolders = await getSafeCustomFolders();
+          await saveSafeCustomFolders([...existingFolders, cleanFolder]);
+        }
         return { ok: true, data: resultPayload! };
       } finally {
         zeroize(key.encKey, key.macKey, key.raw);
@@ -723,11 +771,18 @@ export async function handleSafeMessage(
           return { ok: false, error: "Không tìm thấy tài liệu." };
         }
         const existingMeta = await decryptSafeMetadata(target.encryptedMetadata, key);
+        const nextFolderName =
+          request.folderName === undefined
+            ? existingMeta.folderName ?? null
+            : request.folderName
+              ? normalizeFolderName(request.folderName) || null
+              : null;
         const encryptedMetadata = await encryptSafeMetadata(
           {
             ...existingMeta,
             title: request.title.trim() || existingMeta.fileName,
             category: request.category,
+            folderName: nextFolderName,
             notes: request.notes ?? null,
             expiresAt: request.expiresAt ?? null,
           },
@@ -740,6 +795,10 @@ export async function handleSafeMessage(
             favorite: request.favorite,
           }),
         );
+        if (nextFolderName) {
+          const existingFolders = await getSafeCustomFolders();
+          await saveSafeCustomFolders([...existingFolders, nextFolderName]);
+        }
         return { ok: true, data: updated };
       } finally {
         zeroize(key.encKey, key.macKey, key.raw);
@@ -768,6 +827,107 @@ export async function handleSafeMessage(
         apiRestoreSafeItem(url, token, request.id),
       );
       return { ok: true, data: restored };
+    }
+
+    case "SAFE_LIST_FOLDERS": {
+      const folders = await getSafeCustomFolders();
+      return { ok: true, data: folders };
+    }
+
+    case "SAFE_CREATE_FOLDER": {
+      const { key } = await touchSafeSession();
+      zeroize(key.encKey, key.macKey, key.raw);
+      const clean = normalizeFolderName(request.name);
+      if (!clean) {
+        return { ok: false, error: "Tên thư mục không được để trống." };
+      }
+      const existing = await getSafeCustomFolders();
+      const updated = await saveSafeCustomFolders([...existing, clean]);
+      return { ok: true, data: updated };
+    }
+
+    case "SAFE_RENAME_FOLDER": {
+      const { key } = await touchSafeSession();
+      try {
+        const oldClean = normalizeFolderName(request.oldName);
+        const newClean = normalizeFolderName(request.newName);
+        if (!oldClean || !newClean) {
+          return { ok: false, error: "Tên thư mục không hợp lệ." };
+        }
+        const rawItems = await deps.withValidAccessToken((url, token) =>
+          apiListSafeItems(url, token),
+        );
+        let updatedCount = 0;
+        for (const item of rawItems) {
+          try {
+            const meta = await decryptSafeMetadata(item.encryptedMetadata, key);
+            if (meta.folderName?.trim().toLowerCase() === oldClean.toLowerCase()) {
+              const encryptedMetadata = await encryptSafeMetadata(
+                { ...meta, folderName: newClean },
+                key,
+              );
+              await deps.withValidAccessToken((url, token) =>
+                apiUpdateSafeItem(url, token, item.id, {
+                  category: meta.category ?? item.category,
+                  encryptedMetadata,
+                  favorite: item.favorite,
+                }),
+              );
+              updatedCount++;
+            }
+          } catch {
+            // Skip unreadable item
+          }
+        }
+        const existing = await getSafeCustomFolders();
+        const filtered = existing.filter((f) => f.toLowerCase() !== oldClean.toLowerCase());
+        const folders = await saveSafeCustomFolders([...filtered, newClean]);
+        return { ok: true, data: { folders, updatedCount } };
+      } finally {
+        zeroize(key.encKey, key.macKey, key.raw);
+      }
+    }
+
+    case "SAFE_DELETE_FOLDER": {
+      const { key } = await touchSafeSession();
+      try {
+        const targetClean = normalizeFolderName(request.name);
+        if (!targetClean) {
+          return { ok: false, error: "Tên thư mục không hợp lệ." };
+        }
+        const rawItems = await deps.withValidAccessToken((url, token) =>
+          apiListSafeItems(url, token),
+        );
+        let updatedCount = 0;
+        for (const item of rawItems) {
+          try {
+            const meta = await decryptSafeMetadata(item.encryptedMetadata, key);
+            if (meta.folderName?.trim().toLowerCase() === targetClean.toLowerCase()) {
+              const encryptedMetadata = await encryptSafeMetadata(
+                { ...meta, folderName: null },
+                key,
+              );
+              await deps.withValidAccessToken((url, token) =>
+                apiUpdateSafeItem(url, token, item.id, {
+                  category: meta.category ?? item.category,
+                  encryptedMetadata,
+                  favorite: item.favorite,
+                }),
+              );
+              updatedCount++;
+            }
+          } catch {
+            // Skip unreadable item
+          }
+        }
+        const existing = await getSafeCustomFolders();
+        const folders = await saveSafeCustomFolders(
+          existing.filter((f) => f.toLowerCase() !== targetClean.toLowerCase()),
+        );
+        return { ok: true, data: { folders, updatedCount } };
+      } finally {
+        zeroize(key.encKey, key.macKey, key.raw);
+      }
     }
 
     case "SAFE_RESET": {

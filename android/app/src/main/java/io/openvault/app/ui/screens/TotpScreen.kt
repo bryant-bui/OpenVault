@@ -36,7 +36,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -48,6 +47,9 @@ import io.openvault.app.ui.components.OnePassCard
 import io.openvault.app.ui.components.OnePassSearchBar
 import io.openvault.app.ui.components.TotpCountdownRing
 import io.openvault.app.ui.theme.LocalFoldableLayout
+import io.openvault.app.ui.theme.LocalOpenVaultColors
+import io.openvault.app.ui.theme.LocalStrings
+import io.openvault.app.ui.theme.OpenVaultMonoFontFamily
 import io.openvault.app.ui.theme.LocalOpenVaultColors
 import io.openvault.app.ui.theme.LocalStrings
 import kotlinx.coroutines.delay
@@ -236,7 +238,7 @@ fun TotpScreen(
                                             Text(
                                                 text = dotFormatted,
                                                 color = if (totp.remainingSeconds <= 5) c.danger else c.textPrimary,
-                                                fontFamily = FontFamily.Monospace,
+                                                fontFamily = OpenVaultMonoFontFamily,
                                                 fontSize = 25.sp,
                                                 fontWeight = FontWeight.Bold,
                                             )

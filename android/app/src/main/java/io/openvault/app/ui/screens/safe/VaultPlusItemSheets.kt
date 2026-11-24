@@ -85,7 +85,6 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -98,6 +97,7 @@ import io.openvault.app.data.DecryptedSafeItem
 import io.openvault.app.data.SafeRepository
 import io.openvault.app.ui.theme.LocalOpenVaultColors
 import io.openvault.app.ui.theme.LocalStrings
+import io.openvault.app.ui.theme.OpenVaultMonoFontFamily
 import io.openvault.app.ui.theme.formatLocalTimestamp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -118,10 +118,11 @@ fun SafeMetadataBottomSheet(
     initialFolderName: String?,
     initialNotes: String,
     initialExpiresAt: String,
+    initialFavorite: Boolean = false,
     availableFolders: List<String>,
     onCreateFolderRequest: ((String) -> Unit)? = null,
     onDismiss: () -> Unit,
-    onSave: (title: String, category: SafeDocumentCategory, folderName: String?, notes: String?, expiresAt: String?) -> Unit,
+    onSave: (title: String, category: SafeDocumentCategory, folderName: String?, notes: String?, expiresAt: String?, favorite: Boolean) -> Unit,
 ) {
     val c = LocalOpenVaultColors.current
     val s = LocalStrings.current
@@ -133,6 +134,7 @@ fun SafeMetadataBottomSheet(
     var selectedFolder by remember { mutableStateOf(initialFolderName?.takeIf { it.isNotBlank() }) }
     var expiresAt by remember { mutableStateOf(initialExpiresAt) }
     var notes by remember { mutableStateOf(initialNotes) }
+    var isFavorite by remember { mutableStateOf(initialFavorite) }
     var showInlineFolderInput by remember { mutableStateOf(false) }
     var newFolderText by remember { mutableStateOf("") }
 
@@ -443,6 +445,47 @@ fun SafeMetadataBottomSheet(
                     modifier = Modifier.fillMaxWidth(),
                 )
 
+                Surface(
+                    onClick = { isFavorite = !isFavorite },
+                    shape = RoundedCornerShape(14.dp),
+                    color = c.surface,
+                    border = BorderStroke(0.9.dp, c.cardBorder),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Icon(
+                            imageVector = if (isFavorite) Icons.Rounded.Star else Icons.Rounded.StarOutline,
+                            contentDescription = null,
+                            tint = if (isFavorite) Color(0xFFF59E0B) else c.textSecondary,
+                            modifier = Modifier.size(21.dp),
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = s.favorites,
+                                color = c.textPrimary,
+                                fontSize = 14.5.sp,
+                                fontWeight = FontWeight.Medium,
+                            )
+                            Text(
+                                text = if (s.isVi) "Ghim lên danh sách Yêu thích trong Vault+"
+                                else "Pin to Favorites in Vault+",
+                                color = c.textSecondary,
+                                fontSize = 12.sp,
+                            )
+                        }
+                        Switch(
+                            checked = isFavorite,
+                            onCheckedChange = { isFavorite = it },
+                        )
+                    }
+                }
+
                 Button(
                     enabled = title.trim().isNotEmpty(),
                     colors = ButtonDefaults.buttonColors(
@@ -458,9 +501,10 @@ fun SafeMetadataBottomSheet(
                         val finalFolder = selectedFolder
                         val finalNotes = notes
                         val finalExp = expiresAt
+                        val finalFav = isFavorite
                         scope.launch {
                             sheetState.hide()
-                            onSave(finalTitle, category, finalFolder, finalNotes, finalExp)
+                            onSave(finalTitle, category, finalFolder, finalNotes, finalExp, finalFav)
                         }
                     },
                 ) {
@@ -1365,7 +1409,7 @@ fun SafeItemDetailsBottomSheet(
                         Text(
                             text = item.metadata.originalSha256,
                             color = c.textSecondary,
-                            fontFamily = FontFamily.Monospace,
+                            fontFamily = OpenVaultMonoFontFamily,
                             fontSize = 11.sp,
                         )
                     }

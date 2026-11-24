@@ -11,24 +11,25 @@
     color-scheme: light;
   }
 
-  /* Authentic 1Password 8 Desktop/Extension Palette via light-dark() */
-  --bg: light-dark(#f7f8fa, #0f131a);
-  --surface: light-dark(#ffffff, #161b24);
-  --surface-subtle: light-dark(#f3f5f8, #1c2230);
-  --surface-hover: light-dark(#edf1f7, #222a3a);
-  --border: light-dark(#e5e9f0, #252e3f);
-  --border-strong: light-dark(#d0d8e4, #344158);
+  /* Synchronized OpenVault Design Tokens (aligned with Android Theme.kt) */
+  --bg: light-dark(#f3f5f8, #121418);
+  --surface: light-dark(#ffffff, #181a1f);
+  --surface-subtle: light-dark(#eef2f7, #20232a);
+  --surface-hover: light-dark(#e6ecf4, #282c35);
+  --border: light-dark(#dfe4ec, #2c303a);
+  --border-strong: light-dark(#cbd3df, #3a3f4c);
 
-  --text-primary: light-dark(#0a1a33, #f1f5f9);
-  --text-secondary: light-dark(#5b687c, #94a3b8);
-  --text-muted: light-dark(#8492a6, #69788f);
-  --field-label: light-dark(#6958c7, #a59bf0);
+  --text-primary: light-dark(#111827, #f3f4f6);
+  --text-secondary: light-dark(#5f6672, #9ea4ae);
+  --text-muted: light-dark(#8b95a5, #6b7280);
+  --field-label: light-dark(#6958c7, #a9a2f8);
 
-  /* Signature 1Password Brand Cobalt & Passkey Indigo */
-  --accent: light-dark(#0572ec, #2f85ff);
-  --accent-hover: light-dark(#045dc2, #529bff);
-  --accent-soft: light-dark(#ebf4ff, #172a4a);
-  --accent-border: light-dark(#bddbff, #254880);
+  /* Canonical OpenVault Cobalt & Passkey Indigo */
+  --accent: light-dark(#0572ec, #3b8bff);
+  --accent-solid: #0c74f2;
+  --accent-hover: light-dark(#045dc2, #60a8ff);
+  --accent-soft: light-dark(#e0ecff, #1d314b);
+  --accent-border: light-dark(#bddbff, #294c7a);
 
   --passkey: light-dark(#7253ed, #8b6eff);
   --passkey-soft: light-dark(#f3efff, #281f47);
@@ -38,12 +39,12 @@
   --success-soft: light-dark(#ecfdf3, #122e1f);
   --warning: light-dark(#d97706, #fbbf24);
   --warning-soft: light-dark(#fff7ed, #362510);
-  --danger: light-dark(#e11d48, #fb7185);
-  --danger-soft: light-dark(#fff1f2, #3c1822);
+  --danger: light-dark(#dc2626, #f87171);
+  --danger-soft: light-dark(#fef2f2, #361a1e);
 
-  /* 1Password Password Syntax Coloring */
+  /* Synchronized Password Syntax Coloring */
   --pw-digit: light-dark(#0572ec, #60a5fa);
-  --pw-symbol: light-dark(#e04f33, #fb923c);
+  --pw-symbol: light-dark(#e11d48, #fb7185);
 
   --scrollbar-thumb: light-dark(#b7c2d0, #475569);
   --scrollbar-track: light-dark(#f4f6fa, #131822);
@@ -59,7 +60,7 @@ body {
   padding: 0;
   background: var(--surface);
   color: var(--text-primary);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter, system-ui, sans-serif;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   font-size: 14px;
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
@@ -107,6 +108,7 @@ body[data-surface="popup"] {
 
 /* --- Native Modal Dialog (modern-web-guidance: dialog) --- */
 dialog.ov-dialog {
+  margin: auto;
   padding: 0;
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -200,6 +202,105 @@ dialog.ov-dialog::backdrop {
 
 .ov-input::placeholder {
   color: var(--text-muted);
+}
+
+/* Dedicated Branded Select Control (modern-web-guidance: branded-select-styling) */
+select.ov-select {
+  width: 160px;
+  flex-shrink: 0;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  border-radius: 9px;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
+}
+
+select.ov-select:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
+  background: var(--surface);
+}
+
+@supports (appearance: base-select) {
+  select.ov-select,
+  select.ov-select::picker(select) {
+    appearance: base-select;
+  }
+
+  select.ov-select {
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 10px;
+  }
+
+  select.ov-select::picker-icon {
+    color: var(--text-secondary);
+    transition: transform 150ms ease;
+  }
+
+  select.ov-select:open::picker-icon {
+    transform: rotate(180deg);
+  }
+
+  select.ov-select::picker(select) {
+    background: var(--surface);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 4px;
+    margin-top: 4px;
+    min-width: anchor-size(width);
+    box-shadow: 0 12px 32px rgba(10, 26, 51, 0.18), 0 2px 6px rgba(10, 26, 51, 0.06);
+  }
+
+  select.ov-select option {
+    padding: 7px 10px;
+    border-radius: 7px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 100ms ease, color 100ms ease;
+  }
+
+  select.ov-select option:hover,
+  select.ov-select option:focus-visible {
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+
+  select.ov-select option:checked {
+    background: var(--accent);
+    color: #ffffff;
+    font-weight: 600;
+  }
+}
+
+select.ov-select.ov-select-compact {
+  width: 114px;
+  height: 32px;
+  padding: 4px 9px;
+  font-size: 12px;
+}
+
+.ov-chip-strip {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.ov-chip-strip::-webkit-scrollbar {
+  display: none;
 }
 
 .ov-btn-primary {
@@ -445,10 +546,12 @@ dialog.ov-dialog::backdrop {
   transition: background 100ms ease, color 100ms ease;
 }
 
-/* Recovery Codes 4x5 Table UI */
+/* Recovery Codes 2-Column Dynamic Grid UI */
 .ov-recovery-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--border);
   border-top: 1px solid var(--border);
 }
 
@@ -458,22 +561,12 @@ dialog.ov-dialog::backdrop {
   align-items: flex-start;
   justify-content: center;
   gap: 2px;
-  padding: 8px 10px;
+  padding: 9px 12px;
   border: 0;
-  border-right: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  background: transparent;
+  background: var(--surface);
   text-align: left;
   cursor: pointer;
   transition: background 110ms ease;
-}
-
-.ov-recovery-cell:nth-child(4n) {
-  border-right: 0;
-}
-
-.ov-recovery-cell:nth-last-child(-n + 4) {
-  border-bottom: 0;
 }
 
 .ov-recovery-cell:hover:not(:disabled) {
@@ -554,34 +647,90 @@ dialog.ov-dialog::backdrop {
   border: 0;
 }
 
-/* --- Atmospheric PIN Unlock Screen (Proton Pass x OpenVault Cobalt) --- */
-.ov-unlock-canvas {
+/* --- Split Vault-Door Unlock Screen (Synchronized with Android UnlockScreen.kt) --- */
+.ov-vault-door-shell {
   position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
-  background: light-dark(
-    radial-gradient(110% 72% at 50% -10%, rgba(5, 114, 236, 0.14) 0%, #f7f8fa 58%, #f1f4f9 100%),
-    radial-gradient(110% 72% at 50% -10%, rgba(79, 134, 255, 0.24) 0%, #151722 52%, #11131d 100%)
-  );
+  background: var(--bg);
 }
 
-.ov-unlock-emblem {
-  position: absolute;
-  top: -78px;
-  left: 50%;
-  transform: translateX(-50%) rotate(45deg);
-  width: 152px;
-  height: 152px;
-  border-radius: 34px;
+.ov-vault-door-top {
+  height: 164px;
+  flex-shrink: 0;
   background: light-dark(
-    linear-gradient(135deg, #0a84ff 0%, #6366f1 55%, #93c5fd 100%),
-    linear-gradient(135deg, #2563eb 0%, #7c3aed 52%, #a5b4fc 100%)
+    linear-gradient(180deg, #eff2f6 0%, #e5e9f0 100%),
+    linear-gradient(180deg, #2b2e35 0%, #23262c 100%)
   );
-  box-shadow: light-dark(
-    0 18px 48px rgba(5, 114, 236, 0.25),
-    0 22px 58px rgba(99, 102, 241, 0.34)
+  border-bottom: 1px solid light-dark(#cbd5e1, #121418);
+  transition: transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+
+.ov-vault-door-bottom {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  background: light-dark(
+    linear-gradient(180deg, #ffffff 0%, #f6f8fc 100%),
+    linear-gradient(180deg, #1b1e24 0%, #14161b 100%)
   );
+  border-top: 1px solid light-dark(#ffffff, #353942);
+  transition: transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+
+.ov-vault-door-dial {
+  position: absolute;
+  top: 164px;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 20;
+  border-radius: 999px;
+  filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.22));
+  transition: transform 320ms cubic-bezier(0.22, 1, 0.36, 1), opacity 300ms ease;
   pointer-events: none;
-  opacity: light-dark(0.92, 0.95);
+  will-change: transform;
+}
+
+.ov-vault-door-shell[data-phase="splitting"] .ov-vault-door-top {
+  transform: translateY(-130%);
+}
+
+.ov-vault-door-shell[data-phase="splitting"] .ov-vault-door-dial {
+  transform: translate(-50%, calc(-50% - 220px));
+  opacity: 0.4;
+}
+
+.ov-vault-door-shell[data-phase="splitting"] .ov-vault-door-bottom {
+  transform: translateY(110%);
+}
+
+.ov-master-unlock-bar {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  max-width: 348px;
+  height: 50px;
+  border-radius: 10px;
+  background: light-dark(#ffffff, #191c22);
+  border: 1.5px solid var(--accent);
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--accent) 12%, transparent);
+  overflow: hidden;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.ov-master-unlock-bar:focus-within {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.ov-master-unlock-bar[data-error="true"] {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px var(--danger-soft);
 }
 
 .ov-pin-wrapper {
@@ -617,9 +766,9 @@ dialog.ov-dialog::backdrop {
 .ov-pin-slot {
   width: 42px;
   height: 48px;
-  border-radius: 12px;
-  border: 1.5px solid light-dark(#d4dde9, #2b3044);
-  background: light-dark(rgba(255, 255, 255, 0.92), rgba(30, 33, 47, 0.86));
+  border-radius: 11px;
+  border: 1.5px solid light-dark(#d4dde9, #333742);
+  background: light-dark(#ffffff, #1c1f26);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -627,16 +776,13 @@ dialog.ov-dialog::backdrop {
 }
 
 .ov-pin-slot[data-active="true"] {
-  border-color: light-dark(#0572ec, #818cf8);
-  background: light-dark(#ffffff, rgba(36, 40, 58, 0.96));
-  box-shadow: light-dark(
-    0 0 0 3px rgba(5, 114, 236, 0.2),
-    0 0 0 3px rgba(129, 140, 248, 0.28)
-  );
+  border-color: var(--accent);
+  background: light-dark(#ffffff, #22262f);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 24%, transparent);
 }
 
 .ov-pin-slot[data-filled="true"] {
-  border-color: light-dark(#94bfff, #434b6b);
+  border-color: light-dark(#94bfff, #475569);
 }
 
 .ov-pin-slot[data-error="true"] {
@@ -645,7 +791,7 @@ dialog.ov-dialog::backdrop {
 }
 
 .ov-pin-slot[data-loading="true"] {
-  border-color: light-dark(#0572ec, #818cf8);
+  border-color: var(--accent);
   opacity: 0.78;
 }
 
@@ -653,7 +799,7 @@ dialog.ov-dialog::backdrop {
   width: 1.5px;
   height: 20px;
   border-radius: 999px;
-  background: light-dark(#0a1a33, #f1f5f9);
+  background: light-dark(#111827, #f3f4f6);
   animation: ovCaretBlink 1s steps(1, end) infinite;
 }
 
@@ -661,7 +807,7 @@ dialog.ov-dialog::backdrop {
   width: 10px;
   height: 10px;
   border-radius: 999px;
-  background: light-dark(#0a1a33, #f8fafc);
+  background: light-dark(#111827, #f8fafc);
   animation: ovDotPop 120ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
@@ -685,58 +831,6 @@ dialog.ov-dialog::backdrop {
   40% { transform: translateX(6px); }
   60% { transform: translateX(-5px); }
   80% { transform: translateX(3px); }
-}
-
-/* Vault keyhole micro-animation on unlock (#13) */
-.ov-keyhole-dial {
-  width: 48px;
-  height: 48px;
-  border-radius: 999px;
-  padding: 4px;
-  background: linear-gradient(135deg, #f8fafc, #cbd5e1);
-  box-shadow: 0 6px 18px rgba(5, 114, 236, 0.25);
-  transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1), opacity 260ms ease;
-}
-
-.ov-keyhole-inner {
-  width: 100%;
-  height: 100%;
-  border-radius: 999px;
-  background: linear-gradient(180deg, #1d4ed8, #38bdf8);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 5px;
-}
-
-.ov-keyhole-slot {
-  width: 100%;
-  height: 100%;
-  border-radius: 999px;
-  background: #f8fafc;
-  position: relative;
-}
-
-.ov-keyhole-slot::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 6px;
-  height: 16px;
-  border-radius: 3px;
-  background: #0f172a;
-  transform: translate(-50%, -50%);
-}
-
-.ov-keyhole-rotated {
-  transform: rotate(90deg) scale(1.06);
-}
-
-.ov-unlock-opening {
-  opacity: 0.2;
-  transform: scale(1.02);
-  transition: opacity 280ms ease, transform 280ms ease;
 }
 
 @media (prefers-reduced-motion: reduce) {

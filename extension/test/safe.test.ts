@@ -247,5 +247,17 @@ describe("OpenVault Extension — Vault+ Service Worker Handler & i18n", () => {
     await handleSafeMessage({ type: "SAFE_LOCK" }, deps);
     const unlockNewPin = await handleSafeMessage({ type: "SAFE_UNLOCK_PIN", pin: "987654" }, deps);
     expect(unlockNewPin.ok).toBe(true);
+
+    // Folder CRUD & deduplication in SAFE_* messages
+    const f1 = await handleSafeMessage({ type: "SAFE_CREATE_FOLDER", name: "Passports" }, deps);
+    expect(f1.ok).toBe(true);
+    expect((f1 as { ok: true; data: string[] }).data).toEqual(["Passports"]);
+
+    const f2 = await handleSafeMessage({ type: "SAFE_CREATE_FOLDER", name: "  passports  " }, deps);
+    expect(f2.ok).toBe(true);
+    expect((f2 as { ok: true; data: string[] }).data).toEqual(["Passports"]);
+
+    const listed = await handleSafeMessage({ type: "SAFE_LIST_FOLDERS" }, deps);
+    expect((listed as { ok: true; data: string[] }).data).toEqual(["Passports"]);
   }, 30_000);
 });

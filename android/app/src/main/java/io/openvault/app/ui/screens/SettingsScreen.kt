@@ -34,29 +34,22 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.AutoFixHigh
-import androidx.compose.material.icons.rounded.CameraAlt
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudUpload
-import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Person
-import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Tune
-import androidx.compose.material.icons.rounded.UploadFile
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
@@ -100,12 +93,13 @@ import io.openvault.app.BuildConfig
 import io.openvault.app.core.media.IconLoader
 import io.openvault.app.core.network.R2BackupItemDto
 import io.openvault.app.core.security.AppLanguage
+import io.openvault.app.core.security.AppPreferences
 import io.openvault.app.core.security.AppThemeMode
 import io.openvault.app.core.security.BiometricKeyManager
 import io.openvault.app.core.security.ClipboardNotificationHelper
 import io.openvault.app.data.VaultRepository
+import io.openvault.app.suppressAutoLockForPicker
 import io.openvault.app.ui.components.CategoryIconBadge
-import io.openvault.app.ui.components.OnePassAccountAvatar
 import io.openvault.app.ui.components.OpenVaultBrandCrest
 import io.openvault.app.ui.theme.LocalFoldableLayout
 import io.openvault.app.ui.theme.LocalOpenVaultColors
@@ -154,6 +148,8 @@ fun SettingsScreen(
 
     val settings by repository.preferences.settings.collectAsState()
     val account by repository.preferences.account.collectAsState()
+    val items by repository.items.collectAsState()
+    val activeItemCount = remember(items) { items.count { !it.isDeleted } }
     val isSyncing by repository.isSyncing.collectAsState()
     val bioSupported = remember { BiometricKeyManager.isBiometricAvailable(context) }
 
@@ -199,23 +195,62 @@ fun SettingsScreen(
 
     var backupBusy by remember { mutableStateOf(false) }
     var backups by remember { mutableStateOf<List<R2BackupItemDto>>(emptyList()) }
+    var backupsLoading by remember { mutableStateOf(false) }
+    var backupsLoadedOnce by remember { mutableStateOf(false) }
     var importExportBusy by remember { mutableStateOf(false) }
     var exportEncryptedMode by remember { mutableStateOf(true) }
     var showPlaintextExportWarning by remember { mutableStateOf(false) }
+    var avatarBusy by remember { mutableStateOf(false) }
+
+    fun handlePickedAvatarUri(uri: Uri?) {
+        if (uri == null) return
+        avatarBusy = true
+        scope.launch {
+            val b64 = IconLoader.compressPickedImageToBase64(context, uri, targetPx = 192, quality = 82)
+            if (b64 != null) {
+                val synced = repository.saveAccountAvatar(b64)
+                avatarBusy = false
+                onShowMessage(
+                    if (synced) {
+                        if (s.isVi) "Đã cập nhật ảnh đại diện!" else "Account avatar updated!"
+                    } else {
+                        if (s.isVi) "Đã lưu ảnh đại diện trên thiết bị." else "Account avatar updated locally."
+                    },
+                )
+            } else {
+                avatarBusy = false
+                onShowMessage(if (s.isVi) "Không thể đọc ảnh đã chọn." else "Could not process image.")
+            }
+        }
+    }
 
     val avatarPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
-    ) { uri ->
-        if (uri != null) {
-            scope.launch {
-                val b64 = IconLoader.compressPickedImageToBase64(context, uri, targetPx = 144, quality = 80)
-                if (b64 != null) {
-                    repository.saveAccountAvatar(b64)
-                    onShowMessage(if (s.isVi) "Đã Cập Nhật Ảnh Đại Diện!" else "Account Avatar Updated!")
-                } else {
-                    onShowMessage(if (s.isVi) "Không Thể Đọc Ảnh." else "Could Not Process Image.")
+    ) { uri -> handlePickedAvatarUri(uri) }
+
+    val avatarFallbackPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent(),
+    ) { uri -> handlePickedAvatarUri(uri) }
+
+    fun launchAvatarPicker() {
+        context.suppressAutoLockForPicker()
+        val usePhotoPicker = runCatching {
+            ActivityResultContracts.PickVisualMedia.isPhotoPickerAvailable(context)
+        }.getOrDefault(false)
+        val launched = if (usePhotoPicker) {
+            runCatching {
+                avatarPicker.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                )
+            }.isSuccess
+        } else {
+            false
+        }
+        if (!launched) {
+            runCatching { avatarFallbackPicker.launch("image/*") }
+                .onFailure {
+                    onShowMessage(if (s.isVi) "Không thể mở thư viện ảnh." else "Could not open image picker.")
                 }
-            }
         }
     }
 
@@ -440,119 +475,26 @@ fun SettingsScreen(
                         Spacer(modifier = Modifier.height(24.dp))
                     }
 
-                    SettingsPage.ACCOUNTS -> {
-                        Column(
-                            modifier = Modifier.padding(horizontal = hPad, vertical = 18.dp),
-                            verticalArrangement = Arrangement.spacedBy(16.dp),
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                            ) {
-                                OnePassAccountAvatar(
-                                    email = account.email,
-                                    size = 56.dp,
-                                    onClick = {
-                                        avatarPicker.launch(
-                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                                        )
-                                    },
-                                )
-                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                    Text(
-                                        text = account.email.ifBlank { "OpenVault" },
-                                        color = c.textPrimary,
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Bold,
-                                    )
-                                    Text(
-                                        text = if (s.isVi) "Tự động đồng bộ · $syncTimeText" else "Auto-sync active · $syncTimeText",
-                                        color = c.textSecondary,
-                                        fontSize = 13.sp,
-                                    )
-                                }
+                    SettingsPage.ACCOUNTS -> SettingsAccountsContent(
+                        repository = repository,
+                        account = account,
+                        settings = settings,
+                        activeItemCount = activeItemCount,
+                        syncTimeText = syncTimeText,
+                        isSyncing = isSyncing,
+                        avatarBusy = avatarBusy,
+                        hPad = hPad,
+                        onPickAvatar = ::launchAvatarPicker,
+                        onRemoveAvatar = {
+                            scope.launch {
+                                repository.saveAccountAvatar(null)
+                                onShowMessage(if (s.isVi) "Đã xóa ảnh đại diện." else "Account avatar removed.")
                             }
-
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                OutlinedButton(
-                                    onClick = {
-                                        avatarPicker.launch(
-                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                                        )
-                                    },
-                                    shape = RoundedCornerShape(10.dp),
-                                    modifier = Modifier.weight(1f),
-                                ) {
-                                    Icon(Icons.Rounded.CameraAlt, contentDescription = null, tint = c.accent, modifier = Modifier.size(19.dp))
-                                    Spacer(Modifier.size(6.dp))
-                                    Text(s.changeAvatar, color = c.textPrimary, fontSize = 14.5.sp)
-                                }
-                                if (!settings.accountAvatarBase64.isNullOrBlank()) {
-                                    OutlinedButton(
-                                        onClick = {
-                                            scope.launch {
-                                                repository.saveAccountAvatar(null)
-                                                onShowMessage(if (s.isVi) "Đã Xóa Ảnh Đại Diện." else "Account Avatar Removed.")
-                                            }
-                                        },
-                                        shape = RoundedCornerShape(10.dp),
-                                    ) {
-                                        Text(s.removeAvatar, color = c.danger, fontSize = 14.5.sp)
-                                    }
-                                }
-                            }
-
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Button(
-                                    onClick = {
-                                        scope.launch {
-                                            runCatching { repository.syncNow(force = true) }
-                                                .onSuccess {
-                                                    onShowMessage(if (s.isVi) "Đã đồng bộ thành công!" else "Vault synced!")
-                                                }
-                                                .onFailure { onShowMessage("${it.message}") }
-                                        }
-                                    },
-                                    enabled = !isSyncing,
-                                    shape = RoundedCornerShape(10.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = c.accentButtonBg, contentColor = Color.White),
-                                    modifier = Modifier.weight(1f).height(44.dp),
-                                ) {
-                                    if (isSyncing) {
-                                        CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
-                                    } else {
-                                        Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(17.dp))
-                                        Spacer(Modifier.size(6.dp))
-                                        Text(s.syncNow, fontWeight = FontWeight.SemiBold)
-                                    }
-                                }
-                                Button(
-                                    onClick = onLock,
-                                    shape = RoundedCornerShape(10.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = c.surfaceElevated, contentColor = c.textPrimary),
-                                    modifier = Modifier.weight(1f).height(44.dp),
-                                ) {
-                                    Icon(Icons.Rounded.Lock, contentDescription = null, modifier = Modifier.size(17.dp))
-                                    Spacer(Modifier.size(6.dp))
-                                    Text(s.lockVault, fontWeight = FontWeight.SemiBold)
-                                }
-                            }
-                        }
-
-                        HorizontalDivider(color = c.divider, thickness = 0.8.dp)
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { showLogoutDialog = true }
-                                .padding(horizontal = hPad, vertical = 16.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        ) {
-                            Icon(Icons.AutoMirrored.Rounded.Logout, contentDescription = null, tint = c.danger)
-                            Text(s.signOut, color = c.danger, fontSize = 15.5.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
+                        },
+                        onShowMessage = onShowMessage,
+                        onLock = onLock,
+                        onRequestLogout = { showLogoutDialog = true },
+                    )
 
                     SettingsPage.GENERAL -> {
                         SettingsToggleItem(
@@ -570,6 +512,13 @@ fun SettingsScreen(
                             value = if (s.isVi) settings.themeMode.labelVi else settings.themeMode.labelEn,
                             hPad = hPad,
                             onClick = { showThemeDialog = true },
+                        )
+
+                        SettingsValueRow(
+                            title = s.language,
+                            value = settings.language.displayLabel(s.isVi),
+                            hPad = hPad,
+                            onClick = { showLanguageDialog = true },
                         )
                     }
 
@@ -641,7 +590,11 @@ fun SettingsScreen(
 
                         SettingsValueRow(
                             title = s.autoLockOnExit,
-                            value = if (settings.autoLockMinutes == 0) s.never else "${settings.autoLockMinutes} ${s.minutesSuffix}",
+                            value = when (settings.autoLockMinutes) {
+                                AppPreferences.AUTO_LOCK_IMMEDIATELY -> s.autoLockImmediately
+                                AppPreferences.AUTO_LOCK_NEVER -> s.never
+                                else -> "${settings.autoLockMinutes} ${s.minutesSuffix}"
+                            },
                             hPad = hPad,
                             onClick = { showAutoLockDialog = true },
                         )
@@ -695,10 +648,12 @@ fun SettingsScreen(
                                         true
                                     }
                                     if (!runtimeGranted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                        context.suppressAutoLockForPicker()
                                         notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                                     } else if (!ClipboardNotificationHelper.hasNotificationPermission(context) &&
                                         Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                                     ) {
+                                        context.suppressAutoLockForPicker()
                                         val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
                                             putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
                                         }
@@ -780,6 +735,7 @@ fun SettingsScreen(
 
                             Button(
                                 onClick = {
+                                    context.suppressAutoLockForPicker()
                                     val intent = Intent(Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE).apply {
                                         data = Uri.parse("package:${context.packageName}")
                                     }
@@ -803,19 +759,20 @@ fun SettingsScreen(
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(12.dp))
                                     .background(c.surface)
-                                    .clickable {
-                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                                            val intent = Intent(Settings.ACTION_CREDENTIAL_PROVIDER).apply {
-                                                data = Uri.parse("package:${context.packageName}")
-                                            }
-                                            runCatching { context.startActivity(intent) }
-                                                .onFailure {
-                                                    runCatching { context.startActivity(Intent(Settings.ACTION_SETTINGS)) }
-                                                }
-                                        } else {
-                                            onShowMessage(s.passkeyUnsupported)
+                                .clickable {
+                                    context.suppressAutoLockForPicker()
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                                        val intent = Intent(Settings.ACTION_CREDENTIAL_PROVIDER).apply {
+                                            data = Uri.parse("package:${context.packageName}")
                                         }
+                                        runCatching { context.startActivity(intent) }
+                                            .onFailure {
+                                                runCatching { context.startActivity(Intent(Settings.ACTION_SETTINGS)) }
+                                            }
+                                    } else {
+                                        onShowMessage(s.passkeyUnsupported)
                                     }
+                                }
                                     .padding(14.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -841,137 +798,72 @@ fun SettingsScreen(
 
                     SettingsPage.BACKUP -> {
                         val exportDay = remember { SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()) }
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = hPad, vertical = 18.dp),
-                            verticalArrangement = Arrangement.spacedBy(14.dp),
-                        ) {
-                            Text(s.importExportTitle, color = c.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-
-                            Button(
-                                onClick = {
-                                    importLauncher.launch(
-                                        arrayOf(
-                                            "application/json",
-                                            "application/zip",
-                                            "text/csv",
-                                            "text/comma-separated-values",
-                                            "*/*",
-                                        ),
-                                    )
-                                },
-                                enabled = !importExportBusy,
-                                shape = RoundedCornerShape(10.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = c.accentButtonBg, contentColor = Color.White),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(46.dp),
-                            ) {
-                                if (importExportBusy) {
-                                    CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
-                                } else {
-                                    Icon(Icons.Rounded.UploadFile, contentDescription = null, modifier = Modifier.size(20.dp))
-                                    Spacer(Modifier.size(8.dp))
-                                    Text(s.importVaultBtn, fontSize = 15.5.sp, fontWeight = FontWeight.SemiBold)
-                                }
-                            }
-                            Text(s.importVaultSub, color = c.textSecondary, fontSize = 13.5.sp)
-
-                            OutlinedButton(
-                                onClick = {
-                                    exportEncryptedMode = true
-                                    exportLauncher.launch("openvault-encrypted-backup-$exportDay.json")
-                                },
-                                enabled = !importExportBusy,
-                                shape = RoundedCornerShape(10.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(46.dp),
-                            ) {
-                                Icon(Icons.Rounded.Download, contentDescription = null, tint = c.accent, modifier = Modifier.size(20.dp))
-                                Spacer(Modifier.size(8.dp))
-                                Text(s.exportEncryptedBtn, color = c.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                            }
-                            Text(s.exportEncryptedSub, color = c.textSecondary, fontSize = 13.sp)
-
-                            OutlinedButton(
-                                onClick = { showPlaintextExportWarning = true },
-                                enabled = !importExportBusy,
-                                shape = RoundedCornerShape(10.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(46.dp),
-                            ) {
-                                Icon(Icons.Rounded.Download, contentDescription = null, tint = c.danger, modifier = Modifier.size(20.dp))
-                                Spacer(Modifier.size(8.dp))
-                                Text(s.exportPlaintextBtn, color = c.danger, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                            }
-                            Text(s.exportPlaintextSub, color = c.textSecondary, fontSize = 13.sp)
-
-                            HorizontalDivider(color = c.divider, thickness = 0.8.dp, modifier = Modifier.padding(vertical = 4.dp))
-
-                            Text(s.r2BackupTitle, color = c.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                            Text(s.r2BackupSub, color = c.textSecondary, fontSize = 14.sp)
-
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Button(
-                                    onClick = {
-                                        backupBusy = true
-                                        scope.launch {
-                                            runCatching { repository.triggerR2Backup() }
-                                                .onSuccess { res ->
-                                                    onShowMessage("R2 Snapshot Created (${res.ciphersCount} Items)!")
-                                                    runCatching { backups = repository.listR2Backups() }
-                                                }
-                                                .onFailure { onShowMessage("${it.message}") }
-                                            backupBusy = false
+                        SettingsBackupContent(
+                            activeItemCount = activeItemCount,
+                            backups = backups,
+                            backupBusy = backupBusy,
+                            backupsLoading = backupsLoading,
+                            backupsLoadedOnce = backupsLoadedOnce,
+                            importExportBusy = importExportBusy,
+                            hPad = hPad,
+                            onTriggerR2Backup = {
+                                backupBusy = true
+                                scope.launch {
+                                    runCatching { repository.triggerR2Backup() }
+                                        .onSuccess { res ->
+                                            onShowMessage(
+                                                if (s.isVi) {
+                                                    "Đã tạo bản sao lưu R2 (${res.ciphersCount} mục)!"
+                                                } else {
+                                                    "R2 Snapshot Created (${res.ciphersCount} Items)!"
+                                                },
+                                            )
+                                            runCatching {
+                                                backups = repository.listR2Backups()
+                                                backupsLoadedOnce = true
+                                            }
                                         }
-                                    },
-                                    enabled = !backupBusy,
-                                    shape = RoundedCornerShape(10.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = c.accentButtonBg, contentColor = Color.White),
-                                    modifier = Modifier.weight(1f).height(44.dp),
-                                ) {
-                                    Text(if (backupBusy) s.backingUp else s.backupNow, fontWeight = FontWeight.SemiBold)
+                                        .onFailure { onShowMessage("${it.message}") }
+                                    backupBusy = false
                                 }
-                                Button(
-                                    onClick = {
-                                        scope.launch {
-                                            runCatching { backups = repository.listR2Backups() }
-                                                .onFailure { onShowMessage("${it.message}") }
+                            },
+                            onRefreshR2History = {
+                                backupsLoading = true
+                                scope.launch {
+                                    runCatching { repository.listR2Backups() }
+                                        .onSuccess { list ->
+                                            backups = list
+                                            backupsLoadedOnce = true
                                         }
-                                    },
-                                    shape = RoundedCornerShape(10.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = c.surfaceElevated, contentColor = c.textPrimary),
-                                    modifier = Modifier.height(44.dp),
-                                ) {
-                                    Text(s.viewHistory)
+                                        .onFailure { onShowMessage("${it.message}") }
+                                    backupsLoading = false
                                 }
-                            }
-
-                            if (backups.isNotEmpty()) {
-                                HorizontalDivider(color = c.divider, thickness = 0.8.dp)
-                                backups.take(10).forEach { b ->
-                                    Text(
-                                        text = "• ${b.key.substringAfterLast('/')} (${b.size / 1024} KB)",
-                                        color = c.textSecondary,
-                                        fontSize = 13.5.sp,
-                                    )
-                                }
-                            }
-                        }
+                            },
+                            onImportVault = {
+                                context.suppressAutoLockForPicker()
+                                importLauncher.launch(
+                                    arrayOf(
+                                        "application/json",
+                                        "application/zip",
+                                        "text/csv",
+                                        "text/comma-separated-values",
+                                        "*/*",
+                                    ),
+                                )
+                            },
+                            onExportEncrypted = {
+                                context.suppressAutoLockForPicker()
+                                exportEncryptedMode = true
+                                exportLauncher.launch("openvault-encrypted-backup-$exportDay.json")
+                            },
+                            onExportPlaintext = {
+                                showPlaintextExportWarning = true
+                            },
+                        )
                     }
 
                     SettingsPage.ADVANCED -> {
-                        // Exact Image 15: Language + Allow screenshots!
-                        SettingsValueRow(
-                            title = s.language,
-                            value = settings.language.labelNative,
-                            hPad = hPad,
-                            onClick = { showLanguageDialog = true },
-                        )
-
+                        // Prevent or allow screenshots & recent-app previews
                         SettingsToggleItem(
                             title = s.allowScreenshots,
                             subtitle = s.allowScreenshotsSub,
@@ -1040,14 +932,12 @@ fun SettingsScreen(
                                         .clickable {
                                             aboutInfoDialog = (if (s.isVi) "Ghi chú phát hành" else "Release Notes") to
                                                 "v${BuildConfig.VERSION_NAME}\n" +
-                                                "• Vault Door 90° rotating keyhole unlock animation\n" +
-                                                "• 5-slide onboarding welcome carousel\n" +
-                                                "• Dedicated Search mode & animated Watchtower gauge\n" +
-                                                "• Floating Detail overlay & refined Navigation Rail on Z Fold 3\n" +
-                                                "• Real-time auto-sync with Cloudflare Workers + D1\n" +
-                                                "• Profile screen, Home Customize, Favicons & Custom Icons\n" +
-                                                "• Passkey deletion & +add more custom fields\n" +
-                                                "• English (default) & Vietnamese language support"
+                                                "• Vault+ isolated zero-knowledge personal document safe (PDF/images/CameraX)\n" +
+                                                "• Clipboard Guard live countdown notification & quick clear\n" +
+                                                "• Vault Door 90° rotating keyhole & 6-digit PIN / Biometrics\n" +
+                                                "• Account Profile E2EE sync & Master Password update\n" +
+                                                "• Real-time auto-sync with Cloudflare Workers + D1 + R2\n" +
+                                                "• System default, English & Vietnamese language support"
                                         }
                                         .padding(horizontal = 18.dp, vertical = 16.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -1067,7 +957,9 @@ fun SettingsScreen(
                                     )
                                 }
 
-                                Spacer(modifier = Modifier.height(6.dp))
+                                AboutAuthorGitHubCard(isVi = s.isVi)
+
+                                Spacer(modifier = Modifier.height(4.dp))
 
                                 Text(
                                     text = "© 2026 OpenVault. MIT Open Source.",
@@ -1104,7 +996,7 @@ fun SettingsScreen(
     if (showLanguageDialog) {
         SingleChoiceDialog(
             title = s.language,
-            options = AppLanguage.entries.map { it to it.labelNative },
+            options = AppLanguage.entries.map { it to it.displayLabel(s.isVi) },
             selected = settings.language,
             onSelect = {
                 repository.preferences.setLanguage(it)
@@ -1130,8 +1022,20 @@ fun SettingsScreen(
     if (showAutoLockDialog) {
         SingleChoiceDialog(
             title = s.autoLockOnExit,
-            options = listOf(1, 5, 10, 15, 30, 0).map { m ->
-                m to if (m == 0) s.never else "$m ${s.minutesSuffix}"
+            options = listOf(
+                AppPreferences.AUTO_LOCK_IMMEDIATELY,
+                1,
+                5,
+                10,
+                15,
+                30,
+                AppPreferences.AUTO_LOCK_NEVER,
+            ).map { m ->
+                m to when (m) {
+                    AppPreferences.AUTO_LOCK_IMMEDIATELY -> s.autoLockImmediately
+                    AppPreferences.AUTO_LOCK_NEVER -> s.never
+                    else -> "$m ${s.minutesSuffix}"
+                }
             },
             selected = settings.autoLockMinutes,
             onSelect = {
@@ -1291,6 +1195,7 @@ fun SettingsScreen(
                 TextButton(
                     onClick = {
                         showPlaintextExportWarning = false
+                        context.suppressAutoLockForPicker()
                         exportEncryptedMode = false
                         exportLauncher.launch("openvault-bitwarden-export-$exportDay.json")
                     },

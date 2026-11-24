@@ -1,16 +1,25 @@
 import { estimatePasswordStrength } from "@openvault/crypto-core";
-import { Eye, EyeOff, Globe, Lock, ShieldCheck } from "lucide-react";
+import { Eye, EyeOff, Globe, Lock } from "lucide-react";
 import { useState } from "react";
 import { DEFAULT_SERVER_URL } from "../../shared/constants.js";
+import type { AppLanguage } from "../../shared/i18n.js";
+import { OpenVaultLogo } from "../components/OpenVaultLogo.js";
 import { sendBg } from "../components/bridge.js";
 
 interface AuthScreenProps {
   initialServerUrl: string;
+  language?: AppLanguage;
   onAuthenticated: () => Promise<void>;
   onToast: (text: string, tone?: "info" | "success" | "error") => void;
 }
 
-export function AuthScreen({ initialServerUrl, onAuthenticated, onToast }: AuthScreenProps) {
+export function AuthScreen({
+  initialServerUrl,
+  language = "en",
+  onAuthenticated,
+  onToast,
+}: AuthScreenProps) {
+  const isVi = language === "vi";
   const [mode, setMode] = useState<"login" | "register">("login");
   const [serverUrl, setServerUrl] = useState(initialServerUrl || DEFAULT_SERVER_URL);
   const [showServerConfig, setShowServerConfig] = useState(false);
@@ -30,17 +39,25 @@ export function AuthScreen({ initialServerUrl, onAuthenticated, onToast }: AuthS
     setError(null);
 
     if (!email.trim() || !masterPassword) {
-      setError("Vui lòng nhập đầy đủ email và Master Password.");
+      setError(
+        isVi
+          ? "Vui lòng nhập đầy đủ email và Master Password."
+          : "Please enter both email and Master Password.",
+      );
       return;
     }
 
     if (mode === "register") {
       if (masterPassword.length < 10) {
-        setError("Master Password nên dài ít nhất 10 ký tự để đảm bảo an toàn.");
+        setError(
+          isVi
+            ? "Master Password nên dài ít nhất 10 ký tự để đảm bảo an toàn."
+            : "Master Password must be at least 10 characters long.",
+        );
         return;
       }
       if (masterPassword !== confirmPassword) {
-        setError("Mật khẩu xác nhận không khớp.");
+        setError(isVi ? "Mật khẩu xác nhận không khớp." : "Passwords do not match.");
         return;
       }
     }
@@ -56,7 +73,12 @@ export function AuthScreen({ initialServerUrl, onAuthenticated, onToast }: AuthS
           masterPassword,
           masterPasswordHint: hint.trim() || undefined,
         });
-        onToast("Đã tạo tài khoản OpenVault (Argon2id Zero-Knowledge)!", "success");
+        onToast(
+          isVi
+            ? "Đã tạo tài khoản OpenVault (Argon2id Zero-Knowledge)!"
+            : "Created OpenVault account (Argon2id Zero-Knowledge)!",
+          "success",
+        );
       } else {
         await sendBg({
           type: "LOGIN",
@@ -64,11 +86,20 @@ export function AuthScreen({ initialServerUrl, onAuthenticated, onToast }: AuthS
           email: email.trim(),
           masterPassword,
         });
-        onToast("Đăng nhập và đồng bộ Vault thành công!", "success");
+        onToast(
+          isVi ? "Đăng nhập và đồng bộ Vault thành công!" : "Signed in and synced vault!",
+          "success",
+        );
       }
       await onAuthenticated();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Không thể kết nối máy chủ.");
+      setError(
+        err instanceof Error
+          ? err.message
+          : isVi
+            ? "Không thể kết nối máy chủ."
+            : "Unable to reach server.",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -77,15 +108,14 @@ export function AuthScreen({ initialServerUrl, onAuthenticated, onToast }: AuthS
   return (
     <div className="flex-1 flex flex-col overflow-y-auto ov-scroll px-5 py-6">
       <div className="flex flex-col items-center text-center mb-5">
-        <div
-          className="w-14 h-14 rounded-[18px] flex items-center justify-center text-white shadow-md mb-3"
-          style={{ background: "linear-gradient(135deg, #0A84FF, #0455BF)" }}
-        >
-          <ShieldCheck size={28} strokeWidth={2.2} />
+        <div className="mb-3 shadow-md rounded-[15px]">
+          <OpenVaultLogo variant="crest" size={56} />
         </div>
         <h1 className="text-[19px] font-bold tracking-tight m-0">OpenVault</h1>
         <p className="text-[12.5px] text-[var(--text-secondary)] mt-1 mb-0">
-          Kho mật khẩu Zero-Knowledge chuẩn Bitwarden
+          {isVi
+            ? "Kho mật khẩu Zero-Knowledge · Argon2id · AES-256"
+            : "Zero-Knowledge Password Manager · Argon2id · AES-256"}
         </p>
       </div>
 
@@ -103,7 +133,7 @@ export function AuthScreen({ initialServerUrl, onAuthenticated, onToast }: AuthS
               : "bg-transparent text-[var(--text-secondary)]"
           }`}
         >
-          Đăng nhập
+          {isVi ? "Đăng nhập" : "Sign In"}
         </button>
         <button
           type="button"
@@ -117,7 +147,7 @@ export function AuthScreen({ initialServerUrl, onAuthenticated, onToast }: AuthS
               : "bg-transparent text-[var(--text-secondary)]"
           }`}
         >
-          Tạo tài khoản mới
+          {isVi ? "Tạo tài khoản mới" : "Create Account"}
         </button>
       </div>
 
@@ -125,7 +155,7 @@ export function AuthScreen({ initialServerUrl, onAuthenticated, onToast }: AuthS
         {mode === "register" ? (
           <div>
             <label className="block text-[11.5px] font-semibold text-[var(--text-secondary)] mb-1">
-              Tên hiển thị
+              {isVi ? "Tên hiển thị" : "Display Name"}
             </label>
             <input
               type="text"
@@ -161,7 +191,7 @@ export function AuthScreen({ initialServerUrl, onAuthenticated, onToast }: AuthS
             <input
               type={showPassword ? "text" : "password"}
               className="ov-input pr-9"
-              placeholder="Nhập Master Password"
+              placeholder={isVi ? "Nhập Master Password" : "Enter Master Password"}
               value={masterPassword}
               onChange={(e) => setMasterPassword(e.target.value)}
               autoComplete={mode === "register" ? "new-password" : "current-password"}
@@ -171,7 +201,15 @@ export function AuthScreen({ initialServerUrl, onAuthenticated, onToast }: AuthS
               type="button"
               onClick={() => setShowPassword((v) => !v)}
               className="ov-icon-btn w-7 h-7 absolute right-1.5 top-1/2 -translate-y-1/2"
-              aria-label={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+              aria-label={
+                showPassword
+                  ? isVi
+                    ? "Ẩn mật khẩu"
+                    : "Hide password"
+                  : isVi
+                    ? "Hiện mật khẩu"
+                    : "Show password"
+              }
             >
               {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
             </button>
@@ -204,12 +242,12 @@ export function AuthScreen({ initialServerUrl, onAuthenticated, onToast }: AuthS
           <>
             <div>
               <label className="block text-[11.5px] font-semibold text-[var(--text-secondary)] mb-1">
-                Xác nhận Master Password
+                {isVi ? "Xác nhận Master Password" : "Confirm Master Password"}
               </label>
               <input
                 type={showPassword ? "text" : "password"}
                 className="ov-input"
-                placeholder="Nhập lại Master Password"
+                placeholder={isVi ? "Nhập lại Master Password" : "Re-enter Master Password"}
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 autoComplete="new-password"
@@ -219,12 +257,12 @@ export function AuthScreen({ initialServerUrl, onAuthenticated, onToast }: AuthS
 
             <div>
               <label className="block text-[11.5px] font-semibold text-[var(--text-secondary)] mb-1">
-                Gợi ý mật khẩu (tùy chọn)
+                {isVi ? "Gợi ý mật khẩu (tùy chọn)" : "Password Hint (optional)"}
               </label>
               <input
                 type="text"
                 className="ov-input"
-                placeholder="Gợi ý không chứa mật khẩu"
+                placeholder={isVi ? "Gợi ý không chứa mật khẩu" : "Optional hint without password"}
                 value={hint}
                 onChange={(e) => setHint(e.target.value)}
               />
@@ -244,7 +282,7 @@ export function AuthScreen({ initialServerUrl, onAuthenticated, onToast }: AuthS
               <span className="truncate">{serverUrl.replace(/^https?:\/\//, "")}</span>
             </span>
             <span className="text-[11px] font-semibold text-[var(--accent)] shrink-0 ml-2">
-              {showServerConfig ? "Ẩn" : "Đổi server"}
+              {showServerConfig ? (isVi ? "Ẩn" : "Hide") : isVi ? "Đổi server" : "Change"}
             </span>
           </button>
           {showServerConfig ? (
@@ -276,11 +314,19 @@ export function AuthScreen({ initialServerUrl, onAuthenticated, onToast }: AuthS
           <span>
             {submitting
               ? mode === "register"
-                ? "Đang sinh khóa Argon2id..."
-                : "Đang giải mã & đăng nhập..."
+                ? isVi
+                  ? "Đang sinh khóa Argon2id..."
+                  : "Deriving Argon2id keys..."
+                : isVi
+                  ? "Đang giải mã & đăng nhập..."
+                  : "Signing in & decrypting..."
               : mode === "register"
-                ? "Khởi tạo Kho Mật Khẩu"
-                : "Mở Kho Mật Khẩu"}
+                ? isVi
+                  ? "Khởi tạo Kho Mật Khẩu"
+                  : "Create OpenVault"
+                : isVi
+                  ? "Mở Kho Mật Khẩu"
+                  : "Unlock Vault"}
           </span>
         </button>
       </form>

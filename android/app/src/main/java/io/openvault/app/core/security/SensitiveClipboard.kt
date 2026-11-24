@@ -32,7 +32,7 @@ class SensitiveClipboard(
     private var activeLabel: String? = null
     private var activeSecretText: String? = null
     private var activeTotalSeconds: Int = 0
-    private var activeRemainingSeconds: Int = 0
+    private var activeExpiresAtMs: Long = 0L
     private var activeIsSensitive: Boolean = false
 
     fun copy(label: String, text: String, isSensitive: Boolean = true) {
@@ -51,32 +51,28 @@ class SensitiveClipboard(
 
         val settings = preferences.settings.value
         val clearSeconds = settings.clipboardClearSeconds
-        val isVi = settings.language == AppLanguage.VIETNAMESE
+        val isVi = settings.language.isVietnameseActive()
         clearJob?.cancel()
 
         activeLabel = label
         activeSecretText = text
         activeTotalSeconds = clearSeconds
-        activeRemainingSeconds = clearSeconds
         activeIsSensitive = isSensitive
 
         if (isSensitive && clearSeconds > 0) {
+            val expiresAtMs = System.currentTimeMillis() + clearSeconds * 1_000L
+            activeExpiresAtMs = expiresAtMs
+            if (settings.clipboardNotificationsEnabled) {
+                ClipboardNotificationHelper.showCountdownNotification(
+                    context = appContext,
+                    label = label,
+                    expiresAtMs = expiresAtMs,
+                    totalSeconds = clearSeconds,
+                    isVi = isVi,
+                )
+            }
             clearJob = scope.launch {
-                for (remaining in clearSeconds downTo 1) {
-                    if (!isActive) break
-                    activeRemainingSeconds = remaining
-                    val currentSettings = preferences.settings.value
-                    if (currentSettings.clipboardNotificationsEnabled) {
-                        ClipboardNotificationHelper.showCountdownNotification(
-                            context = appContext,
-                            label = label,
-                            remainingSeconds = remaining,
-                            totalSeconds = clearSeconds,
-                            isVi = currentSettings.language == AppLanguage.VIETNAMESE,
-                        )
-                    }
-                    delay(1_000L)
-                }
+                delay(clearSeconds * 1_000L)
                 if (!isActive) return@launch
 
                 val cleared = clearClipboardIfMatches(text)
@@ -86,13 +82,14 @@ class SensitiveClipboard(
                     ClipboardNotificationHelper.showClearedConfirmation(
                         context = appContext,
                         label = label,
-                        isVi = currentSettings.language == AppLanguage.VIETNAMESE,
+                        isVi = currentSettings.language.isVietnameseActive(),
                     )
                 } else {
                     ClipboardNotificationHelper.cancelNotification(appContext)
                 }
             }
         } else {
+            activeExpiresAtMs = 0L
             if (settings.clipboardNotificationsEnabled) {
                 ClipboardNotificationHelper.showStaticCopiedNotification(
                     context = appContext,
@@ -123,7 +120,7 @@ class SensitiveClipboard(
             ClipboardNotificationHelper.showClearedConfirmation(
                 context = appContext,
                 label = label,
-                isVi = currentSettings.language == AppLanguage.VIETNAMESE,
+                isVi = currentSettings.language.isVietnameseActive(),
             )
         } else {
             ClipboardNotificationHelper.cancelNotification(appContext)
@@ -132,19 +129,21 @@ class SensitiveClipboard(
 
     fun refreshActiveNotification() {
         val label = activeLabel ?: return
-        val remaining = activeRemainingSeconds
+        val expiresAt = activeExpiresAtMs
         val total = activeTotalSeconds
         val settings = preferences.settings.value
         if (!settings.clipboardNotificationsEnabled) return
-        val isVi = settings.language == AppLanguage.VIETNAMESE
-        if (activeIsSensitive && total > 0 && remaining > 0) {
-            ClipboardNotificationHelper.showCountdownNotification(
-                context = appContext,
-                label = label,
-                remainingSeconds = remaining,
-                totalSeconds = total,
-                isVi = isVi,
-            )
+        val isVi = settings.language.isVietnameseActive()
+        if (activeIsSensitive && total > 0) {
+            if (expiresAt > System.currentTimeMillis()) {
+                ClipboardNotificationHelper.showCountdownNotification(
+                    context = appContext,
+                    label = label,
+                    expiresAtMs = expiresAt,
+                    totalSeconds = total,
+                    isVi = isVi,
+                )
+            }
         } else {
             ClipboardNotificationHelper.showStaticCopiedNotification(
                 context = appContext,
@@ -180,7 +179,7 @@ class SensitiveClipboard(
         activeLabel = null
         activeSecretText = null
         activeTotalSeconds = 0
-        activeRemainingSeconds = 0
+        activeExpiresAtMs = 0L
         activeIsSensitive = false
     }
 }

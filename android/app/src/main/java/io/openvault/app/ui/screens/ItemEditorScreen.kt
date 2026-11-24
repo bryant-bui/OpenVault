@@ -70,7 +70,6 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -92,6 +91,7 @@ import io.openvault.app.core.crypto.VaultItem
 import io.openvault.app.core.crypto.VaultLogin
 import io.openvault.app.core.crypto.VaultUri
 import io.openvault.app.core.media.IconLoader
+import io.openvault.app.suppressAutoLockForPicker
 import io.openvault.app.ui.components.EditingStripedHeader
 import io.openvault.app.ui.components.ItemIconTile
 import io.openvault.app.ui.components.OnePassAccountAvatar
@@ -100,6 +100,7 @@ import io.openvault.app.ui.components.OnePassChip
 import io.openvault.app.ui.theme.LocalFoldableLayout
 import io.openvault.app.ui.theme.LocalOpenVaultColors
 import io.openvault.app.ui.theme.LocalStrings
+import io.openvault.app.ui.theme.OpenVaultMonoFontFamily
 import kotlinx.coroutines.launch
 
 private data class EditableCustomField(
@@ -256,9 +257,39 @@ fun ItemEditorScreen(
     ) { uri ->
         if (uri != null) {
             scope.launch {
-                val b64 = IconLoader.compressPickedImageToBase64(context, uri, targetPx = 96, quality = 78)
+                val b64 = IconLoader.compressPickedImageToBase64(context, uri, targetPx = 128, quality = 80)
                 if (b64 != null) customIconBase64 = b64
             }
+        }
+    }
+
+    val iconFallbackPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent(),
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val b64 = IconLoader.compressPickedImageToBase64(context, uri, targetPx = 128, quality = 80)
+                if (b64 != null) customIconBase64 = b64
+            }
+        }
+    }
+
+    fun launchIconPicker() {
+        context.suppressAutoLockForPicker()
+        val usePhotoPicker = runCatching {
+            ActivityResultContracts.PickVisualMedia.isPhotoPickerAvailable(context)
+        }.getOrDefault(false)
+        val launched = if (usePhotoPicker) {
+            runCatching {
+                iconPicker.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                )
+            }.isSuccess
+        } else {
+            false
+        }
+        if (!launched) {
+            runCatching { iconFallbackPicker.launch("image/*") }
         }
     }
 
@@ -467,9 +498,7 @@ fun ItemEditorScreen(
                                 leadingIcon = { Icon(Icons.Rounded.Image, contentDescription = null, tint = c.accent) },
                                 onClick = {
                                     showIconMenu = false
-                                    iconPicker.launch(
-                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                                    )
+                                    launchIconPicker()
                                 },
                             )
                             if (customIconBase64 != null) {
@@ -855,11 +884,12 @@ fun ItemEditorScreen(
                                 if (idx > 0) HorizontalDivider(color = c.divider, thickness = 0.8.dp)
 
                                 if (RecoveryCodeUtils.isRecoveryCodesField(field.label)) {
-                                    val slots = RecoveryCodeUtils.parseRecoveryCodesToSlots(field.value)
+                                    var minSlotCount by remember(field.id) { mutableStateOf(RecoveryCodeUtils.RECOVERY_DEFAULT_SLOTS) }
+                                    val slots = RecoveryCodeUtils.parseRecoveryCodesToSlots(field.value, minSlotCount)
                                     val filledCount = RecoveryCodeUtils.countFilledRecoveryCodes(slots)
-                                    val cols = if (fold.isNarrowCover) 2 else 4
+                                    val cols = 2
                                     val focusRequesters = remember(field.id) {
-                                        List(RecoveryCodeUtils.RECOVERY_SLOT_COUNT) { FocusRequester() }
+                                        List(RecoveryCodeUtils.RECOVERY_MAX_SLOTS) { FocusRequester() }
                                     }
 
                                     Column(
@@ -905,7 +935,7 @@ fun ItemEditorScreen(
                                                 modifier = Modifier.weight(1f),
                                             )
                                             Text(
-                                                text = "$filledCount/20",
+                                                text = "$filledCount/${slots.size}",
                                                 color = c.accent,
                                                 fontSize = 12.sp,
                                                 fontWeight = FontWeight.SemiBold,
@@ -924,6 +954,9 @@ fun ItemEditorScreen(
                                                             rawText = clip,
                                                             forceFromStart = true,
                                                         )
+                                                        if (nextSlots.size > minSlotCount) {
+                                                            minSlotCount = nextSlots.size
+                                                        }
                                                         customFields[idx] = field.copy(
                                                             value = RecoveryCodeUtils.serializeRecoveryCodesSlots(nextSlots),
                                                             isTemplateSeed = false,
@@ -941,6 +974,7 @@ fun ItemEditorScreen(
                                             }
                                             IconButton(
                                                 onClick = {
+                                                    minSlotCount = RecoveryCodeUtils.RECOVERY_DEFAULT_SLOTS
                                                     customFields[idx] = field.copy(value = "", isTemplateSeed = false)
                                                 },
                                                 modifier = Modifier.size(34.dp),
@@ -984,29 +1018,35 @@ fun ItemEditorScreen(
                                                             Text(
                                                                 text = "%02d".format(slotIdx + 1),
                                                                 color = c.textMuted,
-                                                                fontFamily = FontFamily.Monospace,
+                                                                fontFamily = OpenVaultMonoFontFamily,
                                                                 fontSize = 11.5.sp,
                                                             )
                                                             BasicTextField(
                                                                 value = slotVal,
                                                                 onValueChange = { rawInput ->
-                                                                    val hasDelimiterOrMulti = rawInput.length > RecoveryCodeUtils.RECOVERY_MAX_LEN ||
-                                                                        rawInput.any { !it.isLetterOrDigit() }
-                                                                    if (hasDelimiterOrMulti && rawInput.length > 1) {
+                                                                    val hasMultiDelimiter = rawInput.length > RecoveryCodeUtils.RECOVERY_MAX_LEN ||
+                                                                        rawInput.contains('\n') || rawInput.contains('\t') ||
+                                                                        rawInput.contains(',') || rawInput.contains(';')
+                                                                    if (hasMultiDelimiter && rawInput.length > 1) {
                                                                         val (nextSlots, nextFocus) = RecoveryCodeUtils.applyRecoveryCodesPaste(
                                                                             currentSlots = slots,
                                                                             targetIndex = slotIdx,
                                                                             rawText = rawInput,
                                                                         )
+                                                                        if (nextSlots.size > minSlotCount) {
+                                                                            minSlotCount = nextSlots.size
+                                                                        }
                                                                         customFields[idx] = field.copy(
                                                                             value = RecoveryCodeUtils.serializeRecoveryCodesSlots(nextSlots),
                                                                             isTemplateSeed = false,
                                                                         )
-                                                                        if (nextFocus != slotIdx) {
+                                                                        if (nextFocus != slotIdx && nextFocus < focusRequesters.size) {
                                                                             runCatching { focusRequesters[nextFocus].requestFocus() }
                                                                         }
                                                                     } else {
-                                                                        val clean = rawInput.filter { it.isLetterOrDigit() }
+                                                                        val clean = rawInput
+                                                                            .filter { it.isLetterOrDigit() || it == ' ' || it == '-' }
+                                                                            .replace(Regex("\\s+"), " ")
                                                                             .take(RecoveryCodeUtils.RECOVERY_MAX_LEN)
                                                                         val updated = slots.toMutableList()
                                                                         updated[slotIdx] = clean
@@ -1014,28 +1054,23 @@ fun ItemEditorScreen(
                                                                             value = RecoveryCodeUtils.serializeRecoveryCodesSlots(updated),
                                                                             isTemplateSeed = false,
                                                                         )
-                                                                        if (clean.length == RecoveryCodeUtils.RECOVERY_MAX_LEN &&
-                                                                            slotIdx < RecoveryCodeUtils.RECOVERY_SLOT_COUNT - 1
-                                                                        ) {
-                                                                            runCatching { focusRequesters[slotIdx + 1].requestFocus() }
-                                                                        }
                                                                     }
                                                                 },
                                                                 singleLine = true,
                                                                 textStyle = TextStyle(
                                                                     color = c.textPrimary,
-                                                                    fontFamily = FontFamily.Monospace,
-                                                                    fontSize = 15.sp,
+                                                                    fontFamily = OpenVaultMonoFontFamily,
+                                                                    fontSize = 14.sp,
                                                                     fontWeight = FontWeight.SemiBold,
                                                                 ),
                                                                 cursorBrush = SolidColor(c.accent),
                                                                 decorationBox = { inner ->
                                                                     if (slotVal.isEmpty()) {
                                                                         Text(
-                                                                            text = "••••",
+                                                                            text = "123456",
                                                                             color = c.textMuted.copy(alpha = 0.4f),
-                                                                            fontFamily = FontFamily.Monospace,
-                                                                            fontSize = 15.sp,
+                                                                            fontFamily = OpenVaultMonoFontFamily,
+                                                                            fontSize = 14.sp,
                                                                         )
                                                                     }
                                                                     inner()
@@ -1048,6 +1083,29 @@ fun ItemEditorScreen(
                                                         }
                                                     }
                                                 }
+                                            }
+                                        }
+
+                                        if (slots.size < RecoveryCodeUtils.RECOVERY_MAX_SLOTS) {
+                                            TextButton(
+                                                onClick = {
+                                                    minSlotCount = minOf(RecoveryCodeUtils.RECOVERY_MAX_SLOTS, slots.size + 2)
+                                                },
+                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                            ) {
+                                                Icon(
+                                                    Icons.Rounded.Add,
+                                                    contentDescription = null,
+                                                    tint = c.accent,
+                                                    modifier = Modifier.size(16.dp),
+                                                )
+                                                Spacer(Modifier.size(4.dp))
+                                                Text(
+                                                    text = if (s.isVi) "Thêm 2 ô mã" else "Add 2 slots",
+                                                    color = c.accent,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                )
                                             }
                                         }
                                     }

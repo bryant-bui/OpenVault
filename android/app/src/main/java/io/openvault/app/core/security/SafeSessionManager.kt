@@ -36,8 +36,28 @@ class SafeSessionManager : DefaultLifecycleObserver {
     @Volatile
     private var backgroundedAtMs: Long = 0L
 
+    @Volatile
+    private var lockOnExit: Boolean = false
+
+    @Volatile
+    private var suppressNextStopUntilMs: Long = 0L
+
     private val _lockState = MutableStateFlow(SafeLockState.NOT_INITIALIZED)
     val lockState: StateFlow<SafeLockState> = _lockState.asStateFlow()
+
+    fun setLockOnExit(enabled: Boolean) {
+        lockOnExit = enabled
+    }
+
+    fun suppressNextBackgroundLock(windowMs: Long = 90_000L) {
+        suppressNextStopUntilMs = System.currentTimeMillis() + windowMs
+    }
+
+    private fun consumeStopSuppression(): Boolean {
+        val until = suppressNextStopUntilMs
+        suppressNextStopUntilMs = 0L
+        return until > System.currentTimeMillis()
+    }
 
     fun registerProcessLifecycle() {
         ProcessLifecycleOwner.get().lifecycle.addObserver(this)
@@ -120,7 +140,11 @@ class SafeSessionManager : DefaultLifecycleObserver {
     }
 
     override fun onStop(owner: LifecycleOwner) {
-        if (safeKey != null) {
+        if (safeKey == null) return
+        if (consumeStopSuppression()) return
+        if (lockOnExit) {
+            lock()
+        } else {
             backgroundedAtMs = System.currentTimeMillis()
         }
     }
@@ -128,6 +152,10 @@ class SafeSessionManager : DefaultLifecycleObserver {
     override fun onStart(owner: LifecycleOwner) {
         enforceAutoLockIfExpired()
         backgroundedAtMs = 0L
+    }
+
+    override fun onResume(owner: LifecycleOwner) {
+        suppressNextStopUntilMs = 0L
     }
 
     private fun wipeKey() {

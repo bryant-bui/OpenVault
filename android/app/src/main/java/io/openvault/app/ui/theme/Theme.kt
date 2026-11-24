@@ -8,14 +8,32 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import io.openvault.app.R
 import io.openvault.app.core.security.AppLanguage
 import io.openvault.app.core.security.AppThemeMode
+import java.util.Locale
+
+val OpenVaultSansFontFamily = FontFamily(
+    Font(R.font.inter_regular, FontWeight.Normal),
+    Font(R.font.inter_medium, FontWeight.Medium),
+    Font(R.font.inter_semibold, FontWeight.SemiBold),
+    Font(R.font.inter_bold, FontWeight.Bold),
+)
+
+val OpenVaultMonoFontFamily = FontFamily(
+    Font(R.font.jetbrains_mono_regular, FontWeight.Normal),
+    Font(R.font.jetbrains_mono_semibold, FontWeight.SemiBold),
+    Font(R.font.jetbrains_mono_bold, FontWeight.Bold),
+)
 
 /**
  * Authentic 1Password 8 Android (Material 3) flat design tokens:
@@ -130,50 +148,51 @@ private val LightOnePassColors = OpenVaultColors(
 
 val LocalOpenVaultColors = staticCompositionLocalOf { DarkOnePassColors }
 val LocalShowWebsiteIcons = staticCompositionLocalOf { true }
-val LocalAccountAvatar = staticCompositionLocalOf<String?> { null }
+val LocalAccountAvatar = compositionLocalOf<String?> { null }
+val LocalAccountDisplayName = compositionLocalOf<String?> { null }
 
 private val OnePassTypography = Typography(
     headlineLarge = TextStyle(
-        fontFamily = FontFamily.SansSerif,
+        fontFamily = OpenVaultSansFontFamily,
         fontWeight = FontWeight.Bold,
         fontSize = 32.sp,
         lineHeight = 38.sp,
         letterSpacing = (-0.6).sp,
     ),
     headlineMedium = TextStyle(
-        fontFamily = FontFamily.SansSerif,
+        fontFamily = OpenVaultSansFontFamily,
         fontWeight = FontWeight.Bold,
         fontSize = 25.sp,
         lineHeight = 31.sp,
         letterSpacing = (-0.4).sp,
     ),
     titleLarge = TextStyle(
-        fontFamily = FontFamily.SansSerif,
+        fontFamily = OpenVaultSansFontFamily,
         fontWeight = FontWeight.SemiBold,
         fontSize = 20.sp,
         lineHeight = 26.sp,
         letterSpacing = (-0.2).sp,
     ),
     titleMedium = TextStyle(
-        fontFamily = FontFamily.SansSerif,
+        fontFamily = OpenVaultSansFontFamily,
         fontWeight = FontWeight.SemiBold,
         fontSize = 17.sp,
         lineHeight = 23.sp,
     ),
     bodyLarge = TextStyle(
-        fontFamily = FontFamily.SansSerif,
+        fontFamily = OpenVaultSansFontFamily,
         fontWeight = FontWeight.Normal,
         fontSize = 16.sp,
         lineHeight = 22.sp,
     ),
     bodyMedium = TextStyle(
-        fontFamily = FontFamily.SansSerif,
+        fontFamily = OpenVaultSansFontFamily,
         fontWeight = FontWeight.Normal,
         fontSize = 14.5.sp,
         lineHeight = 20.sp,
     ),
     labelMedium = TextStyle(
-        fontFamily = FontFamily.SansSerif,
+        fontFamily = OpenVaultSansFontFamily,
         fontWeight = FontWeight.Medium,
         fontSize = 13.sp,
         lineHeight = 18.sp,
@@ -183,9 +202,10 @@ private val OnePassTypography = Typography(
 @Composable
 fun OpenVaultTheme(
     themeMode: AppThemeMode = AppThemeMode.DARK,
-    language: AppLanguage = AppLanguage.ENGLISH,
+    language: AppLanguage = AppLanguage.SYSTEM,
     showWebsiteIcons: Boolean = true,
     accountAvatarBase64: String? = null,
+    accountDisplayName: String? = null,
     content: @Composable () -> Unit,
 ) {
     val isDark = when (themeMode) {
@@ -194,7 +214,9 @@ fun OpenVaultTheme(
         AppThemeMode.SYSTEM -> isSystemInDarkTheme()
     }
     val ovColors = if (isDark) DarkOnePassColors else LightOnePassColors
-    val strings = stringsFor(language)
+    val config = LocalConfiguration.current
+    val activeLocale = config.locales.get(0) ?: Locale.getDefault()
+    val strings = stringsFor(language, activeLocale)
 
     val materialColors = if (isDark) {
         darkColorScheme(
@@ -229,6 +251,7 @@ fun OpenVaultTheme(
         LocalStrings provides strings,
         LocalShowWebsiteIcons provides showWebsiteIcons,
         LocalAccountAvatar provides accountAvatarBase64,
+        LocalAccountDisplayName provides accountDisplayName,
     ) {
         MaterialTheme(
             colorScheme = materialColors,

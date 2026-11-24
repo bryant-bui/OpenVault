@@ -6,7 +6,6 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -57,15 +56,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
@@ -85,7 +78,7 @@ import androidx.compose.ui.unit.sp
 import androidx.fragment.app.FragmentActivity
 import io.openvault.app.core.security.BiometricKeyManager
 import io.openvault.app.data.VaultRepository
-import io.openvault.app.ui.components.OnePassAccountAvatar
+import io.openvault.app.ui.components.OpenVaultKeyholeDial
 import io.openvault.app.ui.theme.LocalFoldableLayout
 import io.openvault.app.ui.theme.LocalOpenVaultColors
 import io.openvault.app.ui.theme.LocalStrings
@@ -345,15 +338,7 @@ fun UnlockScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 // Leave room for the lower half of the 94dp keyhole dial
-                Spacer(modifier = Modifier.height(dialSize / 2 + if (showingPin) 14.dp else 24.dp))
-
-                // User Avatar (custom photo or monogram badge)
-                OnePassAccountAvatar(
-                    email = account.email,
-                    size = if (fold.isNarrowCover) 52.dp else 58.dp,
-                )
-
-                Spacer(modifier = Modifier.height(if (showingPin) 12.dp else 22.dp))
+                Spacer(modifier = Modifier.height(dialSize / 2 + if (showingPin) 22.dp else 32.dp))
 
                 if (showingPin) {
                     // ── 6-DIGIT INSTANT AUTO-UNLOCK PIN MODE ────────────────
@@ -423,18 +408,11 @@ fun UnlockScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(8.dp))
                     if (errorMessage != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = errorMessage!!,
                             color = c.danger,
-                            fontSize = 12.5.sp,
-                            textAlign = TextAlign.Center,
-                        )
-                    } else {
-                        Text(
-                            text = account.email,
-                            color = c.textMuted,
                             fontSize = 12.5.sp,
                             textAlign = TextAlign.Center,
                         )
@@ -627,23 +605,16 @@ fun UnlockScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(18.dp))
-
-                    Text(
-                        text = errorMessage ?: if (s.isVi) "OpenVault đang khóa." else "OpenVault is locked.",
-                        color = if (errorMessage != null) c.danger else c.textSecondary,
-                        fontSize = 13.5.sp,
-                        fontWeight = if (errorMessage != null) FontWeight.Medium else FontWeight.Normal,
-                        textAlign = TextAlign.Center,
-                    )
-
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = account.email,
-                        color = c.textMuted,
-                        fontSize = 12.sp,
-                        textAlign = TextAlign.Center,
-                    )
+                    if (errorMessage != null) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = errorMessage!!,
+                            color = c.danger,
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.Medium,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -698,110 +669,10 @@ fun UnlockScreen(
                 .size(dialSize),
             contentAlignment = Alignment.Center,
         ) {
-            VaultKeyholeDial(
+            OpenVaultKeyholeDial(
                 rotationDegrees = keyholeRotation.value,
                 modifier = Modifier.fillMaxSize(),
             )
-        }
-    }
-}
-
-/**
- * Metallic circular vault dial matching Image 19:
- * - Outer silver/white beveled ring
- * - Cobalt-to-sky gradient ring
- * - Soft recessed silver center disc
- * - Rotating notched dark-navy keyhole bolt (rotates 0° -> 90° on unlock!)
- */
-@Composable
-private fun VaultKeyholeDial(
-    rotationDegrees: Float,
-    modifier: Modifier = Modifier,
-) {
-    Canvas(modifier = modifier) {
-        val r = size.minDimension / 2f
-        val center = Offset(size.width / 2f, size.height / 2f)
-
-        // Subtle outer drop shadow
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(Color.Black.copy(alpha = 0.42f), Color.Transparent),
-                center = Offset(center.x, center.y + r * 0.08f),
-                radius = r * 1.08f,
-            ),
-            radius = r * 1.06f,
-            center = Offset(center.x, center.y + r * 0.06f),
-        )
-
-        // Outer polished silver/white ring
-        drawCircle(
-            brush = Brush.linearGradient(
-                colors = listOf(Color(0xFFF8FAFC), Color(0xFFCBD5E1), Color(0xFFE2E8F0)),
-                start = Offset(0f, 0f),
-                end = Offset(size.width, size.height),
-            ),
-            radius = r * 0.96f,
-            center = center,
-        )
-
-        // Inner Cobalt / Sapphire ring
-        drawCircle(
-            brush = Brush.linearGradient(
-                colors = listOf(Color(0xFF1A56DB), Color(0xFF2563EB), Color(0xFF60A5FA)),
-                start = Offset(center.x, center.y - r),
-                end = Offset(center.x, center.y + r),
-            ),
-            radius = r * 0.80f,
-            center = center,
-        )
-
-        // Subtle light-blue halo ring inside Cobalt
-        drawCircle(
-            color = Color(0xFF93C5FD).copy(alpha = 0.45f),
-            radius = r * 0.66f,
-            center = center,
-            style = Stroke(width = r * 0.06f),
-        )
-
-        // Recessed bright center cylinder disc
-        drawCircle(
-            brush = Brush.linearGradient(
-                colors = listOf(Color(0xFFFFFFFF), Color(0xFFE2E8F0)),
-                start = Offset(center.x - r * 0.4f, center.y - r * 0.4f),
-                end = Offset(center.x + r * 0.4f, center.y + r * 0.4f),
-            ),
-            radius = r * 0.56f,
-            center = center,
-        )
-
-        // Rotating notched keyhole cylinder (0° -> 90° clockwise on unlock!)
-        rotate(degrees = rotationDegrees, pivot = center) {
-            val slotW = r * 0.25f
-            val slotH = r * 0.72f
-            val left = center.x - slotW / 2f
-            val top = center.y - slotH / 2f
-
-            drawRoundRect(
-                color = Color(0xFF101828),
-                topLeft = Offset(left, top),
-                size = Size(slotW, slotH),
-                cornerRadius = CornerRadius(slotW * 0.28f, slotW * 0.28f),
-            )
-
-            // Signature triangular inner lock notches (upper-left & lower-right)
-            val notchPath = Path().apply {
-                // Upper-left triangular notch
-                moveTo(left - 1f, center.y - slotH * 0.14f)
-                lineTo(left + slotW * 0.42f, center.y - slotH * 0.04f)
-                lineTo(left - 1f, center.y + slotH * 0.04f)
-                close()
-                // Lower-right triangular notch
-                moveTo(left + slotW + 1f, center.y + slotH * 0.02f)
-                lineTo(left + slotW * 0.58f, center.y + slotH * 0.12f)
-                lineTo(left + slotW + 1f, center.y + slotH * 0.22f)
-                close()
-            }
-            drawPath(notchPath, color = Color(0xFFEAF0F7))
         }
     }
 }

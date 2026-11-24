@@ -1,25 +1,61 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Outer glass ring -->
+    <!-- Outer silver/white dial ring inside safe zone (r=27 around 54,54) -->
+    <path android:pathData="M54,27 A27,27 0 1,1 53.99,27 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="35"
+                android:startY="35"
+                android:endX="73"
+                android:endY="73"
+                android:type="linear">
+                <item android:color="#FFFFFFFF" android:offset="0" />
+                <item android:color="#FFE2E8F0" android:offset="1" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- Inner Cobalt-to-Sky bevel ring (r=22) -->
+    <path android:pathData="M54,32 A22,22 0 1,1 53.99,32 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="54"
+                android:startY="32"
+                android:endX="54"
+                android:endY="76"
+                android:type="linear">
+                <item android:color="#FF1A56DB" android:offset="0" />
+                <item android:color="#FF0C74F2" android:offset="0.55" />
+                <item android:color="#FF60A5FA" android:offset="1" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- Subtle sky halo ring inside Cobalt (r=18) -->
     <path
         android:fillColor="#00000000"
-        android:pathData="M54,28 A26,26 0 1,1 53.99,28 Z"
-        android:strokeWidth="6"
-        android:strokeColor="#FFFFFFFF" />
-    <!-- Inner subtle ring -->
+        android:strokeColor="#7393C5FD"
+        android:strokeWidth="1.6"
+        android:pathData="M54,36 A18,18 0 1,1 53.99,36 Z" />
+    <!-- Bright recessed center disc (r=15) -->
+    <path android:pathData="M54,39 A15,15 0 1,1 53.99,39 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="43"
+                android:startY="43"
+                android:endX="65"
+                android:endY="65"
+                android:type="linear">
+                <item android:color="#FFFFFFFF" android:offset="0" />
+                <item android:color="#FFE5ECF6" android:offset="1" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- Dark-navy notched keyhole bolt -->
     <path
-        android:fillColor="#33FFFFFF"
-        android:pathData="M54,37 A17,17 0 1,1 53.99,37 Z" />
-    <!-- Keyhole circle -->
-    <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M54,44.5 A5.5,5.5 0 1,1 53.99,44.5 Z" />
-    <!-- Keyhole stem -->
-    <path
-        android:fillColor="#FFFFFFFF"
-        android:pathData="M51,52 L57,52 L58.2,64.5 A1.5,1.5 0 0,1 56.7,66 L51.3,66 A1.5,1.5 0 0,1 49.8,64.5 Z" />
+        android:fillColor="#FF0F172A"
+        android:pathData="M52.3,44.2 L55.7,44.2 A1.8,1.8 0 0,1 57.5,46 L57.5,52.8 L54.6,54.7 L57.5,56.5 L57.5,62 A1.8,1.8 0 0,1 55.7,63.8 L52.3,63.8 A1.8,1.8 0 0,1 50.5,62 L50.5,54.8 L53.5,52.9 L50.5,51 L50.5,46 A1.8,1.8 0 0,1 52.3,44.2 Z" />
 </vector>

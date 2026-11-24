@@ -241,6 +241,14 @@ data class LogoutRequest(
 )
 
 @Serializable
+data class ChangeMasterPasswordRequest(
+    val masterPasswordHash: String,
+    val newMasterPasswordHash: String,
+    val key: String,
+    val masterPasswordHint: String? = null,
+)
+
+@Serializable
 data class ImportFolderRelationshipDto(
     val key: Int,
     val value: Int,

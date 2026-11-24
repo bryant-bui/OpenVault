@@ -38,7 +38,8 @@ import {
   getVisibleCustomFields,
 } from "../../shared/media.js";
 import {
-  RECOVERY_CODES_SLOT_COUNT,
+  RECOVERY_CODES_DEFAULT_SLOTS,
+  RECOVERY_CODES_MAX_SLOTS,
   RECOVERY_CODE_MAX_LEN,
   applyRecoveryCodesPaste,
   countFilledRecoveryCodes,
@@ -47,7 +48,6 @@ import {
   serializeRecoveryCodesSlots,
 } from "../../shared/recovery-codes.js";
 import { BrandAvatar } from "../components/BrandAvatar.js";
-import { ConfirmDialog } from "../components/ConfirmDialog.js";
 import { TotpRing } from "../components/TotpRing.js";
 
 interface EditorScreenProps {
@@ -122,13 +122,16 @@ function RecoveryCodeGridEditor({
   onChangeName,
   onDelete,
 }: RecoveryCodeEditorProps) {
-  const slots = parseRecoveryCodesToSlots(field.value);
+  const [minSlotCount, setMinSlotCount] = useState(RECOVERY_CODES_DEFAULT_SLOTS);
+  const slots = parseRecoveryCodesToSlots(field.value, minSlotCount);
   const filledCount = countFilledRecoveryCodes(slots);
   const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
 
   const commitSlots = (nextSlots: string[], focusIndex?: number) => {
+    const nextMin = Math.min(RECOVERY_CODES_MAX_SLOTS, Math.max(minSlotCount, nextSlots.length));
+    if (nextMin !== minSlotCount) setMinSlotCount(nextMin);
     onChangeValue(serializeRecoveryCodesSlots(nextSlots));
-    if (typeof focusIndex === "number" && focusIndex >= 0 && focusIndex < RECOVERY_CODES_SLOT_COUNT) {
+    if (typeof focusIndex === "number" && focusIndex >= 0 && focusIndex < RECOVERY_CODES_MAX_SLOTS) {
       window.requestAnimationFrame(() => {
         inputRefs.current[focusIndex]?.focus();
       });
@@ -136,18 +139,22 @@ function RecoveryCodeGridEditor({
   };
 
   const handleSlotChange = (idx: number, raw: string) => {
-    // Handle multi-code paste via input event (e.g., mobile/browser paste menu)
-    if (raw.length > RECOVERY_CODE_MAX_LEN || /[\s,;|\-_/\\]/.test(raw)) {
+    // Handle multi-line / tab / comma / multi-code paste via input event
+    if (
+      raw.length > RECOVERY_CODE_MAX_LEN ||
+      /[\r\n\t,;|]|\s{2,}/.test(raw)
+    ) {
       const { slots: next, nextFocusIndex } = applyRecoveryCodesPaste(slots, idx, raw, false);
       commitSlots(next, nextFocusIndex);
       return;
     }
-    const clean = raw.replace(/[^A-Za-z0-9]/g, "").slice(0, RECOVERY_CODE_MAX_LEN);
+    const clean = raw
+      .replace(/[^A-Za-z0-9\s-]/g, "")
+      .replace(/\s+/g, " ")
+      .slice(0, RECOVERY_CODE_MAX_LEN);
     const next = [...slots];
     next[idx] = clean;
-    const advanceTo =
-      clean.length >= RECOVERY_CODE_MAX_LEN && idx + 1 < RECOVERY_CODES_SLOT_COUNT ? idx + 1 : undefined;
-    commitSlots(next, advanceTo);
+    commitSlots(next);
   };
 
   const handlePasteFromClipboard = async () => {
@@ -157,9 +164,16 @@ function RecoveryCodeGridEditor({
       const { slots: next, nextFocusIndex } = applyRecoveryCodesPaste(slots, 0, text, true);
       commitSlots(next, nextFocusIndex);
     } catch {
-      // Clipboard read denied; direct paste into any box still triggers onPaste
       inputRefs.current[0]?.focus();
     }
+  };
+
+  const handleAddTwoSlots = () => {
+    const expanded = Math.min(RECOVERY_CODES_MAX_SLOTS, slots.length + 2);
+    setMinSlotCount(expanded);
+    window.requestAnimationFrame(() => {
+      inputRefs.current[slots.length]?.focus();
+    });
   };
 
   return (
@@ -175,7 +189,7 @@ function RecoveryCodeGridEditor({
             onChange={(e) => onChangeName(e.target.value)}
           />
           <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-[var(--accent-soft)] text-[var(--accent)] shrink-0 tabular-nums">
-            {filledCount}/20
+            {filledCount}/{slots.length}
           </span>
         </div>
 
@@ -194,7 +208,10 @@ function RecoveryCodeGridEditor({
           {filledCount > 0 ? (
             <button
               type="button"
-              onClick={() => commitSlots(Array<string>(RECOVERY_CODES_SLOT_COUNT).fill(""))}
+              onClick={() => {
+                setMinSlotCount(RECOVERY_CODES_DEFAULT_SLOTS);
+                onChangeValue("");
+              }}
               className="ov-icon-btn w-7 h-7 hover:text-[var(--danger)]"
               title={s.clearAll}
               aria-label={s.clearAll}
@@ -213,11 +230,11 @@ function RecoveryCodeGridEditor({
         </div>
       </div>
 
-      <div className="grid grid-cols-4 gap-1.5">
+      <div className="grid grid-cols-2 gap-1.5">
         {slots.map((code, idx) => (
           <div
             key={idx}
-            className="relative flex flex-col rounded-[8px] border border-[var(--border)] bg-[var(--surface)] px-1.5 pt-1 pb-1.5 focus-within:border-[var(--accent)] focus-within:ring-2 focus-within:ring-[var(--accent-soft)]"
+            className="relative flex flex-col rounded-[8px] border border-[var(--border)] bg-[var(--surface)] px-2 pt-1 pb-1.5 focus-within:border-[var(--accent)] focus-within:ring-2 focus-within:ring-[var(--accent-soft)]"
           >
             <span className="text-[9.5px] font-semibold text-[var(--text-muted)] leading-none tabular-nums">
               {String(idx + 1).padStart(2, "0")}
@@ -227,14 +244,13 @@ function RecoveryCodeGridEditor({
                 inputRefs.current[idx] = el;
               }}
               type="text"
-              inputMode="numeric"
               autoComplete="off"
               autoCorrect="off"
               autoCapitalize="none"
               spellCheck={false}
               maxLength={RECOVERY_CODE_MAX_LEN}
               aria-label={`${s.recoveryCodesTitle} #${idx + 1}`}
-              placeholder="0000"
+              placeholder="123456"
               value={code}
               onChange={(e) => handleSlotChange(idx, e.target.value)}
               onPaste={(e) => {
@@ -250,16 +266,34 @@ function RecoveryCodeGridEditor({
                 commitSlots(next, nextFocusIndex);
               }}
               onKeyDown={(e) => {
-                if (e.key === "Backspace" && !code && idx > 0) {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  if (idx + 1 < slots.length) {
+                    inputRefs.current[idx + 1]?.focus();
+                  } else if (slots.length < RECOVERY_CODES_MAX_SLOTS) {
+                    handleAddTwoSlots();
+                  }
+                } else if (e.key === "Backspace" && !code && idx > 0) {
                   e.preventDefault();
                   inputRefs.current[idx - 1]?.focus();
                 }
               }}
-              className="w-full bg-transparent border-0 outline-none font-mono-code text-[13.5px] font-bold tracking-[0.06em] text-[var(--text-primary)] placeholder:text-[var(--text-muted)]/40 mt-0.5 p-0"
+              className="w-full bg-transparent border-0 outline-none font-mono-code text-[13.5px] font-bold tracking-[0.04em] text-[var(--text-primary)] placeholder:text-[var(--text-muted)]/40 mt-0.5 p-0"
             />
           </div>
         ))}
       </div>
+
+      {slots.length < RECOVERY_CODES_MAX_SLOTS ? (
+        <button
+          type="button"
+          onClick={handleAddTwoSlots}
+          className="ov-btn-ghost py-1.5 px-3 text-[12px] inline-flex items-center justify-center gap-1.5 self-start"
+        >
+          <Plus size={13} />
+          <span>{s.isVi ? "Thêm 2 ô mã" : "Add 2 slots"}</span>
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -317,7 +351,6 @@ export function EditorScreen({
   const [passkeys, setPasskeys] = useState<Fido2Credential[]>(
     () => initialCipher?.login?.fido2Credentials ?? [],
   );
-  const [passkeyToDelete, setPasskeyToDelete] = useState<Fido2Credential | null>(null);
 
   // Deep Editable Custom Fields (pre-seeded for structured Note categories if creating new)
   const nextFieldIdRef = useRef(1);
@@ -831,7 +864,11 @@ export function EditorScreen({
                       </div>
                       <button
                         type="button"
-                        onClick={() => setPasskeyToDelete(cred)}
+                        onClick={() =>
+                          setPasskeys((prev) =>
+                            prev.filter((p) => p.credentialId !== cred.credentialId),
+                          )
+                        }
                         className="ov-icon-btn w-8 h-8 shrink-0 hover:text-[var(--danger)]"
                         title={s.remove}
                         aria-label={s.remove}
@@ -1192,26 +1229,6 @@ export function EditorScreen({
           ) : null}
         </div>
       </div>
-
-      <ConfirmDialog
-        open={passkeyToDelete !== null}
-        title={s.removePasskeyTitle}
-        description={
-          passkeyToDelete
-            ? `${passkeyToDelete.rpId} (${passkeyToDelete.userName || "Passkey"}) — ${s.removePasskeyDesc}`
-            : s.removePasskeyDesc
-        }
-        confirmLabel={s.remove}
-        onConfirm={() => {
-          if (passkeyToDelete) {
-            setPasskeys((prev) =>
-              prev.filter((p) => p.credentialId !== passkeyToDelete.credentialId),
-            );
-          }
-          setPasskeyToDelete(null);
-        }}
-        onCancel={() => setPasskeyToDelete(null)}
-      />
     </form>
   );
 }

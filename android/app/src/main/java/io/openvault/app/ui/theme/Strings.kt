@@ -197,6 +197,7 @@ data class AppStrings(
     val signOutConfirmTitle: String,
     val signOutConfirmMsg: String,
     val never: String,
+    val autoLockImmediately: String,
     val minutesSuffix: String,
     val secondsSuffix: String,
     val attemptsSuffix: String,
@@ -253,6 +254,8 @@ data class AppStrings(
     val vaultPlusEnableBioToggle: String,
     val vaultPlusAntiScreenshotTitle: String,
     val vaultPlusAntiScreenshotDesc: String,
+    val vaultPlusLockOnExitTitle: String,
+    val vaultPlusLockOnExitDesc: String,
     val vaultPlusCreateAction: String,
     val vaultPlusStartSetupCta: String,
     val vaultPlusRecoveryTitle: String,
@@ -456,6 +459,7 @@ val EnglishStrings = AppStrings(
     signOutConfirmTitle = "Sign Out Of OpenVault?",
     signOutConfirmMsg = "Local Encrypted Cache, PIN, And Biometric Keys On This Device Will Be Wiped.",
     never = "Never",
+    autoLockImmediately = "Immediately on exit",
     minutesSuffix = "Minutes",
     secondsSuffix = "Seconds",
     attemptsSuffix = "Attempts",
@@ -476,7 +480,7 @@ val EnglishStrings = AppStrings(
     categoryPassport = "Passport",
     categoryIdCard = "ID Card",
     addRecoveryCodes = "Recovery Codes",
-    addRecoveryCodesSub = "20×4 Backup Code Slots With Auto-Paste",
+    addRecoveryCodesSub = "Smart Backup Codes With Auto-Paste (>10 Supported)",
     recoveryCodesTitle = "Recovery Codes",
     pasteAll = "Paste",
     clearAll = "Clear",
@@ -506,6 +510,8 @@ val EnglishStrings = AppStrings(
     vaultPlusEnableBioToggle = "Biometric Unlock",
     vaultPlusAntiScreenshotTitle = "Screenshot Protection",
     vaultPlusAntiScreenshotDesc = "Block screenshots, screen recording, and hide Vault+ in recents",
+    vaultPlusLockOnExitTitle = "Lock immediately on exit",
+    vaultPlusLockOnExitDesc = "Lock Vault+ instantly whenever you leave OpenVault",
     vaultPlusCreateAction = "Create Vault+",
     vaultPlusStartSetupCta = "Set Up Now",
     vaultPlusRecoveryTitle = "Save Your Recovery Key",
@@ -709,6 +715,7 @@ val VietnameseStrings = AppStrings(
     signOutConfirmTitle = "Đăng Xuất Khỏi OpenVault?",
     signOutConfirmMsg = "Toàn Bộ Cache Cục Bộ, Mã PIN Và Khóa Vân Tay Trên Máy Này Sẽ Bị Xóa Sạch.",
     never = "Không Bao Giờ",
+    autoLockImmediately = "Ngay lập tức khi thoát ứng dụng",
     minutesSuffix = "Phút",
     secondsSuffix = "Giây",
     attemptsSuffix = "Lần",
@@ -729,7 +736,7 @@ val VietnameseStrings = AppStrings(
     categoryPassport = "Passport",
     categoryIdCard = "ID Card",
     addRecoveryCodes = "Mã Khôi Phục",
-    addRecoveryCodesSub = "20 Ô × 4 Ký Tự, Hỗ Trợ Dán Tự Động",
+    addRecoveryCodesSub = "Mã Dự Phòng 6+ Số, Dán Tự Động (>10 Mã)",
     recoveryCodesTitle = "Mã Khôi Phục",
     pasteAll = "Dán Mã",
     clearAll = "Xóa Hết",
@@ -759,6 +766,8 @@ val VietnameseStrings = AppStrings(
     vaultPlusEnableBioToggle = "Mở khoá Sinh Trắc Học",
     vaultPlusAntiScreenshotTitle = "Chống chụp trộm màn hình",
     vaultPlusAntiScreenshotDesc = "Chặn chụp ảnh, quay màn hình và ẩn nội dung Vault+ trong đa nhiệm",
+    vaultPlusLockOnExitTitle = "Khóa ngay khi thoát ứng dụng",
+    vaultPlusLockOnExitDesc = "Tự khóa Vault+ ngay lập tức khi bạn rời khỏi ứng dụng",
     vaultPlusCreateAction = "Khởi Tạo Vault+",
     vaultPlusStartSetupCta = "Khởi tạo ngay",
     vaultPlusRecoveryTitle = "Lưu Ngay Mã Khôi Phục (Recovery Key)",
@@ -785,10 +794,8 @@ val VietnameseStrings = AppStrings(
     vaultPlusExportWarnMsg = "Tệp xuất ra máy sẽ không còn được mã hóa bởi Vault+. Hãy xóa tệp tạm sau khi sử dụng xong.",
 )
 
-fun stringsFor(language: AppLanguage): AppStrings = when (language) {
-    AppLanguage.ENGLISH -> EnglishStrings
-    AppLanguage.VIETNAMESE -> VietnameseStrings
-}
+fun stringsFor(language: AppLanguage, locale: Locale = Locale.getDefault()): AppStrings =
+    if (language.isVietnameseActive(locale)) VietnameseStrings else EnglishStrings
 
 val LocalStrings = staticCompositionLocalOf { EnglishStrings }
 

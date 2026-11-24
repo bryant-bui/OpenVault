@@ -65,6 +65,7 @@ import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.Fingerprint
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Key
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.PhotoLibrary
 import androidx.compose.material.icons.rounded.PictureAsPdf
 import androidx.compose.material.icons.rounded.Restore
@@ -125,6 +126,7 @@ import io.openvault.app.core.crypto.SafeCrypto
 import io.openvault.app.core.security.BiometricKeyManager
 import io.openvault.app.data.SafeRepository
 import io.openvault.app.data.SafeStatusSnapshot
+import io.openvault.app.suppressAutoLockForPicker
 import io.openvault.app.ui.theme.LocalOpenVaultColors
 import io.openvault.app.ui.theme.LocalStrings
 import kotlinx.coroutines.Dispatchers
@@ -398,6 +400,23 @@ fun SafeSettingsBottomSheet(
                                 }
                             }
                         }
+
+                        HorizontalDivider(
+                            color = c.divider.copy(alpha = 0.7f),
+                            modifier = Modifier.padding(start = 68.dp),
+                        )
+
+                        SafeSettingsToggleRow(
+                            icon = Icons.Rounded.Lock,
+                            iconTint = Color(0xFFF59E0B),
+                            iconBg = if (c.isDark) Color(0xFF2B2415) else Color(0xFFFEF3C7),
+                            title = s.vaultPlusLockOnExitTitle,
+                            subtitle = s.vaultPlusLockOnExitDesc,
+                            checked = status.lockOnExit,
+                            onCheckedChange = { enabled ->
+                                safeRepository.setLockOnExit(enabled)
+                            },
+                        )
                     }
                 }
 
@@ -800,6 +819,7 @@ private fun SafeInAppPdfBrowserContent(
 
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q && !hasLegacyReadPermission) {
+            context.suppressAutoLockForPicker()
             legacyPermLauncher.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
         }
     }
@@ -948,7 +968,10 @@ private fun SafeInAppPdfBrowserContent(
                     )
                     Spacer(Modifier.height(14.dp))
                     Button(
-                        onClick = { legacyPermLauncher.launch(Manifest.permission.READ_EXTERNAL_STORAGE) },
+                        onClick = {
+                            context.suppressAutoLockForPicker()
+                            legacyPermLauncher.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
+                        },
                         shape = RoundedCornerShape(12.dp),
                     ) {
                         Text(if (s.isVi) "Cấp quyền" else "Allow")
@@ -1191,6 +1214,7 @@ private fun SafeInAppGalleryContent(
 
     LaunchedEffect(Unit) {
         if (!hasAnyAccess) {
+            context.suppressAutoLockForPicker()
             permissionLauncher.launch(photoPermissionsToRequest())
         }
     }
@@ -1302,7 +1326,10 @@ private fun SafeInAppGalleryContent(
                         modifier = Modifier.weight(1f),
                     )
                     TextButton(
-                        onClick = { permissionLauncher.launch(photoPermissionsToRequest()) },
+                        onClick = {
+                            context.suppressAutoLockForPicker()
+                            permissionLauncher.launch(photoPermissionsToRequest())
+                        },
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
                     ) {
                         Text(
@@ -1364,6 +1391,7 @@ private fun SafeInAppGalleryContent(
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         OutlinedButton(
                             onClick = {
+                                context.suppressAutoLockForPicker()
                                 val intent = Intent(
                                     Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                                     Uri.fromParts("package", context.packageName, null),
@@ -1375,7 +1403,10 @@ private fun SafeInAppGalleryContent(
                             Text(if (s.isVi) "Mở Cài đặt" else "Open Settings")
                         }
                         Button(
-                            onClick = { permissionLauncher.launch(photoPermissionsToRequest()) },
+                            onClick = {
+                                context.suppressAutoLockForPicker()
+                                permissionLauncher.launch(photoPermissionsToRequest())
+                            },
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = c.accentButtonBg,
                                 contentColor = c.accentButtonFg,

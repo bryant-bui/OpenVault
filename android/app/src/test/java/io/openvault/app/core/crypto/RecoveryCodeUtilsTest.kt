@@ -19,82 +19,84 @@ class RecoveryCodeUtilsTest {
     }
 
     @Test
-    fun parsesNumberedListsPreservesLeadingZerosAndSplits8DigitGoogleCodes() {
+    fun preserves6DigitCodesPairsGoogle4Plus4AndGitHubHyphenated() {
         val raw = """
-            1. 0123-4567
-            2) 0042 9981
-            3: ABCD EFGH
-            • a1b2 c3d4
-            - 11112222
+            1. 0421 8899
+            2) 123456
+            3: abcde-12345
+            • 123456 789012
+            - 000789
         """.trimIndent()
         val parsed = RecoveryCodeUtils.parseRecoveryCodesPaste(raw)
         assertEquals(
-            listOf("0123", "4567", "0042", "9981", "ABCD", "EFGH", "a1b2", "c3d4", "1111", "2222"),
+            listOf("0421 8899", "123456", "abcde-12345", "123456 789012", "000789"),
             parsed,
         )
     }
 
     @Test
-    fun truncatesToMaximum20Slots() {
-        val raw = (1..25).joinToString(" ") { "%04d".format(it) }
-        val parsed = RecoveryCodeUtils.parseRecoveryCodesPaste(raw)
-        assertEquals(20, parsed.size)
-        assertEquals("0001", parsed.first())
-        assertEquals("0020", parsed.last())
+    fun migratesLegacyFourByFourGridIntoEightDigitPairs() {
+        val legacy = """
+            0642 0983 7890 4684
+            9027 0949 6644 9527
+            3650 1793 1091 1009
+            7446 0168 5156 5150
+            3191 9860 3847 8943
+        """.trimIndent()
+        val parsed = RecoveryCodeUtils.parseRecoveryCodesPaste(legacy)
+        assertEquals(10, parsed.size)
+        assertEquals("0642 0983", parsed.first())
+        assertEquals("3847 8943", parsed.last())
     }
 
     @Test
-    fun applyPasteFillsFromStartWhenEarlierSlotsAreEmpty() {
-        val initial = MutableList(RecoveryCodeUtils.RECOVERY_SLOT_COUNT) { "" }
+    fun supportsMoreThan10CodesAndAutoExpandsSlots() {
+        val raw = (1..16).joinToString("\n") { "%06d".format(it) }
+        val initial = MutableList(RecoveryCodeUtils.RECOVERY_DEFAULT_SLOTS) { "" }
         val (slots, nextFocus) = RecoveryCodeUtils.applyRecoveryCodesPaste(
             currentSlots = initial,
-            targetIndex = 3,
-            rawText = "0011-2233-4455-6677",
+            targetIndex = 2,
+            rawText = raw,
         )
-        assertEquals("0011", slots[0])
-        assertEquals("2233", slots[1])
-        assertEquals("4455", slots[2])
-        assertEquals("6677", slots[3])
-        assertEquals(4, nextFocus)
-        assertEquals(4, RecoveryCodeUtils.countFilledRecoveryCodes(slots))
+        assertEquals(16, slots.size)
+        assertEquals("000001", slots[0])
+        assertEquals("000016", slots[15])
+        assertEquals(15, nextFocus)
+        assertEquals(16, RecoveryCodeUtils.countFilledRecoveryCodes(slots))
     }
 
     @Test
     fun applyPasteStartsFromTargetSlotWhenEarlierSlotsPopulated() {
-        val initial = MutableList(RecoveryCodeUtils.RECOVERY_SLOT_COUNT) { "" }.also {
-            it[0] = "1111"
+        val initial = MutableList(RecoveryCodeUtils.RECOVERY_DEFAULT_SLOTS) { "" }.also {
+            it[0] = "111111"
         }
         val (slots, nextFocus) = RecoveryCodeUtils.applyRecoveryCodesPaste(
             currentSlots = initial,
             targetIndex = 4,
-            rawText = "ABCD EFGH",
+            rawText = "123456\n654321",
         )
-        assertEquals("1111", slots[0])
+        assertEquals("111111", slots[0])
         assertEquals("", slots[1])
-        assertEquals("ABCD", slots[4])
-        assertEquals("EFGH", slots[5])
+        assertEquals("123456", slots[4])
+        assertEquals("654321", slots[5])
         assertEquals(6, nextFocus)
     }
 
     @Test
-    fun serializeAndParseSlotsRoundTripPreservesOrderAndEmptySlots() {
-        val original = MutableList(RecoveryCodeUtils.RECOVERY_SLOT_COUNT) { "" }
-        original[0] = "0001"
-        original[1] = "AB12"
-        original[2] = "CD34"
-        original[3] = "EF56"
-        original[4] = "9876"
+    fun serializeAndParseSlotsRoundTripPreservesFullCodesAndExpandedSize() {
+        val original = MutableList(14) { "" }
+        original[0] = "000111"
+        original[1] = "0642 0983"
+        original[11] = "999888"
 
         val serialized = RecoveryCodeUtils.serializeRecoveryCodesSlots(original)
-        assertEquals("0001 AB12 CD34 EF56\n9876", serialized)
+        assertEquals("000111\n0642 0983\n999888", serialized)
 
         val reparsed = RecoveryCodeUtils.parseRecoveryCodesToSlots(serialized)
-        assertEquals(20, reparsed.size)
-        assertEquals("0001", reparsed[0])
-        assertEquals("AB12", reparsed[1])
-        assertEquals("CD34", reparsed[2])
-        assertEquals("EF56", reparsed[3])
-        assertEquals("9876", reparsed[4])
-        assertEquals("", reparsed[5])
+        assertEquals(10, reparsed.size)
+        assertEquals("000111", reparsed[0])
+        assertEquals("0642 0983", reparsed[1])
+        assertEquals("999888", reparsed[2])
+        assertEquals("", reparsed[3])
     }
 }

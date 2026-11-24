@@ -155,6 +155,7 @@ export async function apiDownloadSafeBinary(
   accessToken: string,
   itemId: string,
   kind: "blob" | "thumbnail",
+  signal?: AbortSignal,
 ): Promise<Uint8Array<ArrayBuffer>> {
   const path =
     kind === "thumbnail"
@@ -166,6 +167,7 @@ export async function apiDownloadSafeBinary(
     headers: {
       Authorization: `Bearer ${accessToken}`,
     },
+    signal,
   });
   if (!res.ok) {
     throw new ApiError(res.status, await parseErrorMessage(res));

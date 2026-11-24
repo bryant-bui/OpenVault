@@ -77,6 +77,7 @@ import androidx.compose.ui.unit.sp
 import io.openvault.app.core.crypto.SafeDocumentCategory
 import io.openvault.app.data.DecryptedSafeItem
 import io.openvault.app.data.SafeRepository
+import io.openvault.app.suppressAutoLockForPicker
 import io.openvault.app.ui.components.OnePassCard
 import io.openvault.app.ui.theme.LocalOpenVaultColors
 import io.openvault.app.ui.theme.LocalStrings
@@ -256,8 +257,18 @@ fun VaultPlusViewerScreen(
 
             IconButton(
                 onClick = {
+                    val willFav = !item.favorite
                     scope.launch {
                         runCatching { safeRepository.toggleFavorite(item) }
+                            .onSuccess {
+                                onShowMessage(
+                                    if (willFav) {
+                                        if (s.isVi) "Đã thêm vào Yêu thích." else "Added to Favorites."
+                                    } else {
+                                        if (s.isVi) "Đã bỏ khỏi Yêu thích." else "Removed from Favorites."
+                                    },
+                                )
+                            }
                             .onFailure { onShowMessage(it.message ?: "Error") }
                     }
                 },
@@ -436,6 +447,7 @@ fun VaultPlusViewerScreen(
                 Button(
                     onClick = {
                         showExportWarn = false
+                        context.suppressAutoLockForPicker()
                         exportLauncher.launch(item.metadata.fileName)
                     },
                 ) {
@@ -500,10 +512,11 @@ fun VaultPlusViewerScreen(
             initialFolderName = item.metadata.folderName,
             initialNotes = item.metadata.notes.orEmpty(),
             initialExpiresAt = item.metadata.expiresAt.orEmpty(),
+            initialFavorite = item.favorite,
             availableFolders = availableFolders,
             onCreateFolderRequest = { name -> runCatching { safeRepository.createFolder(name) } },
             onDismiss = { showEditDialog = false },
-            onSave = { title, cat, folderName, notes, exp ->
+            onSave = { title, cat, folderName, notes, exp, fav ->
                 showEditDialog = false
                 scope.launch {
                     runCatching {
@@ -514,6 +527,7 @@ fun VaultPlusViewerScreen(
                             newNotes = notes,
                             newExpiresAt = exp,
                             newFolderName = folderName,
+                            favorite = fav,
                         )
                     }.onSuccess {
                         onShowMessage(if (s.isVi) "Đã cập nhật thông tin." else "Updated metadata.")

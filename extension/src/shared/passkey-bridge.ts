@@ -90,9 +90,18 @@ export interface SerializedGetRequest {
   rpId: string;
   challengeB64Url: string;
   allowCredentialIds: string[];
+  mediation?: "conditional" | "optional" | "required" | "silent";
 }
 
-export type SerializedWebAuthnRequest = SerializedCreateRequest | SerializedGetRequest;
+export interface SerializedAbortRequest {
+  kind: "abort";
+  requestId: string;
+}
+
+export type SerializedWebAuthnRequest =
+  | SerializedCreateRequest
+  | SerializedGetRequest
+  | SerializedAbortRequest;
 
 export interface SerializedCreateResponseData {
   credentialIdB64Url: string;
@@ -154,5 +163,6 @@ export interface PasskeyPrepareGetResponse {
   unlocked: boolean;
   pinAvailableNow: boolean;
   pinLength: number;
+  defaultBrowserPasswordManager?: boolean;
   matches: PasskeyMatchSummary[];
 }

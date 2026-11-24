@@ -1,16 +1,24 @@
 package io.openvault.app.core.network
 
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import okhttp3.MediaType
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import okio.BufferedSink
 
 class SafeApiClient(
     private val core: BitwardenApiClient,
 ) {
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
     private val octetMediaType = "application/octet-stream".toMediaType()
-    private val json = core.sharedJson
+    private val json = Json {
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+        explicitNulls = false
+    }
 
     private fun baseUrl(): String = core.baseUrl()
 
@@ -85,15 +93,49 @@ class SafeApiClient(
             executeJson(req)
         }
 
-    suspend fun uploadBlob(itemId: String, ovsfBytes: ByteArray): SafeItemDto =
-        core.authedRequest { token ->
-            val req = Request.Builder()
-                .url("${baseUrl()}/api/openvault/safe/items/$itemId/blob")
-                .header("Authorization", "Bearer $token")
-                .put(ovsfBytes.toRequestBody(octetMediaType))
-                .build()
-            executeJson(req)
+    suspend fun uploadBlob(
+        itemId: String,
+        ovsfBytes: ByteArray,
+        onProgress: ((Float) -> Unit)? = null,
+    ): SafeItemDto = core.authedRequest { token ->
+        val body = if (onProgress != null) {
+            ProgressRequestBody(ovsfBytes, octetMediaType, onProgress)
+        } else {
+            ovsfBytes.toRequestBody(octetMediaType)
         }
+        val req = Request.Builder()
+            .url("${baseUrl()}/api/openvault/safe/items/$itemId/blob")
+            .header("Authorization", "Bearer $token")
+            .put(body)
+            .build()
+        executeJson(req)
+    }
+
+    private class ProgressRequestBody(
+        private val data: ByteArray,
+        private val mediaType: MediaType,
+        private val onProgress: (Float) -> Unit,
+    ) : RequestBody() {
+        override fun contentType(): MediaType = mediaType
+        override fun contentLength(): Long = data.size.toLong()
+        override fun writeTo(sink: BufferedSink) {
+            val total = data.size.coerceAtLeast(1)
+            var offset = 0
+            var lastReported = -1f
+            val chunkSize = 16 * 1024
+            onProgress(0f)
+            while (offset < data.size) {
+                val len = minOf(chunkSize, data.size - offset)
+                sink.write(data, offset, len)
+                offset += len
+                val frac = (offset.toFloat() / total.toFloat()).coerceIn(0f, 1f)
+                if (frac - lastReported >= 0.02f || offset >= data.size) {
+                    lastReported = frac
+                    onProgress(frac)
+                }
+            }
+        }
+    }
 
     suspend fun uploadThumbnail(itemId: String, ovsfThumbBytes: ByteArray) {
         core.authedRequest { token ->

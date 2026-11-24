@@ -229,6 +229,17 @@ class BitwardenApiClient(
         executeJson<R2BackupListResponse>(req).backups
     }
 
+    suspend fun changeMasterPassword(payload: ChangeMasterPasswordRequest) {
+        authedRequest { token ->
+            val req = Request.Builder()
+                .url("${baseUrl()}/api/accounts/password")
+                .header("Authorization", "Bearer $token")
+                .post(json.encodeToString(payload).toRequestBody(jsonMediaType))
+                .build()
+            executeRaw(req)
+        }
+    }
+
     suspend fun logout(refreshToken: String?, allDevices: Boolean = false) {
         runCatching {
             authedRequest { token ->

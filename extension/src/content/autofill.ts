@@ -58,6 +58,67 @@ let dropdownOpen = false;
 let interactingWithOverlay = false;
 let scanQueued = false;
 let lastFilledCredential: { origin: string; username: string; cipherId?: string } | null = null;
+let pendingConditionalPasskey: {
+  req: SerializedGetRequest;
+  prep: PasskeyPrepareGetResponse;
+} | null = null;
+let activeModalPasskey: { requestId: string; cancel: () => void } | null = null;
+
+function queryInputsDeep(root: ParentNode): HTMLInputElement[] {
+  const results: HTMLInputElement[] = [];
+  const visited = new Set<ParentNode>();
+  const walk = (node: ParentNode) => {
+    if (visited.has(node)) return;
+    visited.add(node);
+    results.push(...Array.from(node.querySelectorAll<HTMLInputElement>("input")));
+    for (const el of Array.from(node.querySelectorAll<HTMLElement>("*"))) {
+      if (el.id === OVERLAY_ID) continue;
+      if (el.shadowRoot) {
+        walk(el.shadowRoot);
+      }
+    }
+  };
+  walk(root);
+  return results;
+}
+
+function getDeepActiveElement(): Element | null {
+  let active: Element | null = document.activeElement;
+  while (active && active instanceof HTMLElement && active.shadowRoot?.activeElement) {
+    active = active.shadowRoot.activeElement;
+  }
+  return active;
+}
+
+function getAccessibleLabelText(el: HTMLInputElement): string {
+  const parts: string[] = [];
+  if (el.labels) {
+    for (const label of Array.from(el.labels)) {
+      if (label.textContent) parts.push(label.textContent);
+    }
+  }
+  const root = el.getRootNode();
+  const rootParent: ParentNode =
+    root instanceof ShadowRoot || root instanceof Document ? root : document;
+  if (el.id) {
+    const forLabel = rootParent.querySelector<HTMLLabelElement>(
+      `label[for="${CSS.escape(el.id)}"]`,
+    );
+    if (forLabel?.textContent) parts.push(forLabel.textContent);
+  }
+  const wrappingLabel = el.closest("label");
+  if (wrappingLabel?.textContent) parts.push(wrappingLabel.textContent);
+  const labelledBy = el.getAttribute("aria-labelledby");
+  if (labelledBy) {
+    for (const id of labelledBy.trim().split(/\s+/)) {
+      if (!id) continue;
+      const refEl =
+        rootParent.querySelector<HTMLElement>(`#${CSS.escape(id)}`) ?? document.getElementById(id);
+      if (refEl?.textContent) parts.push(refEl.textContent);
+    }
+  }
+  return parts.join(" ").replace(/\s+/g, " ").trim();
+}
 
 function isVisibleElement(el: HTMLElement): boolean {
   if ((el as HTMLInputElement).disabled || (el as HTMLInputElement).readOnly) return false;
@@ -75,10 +136,11 @@ function isVisibleInput(el: HTMLInputElement): boolean {
 }
 
 function getFieldDescriptor(el: HTMLInputElement): FieldDescriptor {
-  const scope: ParentNode = el.form ?? el.parentElement?.parentElement ?? document;
-  const formInputs = Array.from(scope.querySelectorAll<HTMLInputElement>("input")).filter(
-    isVisibleInput,
-  );
+  const root = el.getRootNode();
+  const fallbackRoot: ParentNode =
+    root instanceof ShadowRoot || root instanceof Document ? root : document;
+  const scope: ParentNode = el.form ?? el.parentElement?.parentElement ?? fallbackRoot;
+  const formInputs = queryInputsDeep(scope).filter(isVisibleInput);
   const passwordInputs = formInputs.filter((i) => i.type === "password");
 
   let siblingSingleCharInputCount = 0;
@@ -96,6 +158,7 @@ function getFieldDescriptor(el: HTMLInputElement): FieldDescriptor {
     autocomplete: el.autocomplete || el.getAttribute("autocomplete") || "",
     placeholder: el.placeholder || "",
     ariaLabel: el.getAttribute("aria-label") || "",
+    labelText: getAccessibleLabelText(el),
     inputMode: el.inputMode || "",
     maxLength: el.maxLength > 0 ? el.maxLength : undefined,
     formHasPasswordField: passwordInputs.length > 0,
@@ -145,19 +208,24 @@ function setNativeSelectValue(select: HTMLSelectElement, candidates: string[]): 
 function fieldHintText(el: HTMLElement): string {
   const input = el as HTMLInputElement;
   const labelText =
-    el.id && document.querySelector<HTMLLabelElement>(`label[for="${CSS.escape(el.id)}"]`)
-      ?.textContent;
-  return `${input.name ?? ""} ${el.id ?? ""} ${el.getAttribute("autocomplete") ?? ""} ${input.placeholder ?? ""} ${el.getAttribute("aria-label") ?? ""} ${labelText ?? ""}`.toLowerCase();
+    el instanceof HTMLInputElement
+      ? getAccessibleLabelText(el)
+      : el.id
+        ? (document.querySelector<HTMLLabelElement>(`label[for="${CSS.escape(el.id)}"]`)
+            ?.textContent ?? "")
+        : "";
+  return `${input.name ?? ""} ${el.id ?? ""} ${el.getAttribute("autocomplete") ?? ""} ${input.placeholder ?? ""} ${el.getAttribute("aria-label") ?? ""} ${labelText}`.toLowerCase();
 }
 
 function findCompanionLoginFields(anchor: HTMLInputElement): {
   usernameInput: HTMLInputElement | null;
   passwordInput: HTMLInputElement | null;
 } {
-  const scope: ParentNode = anchor.form ?? document;
-  const inputs = Array.from(scope.querySelectorAll<HTMLInputElement>("input")).filter(
-    isVisibleInput,
-  );
+  const root = anchor.getRootNode();
+  const fallbackRoot: ParentNode =
+    root instanceof ShadowRoot || root instanceof Document ? root : document;
+  const scope: ParentNode = anchor.form ?? fallbackRoot;
+  const inputs = queryInputsDeep(scope).filter(isVisibleInput);
 
   let passwordInput: HTMLInputElement | null = anchor.type === "password" ? anchor : null;
   let usernameInput: HTMLInputElement | null = anchor.type !== "password" ? anchor : null;
@@ -185,9 +253,7 @@ function fillLoginFields(
   password: string,
   anchor?: HTMLInputElement | null,
 ): boolean {
-  const inputs = Array.from(document.querySelectorAll<HTMLInputElement>("input")).filter(
-    isVisibleInput,
-  );
+  const inputs = queryInputsDeep(document).filter(isVisibleInput);
   const start =
     anchor ??
     inputs.find((i) => i.type === "password") ??
@@ -443,7 +509,7 @@ function ensureOverlay(): ShadowOverlay {
   const shadow = host.attachShadow({ mode: "closed" });
   const style = document.createElement("style");
   style.textContent = `
-    :host { all: initial; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Inter, sans-serif; }
+    :host { all: initial; font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     * { box-sizing: border-box; }
 
     .ov-inline-trigger {
@@ -454,7 +520,7 @@ function ensureOverlay(): ShadowOverlay {
       border-radius: 999px;
       border: 0;
       padding: 0;
-      background: linear-gradient(135deg, #0A84FF, #0455BF);
+      background: linear-gradient(135deg, #0C74F2, #0558C9);
       color: #ffffff;
       display: flex;
       align-items: center;
@@ -542,7 +608,7 @@ function ensureOverlay(): ShadowOverlay {
       width: 30px;
       height: 30px;
       border-radius: 8px;
-      background: linear-gradient(135deg, #0A84FF, #0455BF);
+      background: linear-gradient(135deg, #0C74F2, #0558C9);
       color: #fff;
       font-weight: 700;
       font-size: 13px;
@@ -554,12 +620,13 @@ function ensureOverlay(): ShadowOverlay {
     .ov-avatar-emerald { background: linear-gradient(135deg, #10B981, #047857); }
     .ov-avatar-violet { background: linear-gradient(135deg, #8B5CF6, #6D28D9); }
     .ov-avatar-amber { background: linear-gradient(135deg, #F59E0B, #B45309); }
+    .ov-avatar-passkey { background: linear-gradient(135deg, #7253ED, #5B21B6); }
 
     .ov-meta { min-width: 0; flex: 1; }
     .ov-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .ov-sub { font-size: 11.5px; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
     .ov-code {
-      font-family: ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+      font-family: "JetBrains Mono", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
       font-size: 12.5px;
       font-weight: 700;
       letter-spacing: 0.04em;
@@ -625,7 +692,7 @@ function ensureOverlay(): ShadowOverlay {
       width: 24px;
       height: 24px;
       border-radius: 7px;
-      background: linear-gradient(135deg, #0A84FF, #0455BF);
+      background: linear-gradient(135deg, #0C74F2, #0558C9);
       color: #ffffff;
       display: flex;
       align-items: center;
@@ -893,7 +960,7 @@ function ensureOverlay(): ShadowOverlay {
       width: 24px;
       height: 24px;
       border-radius: 999px;
-      background: linear-gradient(135deg, #0A84FF, #0455BF);
+      background: linear-gradient(135deg, #0C74F2, #0558C9);
       color: #ffffff;
       display: flex;
       align-items: center;
@@ -1158,23 +1225,137 @@ function stopPageKeyLeak(el: HTMLElement): void {
   }
 }
 
-function createKeyholeSvg(size = 13): SVGSVGElement {
+function createKeyholeSvg(size = 14): SVGSVGElement {
   const svgNS = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(svgNS, "svg");
   svg.setAttribute("width", String(size));
   svg.setAttribute("height", String(size));
   svg.setAttribute("viewBox", "0 0 24 24");
   svg.setAttribute("fill", "none");
-  const circle = document.createElementNS(svgNS, "circle");
-  circle.setAttribute("cx", "12");
-  circle.setAttribute("cy", "10");
-  circle.setAttribute("r", "4");
-  circle.setAttribute("fill", "#ffffff");
-  const stem = document.createElementNS(svgNS, "path");
-  stem.setAttribute("d", "M10 13h4l1 7H9l1-7z");
-  stem.setAttribute("fill", "#ffffff");
-  svg.appendChild(circle);
-  svg.appendChild(stem);
+
+  const outerRing = document.createElementNS(svgNS, "circle");
+  outerRing.setAttribute("cx", "12");
+  outerRing.setAttribute("cy", "12");
+  outerRing.setAttribute("r", "11");
+  outerRing.setAttribute("fill", "#ffffff");
+
+  const cobaltRing = document.createElementNS(svgNS, "circle");
+  cobaltRing.setAttribute("cx", "12");
+  cobaltRing.setAttribute("cy", "12");
+  cobaltRing.setAttribute("r", "8.2");
+  cobaltRing.setAttribute("fill", "#0C74F2");
+
+  const innerCircle = document.createElementNS(svgNS, "circle");
+  innerCircle.setAttribute("cx", "12");
+  innerCircle.setAttribute("cy", "12");
+  innerCircle.setAttribute("r", "5.2");
+  innerCircle.setAttribute("fill", "#ffffff");
+
+  const holeCircle = document.createElementNS(svgNS, "circle");
+  holeCircle.setAttribute("cx", "12");
+  holeCircle.setAttribute("cy", "10.3");
+  holeCircle.setAttribute("r", "1.7");
+  holeCircle.setAttribute("fill", "#0F172A");
+
+  const holeStem = document.createElementNS(svgNS, "path");
+  holeStem.setAttribute("d", "M10.8 11.4h2.4l.4 4.1h-3.2l.4-4.1z");
+  holeStem.setAttribute("fill", "#0F172A");
+
+  svg.appendChild(outerRing);
+  svg.appendChild(cobaltRing);
+  svg.appendChild(innerCircle);
+  svg.appendChild(holeCircle);
+  svg.appendChild(holeStem);
+  return svg;
+}
+
+function createEyeSvg(size = 14): SVGSVGElement {
+  const svgNS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNS, "svg");
+  svg.setAttribute("width", String(size));
+  svg.setAttribute("height", String(size));
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "2");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+
+  const outline = document.createElementNS(svgNS, "path");
+  outline.setAttribute("d", "M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z");
+  const pupil = document.createElementNS(svgNS, "circle");
+  pupil.setAttribute("cx", "12");
+  pupil.setAttribute("cy", "12");
+  pupil.setAttribute("r", "3");
+
+  svg.appendChild(outline);
+  svg.appendChild(pupil);
+  return svg;
+}
+
+function createSparkleSvg(size = 15): SVGSVGElement {
+  const svgNS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNS, "svg");
+  svg.setAttribute("width", String(size));
+  svg.setAttribute("height", String(size));
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+
+  const star = document.createElementNS(svgNS, "path");
+  star.setAttribute("d", "M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z");
+  star.setAttribute("fill", "#ffffff");
+  svg.appendChild(star);
+  return svg;
+}
+
+function createRefreshSvg(size = 14): SVGSVGElement {
+  const svgNS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNS, "svg");
+  svg.setAttribute("width", String(size));
+  svg.setAttribute("height", String(size));
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "2");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+
+  const arc = document.createElementNS(svgNS, "path");
+  arc.setAttribute("d", "M21 12a9 9 0 1 1-2.64-6.36");
+  const arrow = document.createElementNS(svgNS, "polyline");
+  arrow.setAttribute("points", "21 3 21 9 15 9");
+
+  svg.appendChild(arc);
+  svg.appendChild(arrow);
+  return svg;
+}
+
+function createCreditCardSvg(size = 15): SVGSVGElement {
+  const svgNS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNS, "svg");
+  svg.setAttribute("width", String(size));
+  svg.setAttribute("height", String(size));
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "#ffffff");
+  svg.setAttribute("stroke-width", "2");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+
+  const rect = document.createElementNS(svgNS, "rect");
+  rect.setAttribute("x", "2");
+  rect.setAttribute("y", "5");
+  rect.setAttribute("width", "20");
+  rect.setAttribute("height", "14");
+  rect.setAttribute("rx", "2");
+  const stripe = document.createElementNS(svgNS, "line");
+  stripe.setAttribute("x1", "2");
+  stripe.setAttribute("y1", "10");
+  stripe.setAttribute("x2", "22");
+  stripe.setAttribute("y2", "10");
+
+  svg.appendChild(rect);
+  svg.appendChild(stripe);
   return svg;
 }
 
@@ -1463,7 +1644,7 @@ function createUnlockWidget(opts: UnlockWidgetOptions): HTMLDivElement {
       eyeBtn.type = "button";
       eyeBtn.className = "ov-unlock-eye";
       eyeBtn.title = "Hiện/Ẩn mật khẩu";
-      eyeBtn.textContent = "👁";
+      eyeBtn.appendChild(createEyeSvg(14));
       eyeBtn.addEventListener("click", () => {
         pwInput.type = pwInput.type === "password" ? "text" : "password";
         pwInput.focus();
@@ -1568,6 +1749,22 @@ function buildInlineUnlockPanel(
     onUnlocked: async () => {
       showToast("Đã mở khóa OpenVault");
       try {
+        if (pendingConditionalPasskey) {
+          const pkPrep = (await chrome.runtime
+            .sendMessage({
+              type: "PASSKEY_PREPARE_GET",
+              origin: pendingConditionalPasskey.req.origin,
+              rpId: pendingConditionalPasskey.req.rpId,
+              allowCredentialIds: pendingConditionalPasskey.req.allowCredentialIds,
+            })
+            .catch(() => null)) as BgResponse<PasskeyPrepareGetResponse> | null;
+          if (pkPrep?.ok) {
+            pendingConditionalPasskey = {
+              req: pendingConditionalPasskey.req,
+              prep: pkPrep.data,
+            };
+          }
+        }
         const refreshed = (await chrome.runtime.sendMessage({
           type: "GET_AUTOFILL_CONTEXT",
           url: window.location.href,
@@ -1617,7 +1814,7 @@ function positionTriggerForInput(trigger: HTMLButtonElement, input: HTMLInputEle
 }
 
 function createDropdownItem(
-  avatarText: string,
+  avatarContent: string | SVGElement,
   avatarClass: string,
   title: string,
   subtitle: string,
@@ -1630,7 +1827,11 @@ function createDropdownItem(
 
   const avatar = document.createElement("div");
   avatar.className = `ov-avatar ${avatarClass}`.trim();
-  avatar.textContent = avatarText;
+  if (avatarContent instanceof SVGElement) {
+    avatar.appendChild(avatarContent);
+  } else {
+    avatar.textContent = avatarContent;
+  }
 
   const meta = document.createElement("div");
   meta.className = "ov-meta";
@@ -1739,6 +1940,33 @@ function showDropdownForContext(
   list.className = "ov-list";
   let itemCount = 0;
 
+  const appendConditionalPasskeyFallback = (target: HTMLElement) => {
+    const cond = pendingConditionalPasskey;
+    if (!cond) return;
+    const fallbackBtn = createDropdownItem(
+      createPasskeyGlyphSvg(),
+      "ov-avatar-passkey",
+      "Dùng khóa truy cập từ thiết bị khác...",
+      cond.req.rpId,
+      "Trình duyệt",
+    );
+    fallbackBtn.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      const activeCond = pendingConditionalPasskey;
+      pendingConditionalPasskey = null;
+      hideDropdown();
+      if (activeCond) {
+        postWebAuthnResponse({
+          requestId: activeCond.req.requestId,
+          action: "fallback",
+        });
+      }
+      input.focus();
+      showToast("Đã chuyển sang khóa truy cập trình duyệt / thiết bị khác");
+    });
+    target.appendChild(fallbackBtn);
+  };
+
   // 1. New-password strong autosuggest (works even if vault is locked!)
   if (ctx.fieldKind === "new-password" && ctx.suggestedPassword) {
     let currentSuggested = ctx.suggestedPassword;
@@ -1746,7 +1974,7 @@ function showDropdownForContext(
     row.className = "ov-suggest-row";
 
     const suggestBtn = createDropdownItem(
-      "✦",
+      createSparkleSvg(15),
       "ov-avatar-emerald",
       "Dùng mật khẩu mạnh đề xuất",
       "",
@@ -1774,7 +2002,7 @@ function showDropdownForContext(
     refreshBtn.type = "button";
     refreshBtn.className = "ov-refresh-btn";
     refreshBtn.title = "Tạo mật khẩu khác";
-    refreshBtn.textContent = "↻";
+    refreshBtn.appendChild(createRefreshSvg(14));
     refreshBtn.addEventListener("mousedown", (e) => {
       e.preventDefault();
       void (async () => {
@@ -1805,6 +2033,15 @@ function showDropdownForContext(
       dropdown.appendChild(list);
     }
     dropdown.appendChild(buildInlineUnlockPanel(input, ctx, focusUnlockField));
+    if (ctx.fieldKind === "login" && pendingConditionalPasskey) {
+      const divider = document.createElement("div");
+      divider.className = "ov-divider";
+      dropdown.appendChild(divider);
+      const fallbackList = document.createElement("div");
+      fallbackList.className = "ov-list";
+      appendConditionalPasskeyFallback(fallbackList);
+      dropdown.appendChild(fallbackList);
+    }
     container.appendChild(dropdown);
     return;
   } else {
@@ -1812,6 +2049,66 @@ function showDropdownForContext(
     if ((ctx.fieldKind === "login" || ctx.fieldKind === "new-password") && ctx.matches.length > 0) {
       appendLoginItems(list, input, ctx.matches);
       itemCount += ctx.matches.length;
+    }
+
+    if (ctx.fieldKind === "login" && pendingConditionalPasskey) {
+      const cond = pendingConditionalPasskey;
+      if (cond.prep.unlocked && cond.prep.matches.length > 0) {
+        const pkHeader = document.createElement("div");
+        pkHeader.className = "ov-header";
+        pkHeader.textContent = "Khóa truy cập (Passkey)";
+        list.appendChild(pkHeader);
+
+        for (const match of cond.prep.matches) {
+          const pkBtn = createDropdownItem(
+            createPasskeyGlyphSvg(),
+            "ov-avatar-passkey",
+            match.cipherName || match.rpName || match.rpId,
+            match.userName || match.userDisplayName || match.rpId,
+            "Passkey",
+          );
+          pkBtn.addEventListener("mousedown", (e) => {
+            e.preventDefault();
+            void (async () => {
+              const execRes = (await chrome.runtime
+                .sendMessage({
+                  type: "PASSKEY_EXECUTE_GET",
+                  origin: cond.req.origin,
+                  rpId: cond.req.rpId,
+                  challengeB64Url: cond.req.challengeB64Url,
+                  cipherId: match.cipherId,
+                  credentialId: match.credentialId,
+                })
+                .catch(() => null)) as BgResponse<SerializedGetResponseData> | null;
+
+              if (execRes?.ok) {
+                pendingConditionalPasskey = null;
+                hideDropdown();
+                hideTrigger();
+                showToast(`Đã xác thực Passkey cho ${match.cipherName || match.rpId}`);
+                postWebAuthnResponse({
+                  requestId: cond.req.requestId,
+                  action: "ok",
+                  kind: "get",
+                  data: execRes.data,
+                });
+                return;
+              }
+              showToast(execRes?.error || "Không thể ký xác thực Passkey.");
+            })();
+          });
+          list.appendChild(pkBtn);
+          itemCount++;
+        }
+      }
+
+      if (itemCount > 0) {
+        const divider = document.createElement("div");
+        divider.className = "ov-divider";
+        list.appendChild(divider);
+      }
+      appendConditionalPasskeyFallback(list);
+      itemCount++;
     }
 
     // 3. 2FA / TOTP matches
@@ -1852,7 +2149,7 @@ function showDropdownForContext(
         const exp = card.expMonth && card.expYear ? `${card.expMonth}/${card.expYear.slice(-2)}` : "";
         const sub = [card.brand, maskCardNumber(card.number), exp].filter(Boolean).join(" · ");
         const btn = createDropdownItem(
-          "💳",
+          createCreditCardSvg(15),
           "ov-avatar-amber",
           card.name,
           sub || card.cardholderName || "Thẻ tín dụng",
@@ -1938,22 +2235,7 @@ function showInlineTriggerForContext(
             : "Dùng OpenVault";
   trigger.setAttribute("aria-label", tipText);
 
-  const svgNS = "http://www.w3.org/2000/svg";
-  const svg = document.createElementNS(svgNS, "svg");
-  svg.setAttribute("width", "12");
-  svg.setAttribute("height", "12");
-  svg.setAttribute("viewBox", "0 0 24 24");
-  svg.setAttribute("fill", "none");
-  const circle = document.createElementNS(svgNS, "circle");
-  circle.setAttribute("cx", "12");
-  circle.setAttribute("cy", "10");
-  circle.setAttribute("r", "4");
-  circle.setAttribute("fill", "#ffffff");
-  const stem = document.createElementNS(svgNS, "path");
-  stem.setAttribute("d", "M10 13h4l1 7H9l1-7z");
-  stem.setAttribute("fill", "#ffffff");
-  svg.appendChild(circle);
-  svg.appendChild(stem);
+  const svg = createKeyholeSvg(16);
 
   const tip = document.createElement("span");
   tip.className = "ov-tip";
@@ -2062,6 +2344,7 @@ async function handleInputFocus(input: HTMLInputElement): Promise<void> {
     })) as BgResponse<AutofillContextResponse>;
 
     if (!res?.ok || res.data.disabled) return;
+    if (activeInput !== input) return;
     const ctx = res.data;
 
     // By default show ONLY the subtle corner icon trigger; clicking the icon opens the unlock PIN or autofill list.
@@ -2076,35 +2359,60 @@ async function handleInputFocus(input: HTMLInputElement): Promise<void> {
   }
 }
 
+function attachInputListeners(input: HTMLInputElement): void {
+  if (input.hasAttribute(HOST_ATTR)) return;
+  input.setAttribute(HOST_ATTR, "1");
+  input.addEventListener("focus", () => {
+    void handleInputFocus(input);
+  });
+  input.addEventListener("blur", () => {
+    window.setTimeout(() => {
+      const active = getDeepActiveElement();
+      const hasShadowFocus =
+        overlayRef?.shadow.activeElement !== null &&
+        overlayRef?.shadow.activeElement !== undefined;
+      const insideOverlay =
+        interactingWithOverlay ||
+        hasShadowFocus ||
+        (overlayRef !== null && active === overlayRef.host);
+      if (active !== input && !insideOverlay) {
+        hideDropdown();
+        hideTrigger();
+      }
+    }, 180);
+  });
+}
+
 function bindCandidateInputs(): void {
-  const inputs = Array.from(document.querySelectorAll<HTMLInputElement>("input"));
+  const inputs = queryInputsDeep(document);
   const targets = inputs.filter(
     (el) => !el.hasAttribute(HOST_ATTR) && isVisibleInput(el) && detectFieldKind(el) !== null,
   );
-  if (targets.length === 0) return;
+
+  const checkFocusedInput = () => {
+    const focused = getDeepActiveElement();
+    if (
+      focused instanceof HTMLInputElement &&
+      isVisibleInput(focused) &&
+      detectFieldKind(focused) !== null
+    ) {
+      const hasTrigger = Boolean(overlayRef?.container.querySelector(".ov-inline-trigger"));
+      if (focused !== activeInput || !hasTrigger) {
+        void handleInputFocus(focused);
+      }
+    }
+  };
+
+  if (targets.length === 0) {
+    checkFocusedInput();
+    return;
+  }
 
   window.requestAnimationFrame(() => {
     for (const input of targets) {
-      if (input.hasAttribute(HOST_ATTR)) continue;
-      input.setAttribute(HOST_ATTR, "1");
-      input.addEventListener("focus", () => {
-        void handleInputFocus(input);
-      });
-      input.addEventListener("blur", () => {
-        window.setTimeout(() => {
-          const active = document.activeElement;
-          const hasShadowFocus = overlayRef?.shadow.activeElement !== null && overlayRef?.shadow.activeElement !== undefined;
-          const insideOverlay =
-            interactingWithOverlay ||
-            hasShadowFocus ||
-            (overlayRef !== null && active === overlayRef.host);
-          if (active !== input && !insideOverlay) {
-            hideDropdown();
-            hideTrigger();
-          }
-        }, 180);
-      });
+      attachInputListeners(input);
     }
+    checkFocusedInput();
   });
 }
 
@@ -2512,6 +2820,26 @@ async function handleWebAuthnGet(req: SerializedGetRequest): Promise<void> {
     return;
   }
 
+  if (req.mediation === "conditional") {
+    const shouldHold =
+      Boolean(prepareRes.data.defaultBrowserPasswordManager) ||
+      !prepareRes.data.unlocked ||
+      prepareRes.data.matches.length > 0;
+    if (!shouldHold) {
+      postWebAuthnResponse({ requestId: req.requestId, action: "fallback" });
+      return;
+    }
+    if (pendingConditionalPasskey && pendingConditionalPasskey.req.requestId !== req.requestId) {
+      postWebAuthnResponse({
+        requestId: pendingConditionalPasskey.req.requestId,
+        action: "cancel",
+        reason: "Superseded",
+      });
+    }
+    pendingConditionalPasskey = { req, prep: prepareRes.data };
+    return;
+  }
+
   // Zero interruption when vault is already unlocked and no passkey matches this RP ID
   if (prepareRes.data.unlocked && prepareRes.data.matches.length === 0) {
     postWebAuthnResponse({ requestId: req.requestId, action: "fallback" });
@@ -2522,8 +2850,15 @@ async function handleWebAuthnGet(req: SerializedGetRequest): Promise<void> {
   const finish = (response: SerializedWebAuthnResponse) => {
     if (settled) return;
     settled = true;
+    if (activeModalPasskey?.requestId === req.requestId) {
+      activeModalPasskey = null;
+    }
     removePasskeyPrompt();
     postWebAuthnResponse(response);
+  };
+  activeModalPasskey = {
+    requestId: req.requestId,
+    cancel: () => finish({ requestId: req.requestId, action: "cancel", reason: "Aborted" }),
   };
 
   const renderState = (prep: PasskeyPrepareGetResponse) => {
@@ -2661,6 +2996,13 @@ window.addEventListener("message", (event: MessageEvent) => {
     void handleWebAuthnCreate(req);
   } else if (req.kind === "get") {
     void handleWebAuthnGet(req);
+  } else if (req.kind === "abort") {
+    if (pendingConditionalPasskey?.req.requestId === req.requestId) {
+      pendingConditionalPasskey = null;
+    }
+    if (activeModalPasskey?.requestId === req.requestId) {
+      activeModalPasskey.cancel();
+    }
   }
 });
 
@@ -2682,17 +3024,30 @@ if (document.readyState === "loading") {
   initDomAutofillObservers();
 }
 
-window.addEventListener(
-  "scroll",
-  () => {
-    if (activeInput && overlayRef) {
-      const trigger = overlayRef.container.querySelector<HTMLButtonElement>(".ov-inline-trigger");
-      if (trigger) positionTriggerForInput(trigger, activeInput);
-      if (dropdownOpen) hideDropdown();
+document.addEventListener(
+  "focusin",
+  (event) => {
+    const rawTarget = event.composedPath()[0] ?? event.target;
+    if (!(rawTarget instanceof HTMLInputElement)) return;
+    if (!isVisibleInput(rawTarget) || detectFieldKind(rawTarget) === null) return;
+    if (!rawTarget.hasAttribute(HOST_ATTR)) {
+      attachInputListeners(rawTarget);
+      void handleInputFocus(rawTarget);
     }
   },
   true,
 );
+
+const repositionActiveOverlay = () => {
+  if (activeInput && overlayRef) {
+    const trigger = overlayRef.container.querySelector<HTMLButtonElement>(".ov-inline-trigger");
+    if (trigger) positionTriggerForInput(trigger, activeInput);
+    if (dropdownOpen) hideDropdown();
+  }
+};
+
+window.addEventListener("scroll", repositionActiveOverlay, true);
+window.addEventListener("resize", repositionActiveOverlay);
 
 document.addEventListener(
   "submit",
@@ -2708,15 +3063,15 @@ document.addEventListener(
   "pointerdown",
   (event) => {
     if (!dropdownOpen) return;
-    const target = event.target as Node | null;
-    if (overlayRef && target === overlayRef.host) {
+    const path = event.composedPath();
+    if (overlayRef && path.includes(overlayRef.host)) {
       interactingWithOverlay = true;
       return;
     }
-    if (activeInput && target === activeInput) return;
+    if (activeInput && path.includes(activeInput)) return;
     interactingWithOverlay = false;
     hideDropdown();
-    if (document.activeElement !== activeInput) {
+    if (getDeepActiveElement() !== activeInput) {
       hideTrigger();
     }
   },

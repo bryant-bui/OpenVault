@@ -1,13 +1,49 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="24dp"
     android:height="24dp"
-    android:viewportWidth="24"
-    android:viewportHeight="24">
-    <path
-        android:fillColor="#FF3B8BFF"
-        android:pathData="M12,2C6.48,2 2,6.48 2,12s4.48,10 10,10 10,-4.48 10,-10S17.52,2 12,2zM12,18c-3.31,0 -6,-2.69 -6,-6s2.69,-6 6,-6 6,2.69 6,6 -2.69,6 -6,6z" />
+    android:viewportWidth="100"
+    android:viewportHeight="100">
+    <!-- Canonical Cobalt Squircle (#0C74F2 -> #0558C9) -->
+    <path android:pathData="M28,4 L72,4 A24,24 0 0,1 96,28 L96,72 A24,24 0 0,1 72,96 L28,96 A24,24 0 0,1 4,72 L4,28 A24,24 0 0,1 28,4 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="0"
+                android:startY="0"
+                android:endX="100"
+                android:endY="100"
+                android:type="linear">
+                <item android:color="#FF0C74F2" android:offset="0" />
+                <item android:color="#FF0558C9" android:offset="1" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- Outer silver/white dial ring -->
     <path
         android:fillColor="#FFFFFFFF"
-        android:pathData="M12,8.5a2,2 0 1,0 0,4 2,2 0 1,0 0,-4zM10.9,12.2h2.2l0.4,3.3h-3z" />
+        android:pathData="M50,16 A34,34 0 1,1 49.99,16 Z" />
+    <!-- Inner Cobalt-to-Sky bevel ring -->
+    <path android:pathData="M50,22.5 A27.5,27.5 0 1,1 49.99,22.5 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="50"
+                android:startY="22"
+                android:endX="50"
+                android:endY="78"
+                android:type="linear">
+                <item android:color="#FF1A56DB" android:offset="0" />
+                <item android:color="#FF0C74F2" android:offset="0.55" />
+                <item android:color="#FF60A5FA" android:offset="1" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- Bright recessed center disc -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M50,30.8 A19.2,19.2 0 1,1 49.99,30.8 Z" />
+    <!-- Notched dark-navy keyhole bolt -->
+    <path
+        android:fillColor="#FF0F172A"
+        android:pathData="M48.1,37.6 L51.9,37.6 A2.5,2.5 0 0,1 54.4,40.1 L54.4,49.2 L50.5,52 L54.4,54.6 L54.4,59.9 A2.5,2.5 0 0,1 51.9,62.4 L48.1,62.4 A2.5,2.5 0 0,1 45.6,59.9 L45.6,51.5 L49.5,48.8 L45.6,46 L45.6,40.1 A2.5,2.5 0 0,1 48.1,37.6 Z" />
 </vector>

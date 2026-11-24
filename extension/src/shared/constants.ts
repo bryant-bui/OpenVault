@@ -12,6 +12,8 @@ export const LOCAL_KEYS = {
   DEVICE_ID: "ov_device_id",
   PIN_LOCAL: "ov_pin_local",
   SAFE_LOCKOUT: "ov_safe_lockout",
+  SAFE_FOLDERS: "ov_safe_folders",
+  SAFE_UI_PREFS: "ov_safe_ui_prefs",
 } as const;
 
 export const SESSION_KEYS = {

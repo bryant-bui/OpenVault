@@ -1,6 +1,7 @@
 package io.openvault.app
 
 import android.app.Application
+import android.content.Context
 import io.openvault.app.core.database.OpenVaultDatabase
 import io.openvault.app.core.network.BitwardenApiClient
 import io.openvault.app.core.network.SafeApiClient
@@ -16,6 +17,7 @@ class AppContainer(application: Application) {
     val preferences = AppPreferences(application)
     val database = OpenVaultDatabase.create(application)
     val safeSessionManager = SafeSessionManager().also {
+        it.setLockOnExit(preferences.getSafeLockOnExit())
         it.registerProcessLifecycle()
     }
     val sessionManager = VaultSessionManager(preferences).also {
@@ -51,4 +53,10 @@ class OpenVaultApplication : Application() {
         container = AppContainer(this)
         ClipboardNotificationHelper.ensureChannel(this)
     }
+}
+
+fun Context.suppressAutoLockForPicker() {
+    val container = (applicationContext as? OpenVaultApplication)?.container ?: return
+    container.sessionManager.suppressNextBackgroundLock()
+    container.safeSessionManager.suppressNextBackgroundLock()
 }

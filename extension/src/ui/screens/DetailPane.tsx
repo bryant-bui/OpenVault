@@ -27,9 +27,8 @@ import { useId, useRef, useState } from "react";
 import { formatLocalTimestamp, getStrings, type AppLanguage } from "../../shared/i18n.js";
 import { getVisibleCustomFields, normalizeAvatarDataUrl } from "../../shared/media.js";
 import {
-  countFilledRecoveryCodes,
   isRecoveryCodesField,
-  parseRecoveryCodesToSlots,
+  parseRecoveryCodesPaste,
 } from "../../shared/recovery-codes.js";
 import { BrandAvatar } from "../components/BrandAvatar.js";
 import { ColorPassword } from "../components/ColorPassword.js";
@@ -690,12 +689,13 @@ export function DetailPane({
             </div>
           ) : null}
 
-          {/* Recovery Codes Table Cards (4 columns x 5 rows = 20 cells) */}
+          {/* Recovery Codes Table Cards (2-column dynamic grid supporting 6-digit / paired / >10 codes) */}
           {visibleCustomFields.map((field, idx) => {
             if (!isRecoveryCodesField(field.name)) return null;
-            const slots = parseRecoveryCodesToSlots(field.value);
-            const filledCount = countFilledRecoveryCodes(slots);
+            const codes = parseRecoveryCodesPaste(field.value ?? "");
+            const filledCount = codes.length;
             const isShown = Boolean(revealedRecoveryFields[idx]);
+            const displaySlots = codes.length > 0 ? codes : [];
             return (
               <div key={`rec-${idx}`} className="ov-detail-card">
                 <div className="px-4 py-2.5 flex items-center justify-between gap-2 bg-[var(--surface-subtle)]">
@@ -705,7 +705,7 @@ export function DetailPane({
                       {field.name || s.recoveryCodesTitle}
                     </span>
                     <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-[var(--accent-soft)] text-[var(--accent)] tabular-nums">
-                      {filledCount}/20
+                      {filledCount} {s.isVi ? "mã" : "codes"}
                     </span>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
@@ -721,11 +721,11 @@ export function DetailPane({
                     >
                       {isShown ? <EyeOff size={15} /> : <Eye size={15} />}
                     </button>
-                    {field.value ? (
+                    {codes.length > 0 ? (
                       <button
                         type="button"
                         onClick={() => {
-                          void onCopyText(field.value!, s.copyAll);
+                          void onCopyText(codes.join("\n"), s.copyAll);
                         }}
                         className="ov-btn-ghost px-2.5 py-1 text-[11.5px] inline-flex items-center gap-1"
                       >
@@ -736,36 +736,39 @@ export function DetailPane({
                   </div>
                 </div>
 
-                <div className="ov-recovery-grid">
-                  {slots.map((code, slotIdx) => {
-                    const hasCode = code.length > 0;
-                    const display = hasCode ? (isShown ? code : "••••") : "—";
-                    return (
-                      <button
-                        key={slotIdx}
-                        type="button"
-                        disabled={!hasCode}
-                        onClick={() => {
-                          if (!hasCode) return;
-                          void onCopyText(code, `#${slotIdx + 1}: ${code}`);
-                        }}
-                        className="ov-recovery-cell"
-                        title={hasCode ? `${s.copy} #${slotIdx + 1}` : undefined}
-                      >
-                        <span className="text-[10.5px] font-semibold text-[var(--text-muted)] tabular-nums">
-                          {String(slotIdx + 1).padStart(2, "0")}
-                        </span>
-                        <span
-                          className={`font-mono-code text-[14.5px] font-bold tracking-[0.06em] ${
-                            hasCode ? "text-[var(--text-primary)]" : "text-[var(--text-muted)]"
-                          }`}
+                {displaySlots.length === 0 ? (
+                  <div className="px-4 py-3 text-[12.5px] text-[var(--text-muted)] border-t border-[var(--border)]">
+                    {s.isVi ? "Chưa có mã khôi phục nào." : "No recovery codes saved."}
+                  </div>
+                ) : (
+                  <div className="ov-recovery-grid">
+                    {displaySlots.map((code, slotIdx) => {
+                      const maskLen = Math.min(8, Math.max(6, code.replace(/\s+/g, "").length));
+                      const display = isShown ? code : "•".repeat(maskLen);
+                      return (
+                        <button
+                          key={slotIdx}
+                          type="button"
+                          onClick={() => {
+                            void onCopyText(code, `#${slotIdx + 1}: ${code}`);
+                          }}
+                          className="ov-recovery-cell"
+                          title={`${s.copy} #${slotIdx + 1}`}
                         >
-                          {display}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
+                          <span className="text-[10.5px] font-semibold text-[var(--text-muted)] tabular-nums">
+                            {String(slotIdx + 1).padStart(2, "0")}
+                          </span>
+                          <span className="font-mono-code text-[14px] font-bold tracking-[0.04em] text-[var(--text-primary)] truncate max-w-full">
+                            {display}
+                          </span>
+                        </button>
+                      );
+                    })}
+                    {displaySlots.length % 2 === 1 ? (
+                      <div className="bg-[var(--surface)]" aria-hidden="true" />
+                    ) : null}
+                  </div>
+                )}
               </div>
             );
           })}

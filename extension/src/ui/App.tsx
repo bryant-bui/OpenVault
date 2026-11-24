@@ -48,6 +48,7 @@ import type {
   VaultStatusResponse,
 } from "../shared/types.js";
 import { BrandAvatar } from "./components/BrandAvatar.js";
+import { OpenVaultLogo } from "./components/OpenVaultLogo.js";
 import { getActiveTab, sendBg } from "./components/bridge.js";
 import { Toast, type ToastMessage } from "./components/Toast.js";
 import { AuthScreen } from "./screens/AuthScreen.js";
@@ -487,6 +488,7 @@ export function App() {
         <div className="flex-1 flex flex-col max-w-[400px] w-full mx-auto min-h-0">
           <AuthScreen
             initialServerUrl={status.serverUrl}
+            language={lang}
             onAuthenticated={loadStatus}
             onToast={showToast}
           />
@@ -654,10 +656,10 @@ export function App() {
               <img
                 src={accountAvatarUrl}
                 alt="Account"
-                className="w-6 h-6 rounded-full object-cover shrink-0"
+                className="w-6 h-6 rounded-[7px] object-cover shrink-0"
               />
             ) : (
-              <img src="/icons/icon-32.png" alt="OpenVault" className="w-6 h-6 rounded-full shrink-0" />
+              <OpenVaultLogo variant="crest" size={24} className="shrink-0" />
             )}
             {!narrowWidth ? (
               <span className="text-[13.5px] font-semibold truncate">{accountLabel}</span>
@@ -1080,6 +1082,7 @@ export function App() {
                 pinEnabled={status.pinEnabled}
                 pinRequireMasterOnRestart={status.pinRequireMasterOnRestart}
                 pinMaxAttempts={status.pinMaxAttempts}
+                defaultManagerControl={status.defaultManagerControl}
                 onUpdateSettings={handleUpdateSettings}
                 onAvatarUpdated={(nextSettings) =>
                   setStatus((prev) => ({ ...prev, settings: nextSettings }))
@@ -1118,11 +1121,9 @@ export function App() {
               />
             ) : (
               <div className="flex-1 flex flex-col items-center justify-center text-center p-6 bg-[var(--bg)]">
-                <img
-                  src="/icons/icon-128.png"
-                  alt=""
-                  className="w-14 h-14 rounded-[16px] shadow-md mb-3 opacity-90"
-                />
+                <div className="mb-3 shadow-md rounded-[15px]">
+                  <OpenVaultLogo variant="crest" size={56} />
+                </div>
                 <h2 className="text-[15px] font-bold m-0 text-[var(--text-primary)]">
                   {s.welcomeTitle}
                 </h2>

@@ -85,6 +85,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.openvault.app.core.crypto.SafeCrypto
 import io.openvault.app.ui.components.OnePassCard
+import io.openvault.app.suppressAutoLockForPicker
 import io.openvault.app.ui.theme.LocalOpenVaultColors
 import io.openvault.app.ui.theme.LocalStrings
 import kotlinx.coroutines.Dispatchers
@@ -120,7 +121,10 @@ fun SafeCameraCaptureDialog(
     ) { granted -> hasPermission = granted }
 
     LaunchedEffect(Unit) {
-        if (!hasPermission) permLauncher.launch(Manifest.permission.CAMERA)
+        if (!hasPermission) {
+            context.suppressAutoLockForPicker()
+            permLauncher.launch(Manifest.permission.CAMERA)
+        }
     }
 
     var lensFacing by remember { mutableIntStateOf(CameraSelector.LENS_FACING_BACK) }

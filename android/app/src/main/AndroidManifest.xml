@@ -58,6 +58,8 @@
         <service
             android:name=".service.autofill.VaultAutofillService"
             android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:logo="@mipmap/ic_launcher"
             android:label="@string/autofill_service_label"
             android:permission="android.permission.BIND_AUTOFILL_SERVICE">
             <intent-filter>
@@ -72,6 +74,8 @@
             android:name=".service.passkey.VaultCredentialProviderService"
             android:enabled="true"
             android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:logo="@mipmap/ic_launcher"
             android:label="@string/credential_provider_label"
             android:permission="android.permission.BIND_CREDENTIAL_PROVIDER_SERVICE">
             <intent-filter>

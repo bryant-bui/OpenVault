@@ -7,6 +7,7 @@ export interface FieldDescriptor {
   autocomplete: string;
   placeholder: string;
   ariaLabel: string;
+  labelText?: string;
   inputMode?: string;
   maxLength?: number;
   formHasPasswordField?: boolean;
@@ -33,13 +34,35 @@ const EXCLUDED_INPUT_TYPES = new Set([
   "search",
 ]);
 
+const IDENTITY_AUTOCOMPLETE_TOKENS = new Set([
+  "name",
+  "given-name",
+  "additional-name",
+  "family-name",
+  "tel",
+  "tel-national",
+  "street-address",
+  "address-line1",
+  "address-line2",
+  "address-level1",
+  "address-level2",
+  "postal-code",
+  "country",
+  "country-name",
+  "organization",
+]);
+
+function getAutocompleteTokens(autocomplete: string): string[] {
+  return autocomplete.trim().toLowerCase().split(/\s+/).filter(Boolean);
+}
+
 function combinedHint(d: FieldDescriptor): string {
-  return `${d.name} ${d.id} ${d.autocomplete} ${d.placeholder} ${d.ariaLabel}`.toLowerCase();
+  return `${d.name} ${d.id} ${d.autocomplete} ${d.placeholder} ${d.ariaLabel} ${d.labelText ?? ""}`.toLowerCase();
 }
 
 export function isCardHint(autocomplete: string, hint: string): boolean {
-  const ac = autocomplete.trim().toLowerCase();
-  if (ac.startsWith("cc-")) return true;
+  const tokens = getAutocompleteTokens(autocomplete);
+  if (tokens.some((t) => t.startsWith("cc-"))) return true;
   return /(card.?num|cc.?num|ccnum|credit.?card|debit.?card|card.?holder|name.?on.?card|card.?exp|expir(y|ation)|cvv|cvc|csc|security.?code.?card|billing.?card)/.test(
     hint,
   );
@@ -47,8 +70,8 @@ export function isCardHint(autocomplete: string, hint: string): boolean {
 
 export function isTotpHint(d: FieldDescriptor, hint: string): boolean {
   if (d.type === "password") return false;
-  const ac = d.autocomplete.trim().toLowerCase();
-  if (ac === "one-time-code") return true;
+  const tokens = getAutocompleteTokens(d.autocomplete);
+  if (tokens.includes("one-time-code")) return true;
 
   // Split 6-digit OTP input box (maxLength === 1 inside a 4..8 sibling group)
   if (
@@ -70,8 +93,8 @@ export function isTotpHint(d: FieldDescriptor, hint: string): boolean {
 
 export function isNewPasswordHint(d: FieldDescriptor, hint: string): boolean {
   if (d.type !== "password") return false;
-  const ac = d.autocomplete.trim().toLowerCase();
-  if (ac === "new-password") return true;
+  const tokens = getAutocompleteTokens(d.autocomplete);
+  if (tokens.includes("new-password")) return true;
   if ((d.formPasswordCount ?? 1) >= 2) return true;
   return /(new.?pass|confirm.?pass|repeat.?pass|retype.?pass|create.?pass|signup|sign.?up|register|set.?pass|mật khẩu mới|nhập lại mật khẩu|tạo mật khẩu)/.test(
     hint,
@@ -79,12 +102,8 @@ export function isNewPasswordHint(d: FieldDescriptor, hint: string): boolean {
 }
 
 export function isIdentityHint(d: FieldDescriptor, hint: string): boolean {
-  const ac = d.autocomplete.trim().toLowerCase();
-  if (
-    /^(name|given-name|additional-name|family-name|tel|tel-national|street-address|address-line1|address-line2|address-level1|address-level2|postal-code|country|country-name|organization)$/.test(
-      ac,
-    )
-  ) {
+  const tokens = getAutocompleteTokens(d.autocomplete);
+  if (tokens.some((t) => IDENTITY_AUTOCOMPLETE_TOKENS.has(t))) {
     return true;
   }
   if (/(search|query|filter|captcha|coupon|promo|comment|message|subject|title|note)/.test(hint)) {
@@ -97,14 +116,28 @@ export function isIdentityHint(d: FieldDescriptor, hint: string): boolean {
 
 export function isUsernameHint(d: FieldDescriptor, hint: string): boolean {
   if (!["text", "email", "tel"].includes(d.type)) return false;
-  if (/(search|query|filter|captcha|otp|totp|2fa|zip|postal|city|address|card|cvv|cvc)/.test(hint)) {
+  const tokens = getAutocompleteTokens(d.autocomplete);
+  if (d.type === "email") {
+    if (/(search|query|filter|captcha)/.test(hint)) return false;
+    return true;
+  }
+  if (
+    tokens.includes("username") ||
+    tokens.includes("email") ||
+    tokens.includes("webauthn")
+  ) {
+    return true;
+  }
+  const sanitizedHint = hint.replace(/\be-?mail\s+address\b/g, "email");
+  if (
+    /(search|query|filter|captcha|otp|totp|2fa|zip|postal|city|address|card|cvv|cvc)/.test(
+      sanitizedHint,
+    )
+  ) {
     return false;
   }
-  if (d.type === "email") return true;
-  const ac = d.autocomplete.trim().toLowerCase();
-  if (ac === "username" || ac === "email") return true;
   return /(user|email|login|account|member|uid|identifier|handle|tên đăng nhập|tài khoản)/.test(
-    hint,
+    sanitizedHint,
   );
 }
 
@@ -136,7 +169,7 @@ export function classifyField(d: FieldDescriptor): InlineFieldKind | null {
 
   // 4. Username / Email in login or standalone forms
   if (isUsernameHint(normalized, hint)) {
-    // If inside an explicit checkout/profile form with no password field and identity hints, treat email as login/identity smoothly
+    // If inside an explicit checkout/profile form with no password field and identity hints, treat email as identity cleanly
     if (!normalized.formHasPasswordField && normalized.type === "email" && isIdentityHint(normalized, hint)) {
       return "identity";
     }

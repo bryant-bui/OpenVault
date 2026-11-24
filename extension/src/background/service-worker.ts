@@ -88,6 +88,7 @@ import type {
   BgResponse,
   CardAutofillCandidate,
   DecryptedVault,
+  DefaultManagerControlStatus,
   ExtensionSettings,
   IdentityAutofillCandidate,
   PendingSaveCredential,
@@ -482,25 +483,40 @@ async function scheduleClipboardClear(): Promise<void> {
   }
 }
 
-async function applyBrowserPasswordManagerPreference(enabled: boolean): Promise<void> {
+async function reconcileBrowserPasswordManagerPreference(
+  enabled: boolean,
+): Promise<DefaultManagerControlStatus> {
   const services = chrome.privacy?.services;
-  if (!services) return;
+  if (!services?.passwordSavingEnabled) {
+    return "unsupported";
+  }
   try {
+    const initial = await services.passwordSavingEnabled.get({});
+    if (
+      initial.levelOfControl === "controlled_by_other_extensions" ||
+      initial.levelOfControl === "not_controllable"
+    ) {
+      return initial.levelOfControl;
+    }
+
     if (enabled) {
       await Promise.allSettled([
-        services.passwordSavingEnabled?.set({ value: false }),
+        services.passwordSavingEnabled.set({ value: false }),
         services.autofillCreditCardEnabled?.set({ value: false }),
         services.autofillAddressEnabled?.set({ value: false }),
       ]);
     } else {
       await Promise.allSettled([
-        services.passwordSavingEnabled?.clear({}),
+        services.passwordSavingEnabled.clear({}),
         services.autofillCreditCardEnabled?.clear({}),
         services.autofillAddressEnabled?.clear({}),
       ]);
     }
+
+    const updated = await services.passwordSavingEnabled.get({});
+    return (updated.levelOfControl as DefaultManagerControlStatus) ?? "unsupported";
   } catch {
-    // Enterprise policy or unsupported browser
+    return "not_controllable";
   }
 }
 
@@ -714,6 +730,9 @@ async function handleMessage(
         getPendingSave(),
         getPinState(),
       ]);
+      const defaultManagerControl = await reconcileBrowserPasswordManagerPreference(
+        settings.defaultBrowserPasswordManager,
+      );
       const pinState = pinInfo.localState;
       const activeRecord = pinState
         ? pinState.requireMasterOnRestart
@@ -738,6 +757,7 @@ async function handleMessage(
         pinRemainingAttempts: remainingAttempts,
         pinMaxAttempts: pinState?.maxAttempts ?? settings.pinMaxAttempts,
         pinLength: pinState?.pinLength ?? 6,
+        defaultManagerControl,
       };
       return { ok: true, data };
     }
@@ -1231,7 +1251,7 @@ async function handleMessage(
       await scheduleAutoLock();
 
       if (typeof request.settings.defaultBrowserPasswordManager === "boolean") {
-        await applyBrowserPasswordManagerPreference(next.defaultBrowserPasswordManager);
+        await reconcileBrowserPasswordManagerPreference(next.defaultBrowserPasswordManager);
       }
       if (typeof request.settings.pinMaxAttempts === "number") {
         const { localState } = await getPinState();
@@ -1771,6 +1791,7 @@ async function handleMessage(
         unlocked: Boolean(account && secrets && cache),
         pinAvailableNow,
         pinLength: pinLocal?.pinLength ?? 6,
+        defaultBrowserPasswordManager: settings.defaultBrowserPasswordManager,
         matches,
       };
       return { ok: true, data };
@@ -1835,6 +1856,10 @@ async function handleMessage(
     case "SAFE_UPDATE_ITEM":
     case "SAFE_DELETE_ITEM":
     case "SAFE_RESTORE_ITEM":
+    case "SAFE_LIST_FOLDERS":
+    case "SAFE_CREATE_FOLDER":
+    case "SAFE_RENAME_FOLDER":
+    case "SAFE_DELETE_FOLDER":
     case "SAFE_RESET": {
       return handleSafeMessage(request as SafeBgRequest, {
         getAccount,
@@ -1853,9 +1878,7 @@ chrome.runtime.onInstalled.addListener(() => {
     await updateActionLockIcon();
     await chrome.alarms.create(ALARMS.SYNC_POLL, { periodInMinutes: 0.5 });
     const settings = await getSettings();
-    if (settings.defaultBrowserPasswordManager) {
-      await applyBrowserPasswordManagerPreference(true);
-    }
+    await reconcileBrowserPasswordManagerPreference(settings.defaultBrowserPasswordManager);
   })();
 });
 
@@ -1866,9 +1889,7 @@ chrome.runtime.onStartup.addListener(() => {
     await updateActionLockIcon();
     await chrome.alarms.create(ALARMS.SYNC_POLL, { periodInMinutes: 0.5 });
     const settings = await getSettings();
-    if (settings.defaultBrowserPasswordManager) {
-      await applyBrowserPasswordManagerPreference(true);
-    }
+    await reconcileBrowserPasswordManagerPreference(settings.defaultBrowserPasswordManager);
   })();
 });
 
@@ -2044,5 +2065,8 @@ chrome.runtime.onMessage.addListener((message: BgRequest, sender, sendResponse) 
   return true;
 });
 
-// Keep toolbar lock indicator synchronized when Chrome wakes the service worker
+// Keep toolbar lock indicator & privacy control synchronized when Chrome wakes the service worker
 void updateActionLockIcon();
+void getSettings()
+  .then((s) => reconcileBrowserPasswordManagerPreference(s.defaultBrowserPasswordManager))
+  .catch(() => undefined);

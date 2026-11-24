@@ -9,6 +9,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -91,7 +92,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -102,6 +102,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -110,6 +111,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -130,7 +132,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -144,10 +145,12 @@ import io.openvault.app.core.security.SafeLockState
 import io.openvault.app.data.DecryptedSafeItem
 import io.openvault.app.data.SafeRepository
 import io.openvault.app.data.SafeStatusSnapshot
+import io.openvault.app.suppressAutoLockForPicker
 import io.openvault.app.ui.components.OnePassCard
 import io.openvault.app.ui.theme.LocalFoldableLayout
 import io.openvault.app.ui.theme.LocalOpenVaultColors
 import io.openvault.app.ui.theme.LocalStrings
+import io.openvault.app.ui.theme.OpenVaultMonoFontFamily
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -160,6 +163,7 @@ import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import java.util.UUID
 
 private enum class SafeFilterOption {
     ALL,
@@ -197,6 +201,19 @@ private data class PendingUploadPayload(
     val mimeType: String,
     val bytes: ByteArray,
     val suggestedCategory: SafeDocumentCategory,
+)
+
+private data class UploadingSafeItem(
+    val tempId: String,
+    val title: String,
+    val fileName: String,
+    val mimeType: String,
+    val category: SafeDocumentCategory,
+    val folderName: String?,
+    val sizeBytes: Long,
+    val favorite: Boolean,
+    val previewThumb: ImageBitmap?,
+    val progress: Float,
 )
 
 @Composable
@@ -385,7 +402,7 @@ private fun SafeRecoveryKeyCreatedScreen(
                 Text(
                     text = recoveryKey,
                     color = c.textPrimary,
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = OpenVaultMonoFontFamily,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                     lineHeight = 24.sp,
@@ -403,7 +420,10 @@ private fun SafeRecoveryKeyCreatedScreen(
                     Text(s.copy)
                 }
                 OutlinedButton(
-                    onClick = { saveFileLauncher.launch("OpenVault-VaultPlus-RecoveryKey.txt") },
+                    onClick = {
+                        context.suppressAutoLockForPicker()
+                        saveFileLauncher.launch("OpenVault-VaultPlus-RecoveryKey.txt")
+                    },
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(12.dp),
                 ) {
@@ -652,7 +672,7 @@ private fun SafeLockedScreen(
                             Text(
                                 text = String.format("%02d:%02d", mm, ss),
                                 color = Color(0xFFF59E0B),
-                                fontFamily = FontFamily.Monospace,
+                                fontFamily = OpenVaultMonoFontFamily,
                                 fontSize = 36.sp,
                                 fontWeight = FontWeight.Bold,
                             )
@@ -865,7 +885,8 @@ private fun SafeUnlockedWorkspace(
     var actionFolderTarget by remember { mutableStateOf<SafeFolderEntry?>(null) }
     var renameFolderTarget by remember { mutableStateOf<String?>(null) }
 
-    var actionItemTarget by remember { mutableStateOf<DecryptedSafeItem?>(null) }
+    var actionItemTargetId by remember { mutableStateOf<String?>(null) }
+    val actionItemTarget = actionItemTargetId?.let { id -> items.firstOrNull { it.id == id } }
     var editMetadataTarget by remember { mutableStateOf<DecryptedSafeItem?>(null) }
     var moveItemTarget by remember { mutableStateOf<DecryptedSafeItem?>(null) }
     var notesItemTarget by remember { mutableStateOf<DecryptedSafeItem?>(null) }
@@ -875,7 +896,7 @@ private fun SafeUnlockedWorkspace(
     var pendingExportItem by remember { mutableStateOf<DecryptedSafeItem?>(null) }
     var offlineVersion by remember { mutableIntStateOf(0) }
 
-    var uploading by remember { mutableStateOf(false) }
+    val uploadingItems = remember { mutableStateListOf<UploadingSafeItem>() }
     var remainSec by remember { mutableLongStateOf(safeRepository.session.remainingAutoLockSeconds()) }
 
     val thumbCache = remember { mutableStateMapOf<String, ImageBitmap>() }
@@ -1050,6 +1071,31 @@ private fun SafeUnlockedWorkspace(
             SafeSortOrder.DATE_ASC -> matching.sortedBy { it.updatedAt ?: it.createdAt.orEmpty() }
             SafeSortOrder.SIZE_DESC -> matching.sortedByDescending { it.metadata.originalSize }
         }
+    }
+
+    val visibleUploads = uploadingItems.filter { up ->
+        val categoryMatch = when (activeFilter) {
+            SafeFilterOption.TRASH -> false
+            SafeFilterOption.ALL -> true
+            SafeFilterOption.FAVORITES -> up.favorite
+            SafeFilterOption.ID_CARD -> up.category == SafeDocumentCategory.ID_CARD
+            SafeFilterOption.PASSPORT -> up.category == SafeDocumentCategory.PASSPORT
+            SafeFilterOption.DRIVER_LICENSE -> up.category == SafeDocumentCategory.DRIVER_LICENSE
+            SafeFilterOption.MEDICAL -> up.category == SafeDocumentCategory.MEDICAL
+            SafeFilterOption.FINANCIAL -> up.category == SafeDocumentCategory.FINANCIAL
+            SafeFilterOption.PHOTO -> up.category == SafeDocumentCategory.PHOTO
+        }
+        val folderMatch = when {
+            activeFolder != null -> up.folderName == activeFolder
+            activeFilter == SafeFilterOption.ALL && searchQuery.isBlank() -> up.folderName.isNullOrBlank()
+            else -> true
+        }
+        val q = searchQuery.trim().lowercase()
+        val queryMatch = q.isEmpty() ||
+            up.title.lowercase().contains(q) ||
+            up.fileName.lowercase().contains(q) ||
+            (up.folderName?.lowercase()?.contains(q) == true)
+        categoryMatch && folderMatch && queryMatch
     }
 
     val bottomClearance = if (fold.isTwoPane) 16.dp else 98.dp
@@ -1371,7 +1417,7 @@ private fun SafeUnlockedWorkspace(
                 }
             }
 
-            if (visibleFolders.isEmpty() && visibleItems.isEmpty()) {
+            if (visibleFolders.isEmpty() && visibleItems.isEmpty() && visibleUploads.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -1439,6 +1485,12 @@ private fun SafeUnlockedWorkspace(
                             },
                         )
                     }
+                    items(visibleUploads, key = { "upload_${it.tempId}" }) { up ->
+                        SafeUploadingGridTile(
+                            upload = up,
+                            isVi = s.isVi,
+                        )
+                    }
                     items(visibleItems, key = { it.id }) { item ->
                         SafeDocumentGridTile(
                             item = item,
@@ -1450,7 +1502,7 @@ private fun SafeUnlockedWorkspace(
                             },
                             onMoreClick = {
                                 safeRepository.session.touchActivity()
-                                actionItemTarget = item
+                                actionItemTargetId = item.id
                             },
                         )
                     }
@@ -1483,6 +1535,12 @@ private fun SafeUnlockedWorkspace(
                             },
                         )
                     }
+                    items(visibleUploads, key = { "upload_${it.tempId}" }) { up ->
+                        SafeUploadingListRow(
+                            upload = up,
+                            isVi = s.isVi,
+                        )
+                    }
                     items(visibleItems, key = { it.id }) { item ->
                         SafeDocumentListRow(
                             item = item,
@@ -1497,7 +1555,7 @@ private fun SafeUnlockedWorkspace(
                             },
                             onMoreClick = {
                                 safeRepository.session.touchActivity()
-                                actionItemTarget = item
+                                actionItemTargetId = item.id
                             },
                         )
                     }
@@ -1685,7 +1743,10 @@ private fun SafeUnlockedWorkspace(
     if (showAddSheet) {
         SafeAddDocumentBottomSheet(
             onDismiss = { showAddSheet = false },
-            onPickPdfFromSystem = { pdfPicker.launch(arrayOf("application/pdf")) },
+            onPickPdfFromSystem = {
+                context.suppressAutoLockForPicker()
+                pdfPicker.launch(arrayOf("application/pdf"))
+            },
             onFileUriSelected = { uri -> handlePickedUri(uri) },
             onOpenCamera = onOpenCamera,
             onCreateFolder = { showCreateFolderSheet = true },
@@ -1706,6 +1767,7 @@ private fun SafeUnlockedWorkspace(
             initialFolderName = activeFolder,
             initialNotes = "",
             initialExpiresAt = "",
+            initialFavorite = activeFilter == SafeFilterOption.FAVORITES,
             availableFolders = folders,
             onCreateFolderRequest = { newName ->
                 runCatching { safeRepository.createFolder(newName) }
@@ -1714,11 +1776,38 @@ private fun SafeUnlockedWorkspace(
                 upload.bytes.fill(0)
                 onSetPendingUpload(null)
             },
-            onSave = { title, cat, folderName, notes, exp ->
-                uploading = true
+            onSave = { title, cat, folderName, notes, exp, fav ->
+                val rawBytes = upload.bytes
+                onSetPendingUpload(null)
+                val tempId = UUID.randomUUID().toString()
                 scope.launch {
-                    runCatching {
-                        safeRepository.uploadDocument(
+                    val previewThumb = if (upload.mimeType.startsWith("image/")) {
+                        withContext(Dispatchers.Default) {
+                            runCatching {
+                                val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
+                                BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, opts)?.asImageBitmap()
+                            }.getOrNull()
+                        }
+                    } else {
+                        null
+                    }
+                    uploadingItems.add(
+                        0,
+                        UploadingSafeItem(
+                            tempId = tempId,
+                            title = title,
+                            fileName = upload.fileName,
+                            mimeType = upload.mimeType,
+                            category = cat,
+                            folderName = folderName,
+                            sizeBytes = rawBytes.size.toLong(),
+                            favorite = fav,
+                            previewThumb = previewThumb,
+                            progress = 0.06f,
+                        ),
+                    )
+                    try {
+                        val saved = safeRepository.uploadDocument(
                             title = title,
                             fileName = upload.fileName,
                             mimeType = upload.mimeType,
@@ -1726,28 +1815,30 @@ private fun SafeUnlockedWorkspace(
                             folderName = folderName,
                             notes = notes,
                             expiresAt = exp,
-                            rawBytes = upload.bytes,
+                            favorite = fav,
+                            rawBytes = rawBytes,
+                            onProgress = { p ->
+                                scope.launch(Dispatchers.Main) {
+                                    val idx = uploadingItems.indexOfFirst { it.tempId == tempId }
+                                    if (idx >= 0) {
+                                        uploadingItems[idx] = uploadingItems[idx].copy(progress = p.coerceIn(0f, 1f))
+                                    }
+                                }
+                            },
                         )
-                    }.onSuccess {
-                        upload.bytes.fill(0)
-                        onSetPendingUpload(null)
-                        uploading = false
+                        if (previewThumb != null) {
+                            thumbCache[saved.id] = previewThumb
+                        }
+                        uploadingItems.removeAll { it.tempId == tempId }
                         onShowMessage(if (s.isVi) "Đã mã hóa và lưu vào Vault+!" else "Encrypted & saved to Vault+!")
-                    }.onFailure { ex ->
-                        uploading = false
+                    } catch (ex: Exception) {
+                        uploadingItems.removeAll { it.tempId == tempId }
                         onShowMessage(ex.message ?: "Upload failed")
+                    } finally {
+                        rawBytes.fill(0)
                     }
                 }
             },
-        )
-    }
-
-    if (uploading) {
-        AlertDialog(
-            onDismissRequest = {},
-            title = { Text(if (s.isVi) "Đang mã hóa & tải lên…" else "Encrypting & uploading…") },
-            text = { LinearProgressIndicator(modifier = Modifier.fillMaxWidth()) },
-            confirmButton = {},
         )
     }
 
@@ -1815,14 +1906,14 @@ private fun SafeUnlockedWorkspace(
     }
 
     if (actionItemTarget != null) {
-        val targetItem = actionItemTarget!!
+        val targetItem = actionItemTarget
         SafeItemActionsBottomSheet(
             item = targetItem,
             thumbBitmap = thumbCache[targetItem.id],
             isOfflineCached = remember(targetItem.id, offlineVersion) {
                 safeRepository.isCachedOffline(targetItem.id)
             },
-            onDismiss = { actionItemTarget = null },
+            onDismiss = { actionItemTargetId = null },
             onDeleteOrTrash = { deleteConfirmTarget = targetItem },
             onRestore = {
                 scope.launch {
@@ -1849,8 +1940,18 @@ private fun SafeUnlockedWorkspace(
                 }
             },
             onToggleFavorite = {
+                val willFav = !targetItem.favorite
                 scope.launch {
                     runCatching { safeRepository.toggleFavorite(targetItem) }
+                        .onSuccess {
+                            onShowMessage(
+                                if (willFav) {
+                                    if (s.isVi) "Đã thêm vào Yêu thích." else "Added to Favorites."
+                                } else {
+                                    if (s.isVi) "Đã bỏ khỏi Yêu thích." else "Removed from Favorites."
+                                },
+                            )
+                        }
                         .onFailure { ex -> onShowMessage(ex.message ?: "Error") }
                 }
             },
@@ -1873,10 +1974,11 @@ private fun SafeUnlockedWorkspace(
             initialFolderName = item.metadata.folderName,
             initialNotes = item.metadata.notes.orEmpty(),
             initialExpiresAt = item.metadata.expiresAt.orEmpty(),
+            initialFavorite = item.favorite,
             availableFolders = folders,
             onCreateFolderRequest = { newName -> runCatching { safeRepository.createFolder(newName) } },
             onDismiss = { editMetadataTarget = null },
-            onSave = { title, cat, folderName, notes, exp ->
+            onSave = { title, cat, folderName, notes, exp, fav ->
                 editMetadataTarget = null
                 scope.launch {
                     runCatching {
@@ -1887,6 +1989,7 @@ private fun SafeUnlockedWorkspace(
                             newNotes = notes,
                             newExpiresAt = exp,
                             newFolderName = folderName,
+                            favorite = fav,
                         )
                     }.onSuccess {
                         onShowMessage(if (s.isVi) "Đã cập nhật thông tin." else "Updated metadata.")
@@ -2017,6 +2120,7 @@ private fun SafeUnlockedWorkspace(
                     onClick = {
                         showExportConfirmForItem = null
                         pendingExportItem = item
+                        context.suppressAutoLockForPicker()
                         exportItemLauncher.launch(item.metadata.fileName)
                     },
                 ) {
@@ -2240,6 +2344,179 @@ private fun SafeFolderGridTile(
         ) {
             Icon(Icons.Rounded.MoreHoriz, contentDescription = null, tint = c.textSecondary, modifier = Modifier.size(20.dp))
         }
+    }
+}
+
+@Composable
+private fun SafeUploadingListRow(
+    upload: UploadingSafeItem,
+    isVi: Boolean,
+) {
+    val c = LocalOpenVaultColors.current
+    val animatedProgress by animateFloatAsState(
+        targetValue = upload.progress.coerceIn(0.05f, 1f),
+        animationSpec = tween(durationMillis = 220),
+        label = "safe_upload_list_progress",
+    )
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .alpha(0.46f)
+                .padding(vertical = 9.dp, horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(c.surfaceElevated),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (upload.previewThumb != null) {
+                    Image(
+                        bitmap = upload.previewThumb,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    Icon(
+                        imageVector = if (upload.mimeType == "application/pdf") {
+                            Icons.Rounded.PictureAsPdf
+                        } else {
+                            categoryIcon(upload.category)
+                        },
+                        contentDescription = null,
+                        tint = if (upload.mimeType == "application/pdf") Color(0xFFEF4444) else c.accent,
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+            }
+
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = upload.title,
+                    color = c.textPrimary,
+                    fontSize = 15.5.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = "${formatBytes(upload.sizeBytes)} · ${if (isVi) "Đang tải lên" else "Uploading"} ${(animatedProgress * 100).toInt()}%",
+                    color = c.accent,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp)
+                .height(2.5.dp)
+                .clip(CircleShape)
+                .background(c.divider.copy(alpha = 0.35f)),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(animatedProgress)
+                    .clip(CircleShape)
+                    .background(c.accent),
+            )
+        }
+    }
+}
+
+@Composable
+private fun SafeUploadingGridTile(
+    upload: UploadingSafeItem,
+    isVi: Boolean,
+) {
+    val c = LocalOpenVaultColors.current
+    val animatedProgress by animateFloatAsState(
+        targetValue = upload.progress.coerceIn(0.05f, 1f),
+        animationSpec = tween(durationMillis = 220),
+        label = "safe_upload_grid_progress",
+    )
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp, vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1.18f)
+                .clip(RoundedCornerShape(12.dp))
+                .background(c.surfaceElevated),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .alpha(0.42f),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (upload.previewThumb != null) {
+                    Image(
+                        bitmap = upload.previewThumb,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    Icon(
+                        imageVector = if (upload.mimeType == "application/pdf") {
+                            Icons.Rounded.PictureAsPdf
+                        } else {
+                            categoryIcon(upload.category)
+                        },
+                        contentDescription = null,
+                        tint = if (upload.mimeType == "application/pdf") Color(0xFFEF4444) else c.accent,
+                        modifier = Modifier.size(40.dp),
+                    )
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(3.dp)
+                    .background(c.divider.copy(alpha = 0.35f)),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .fillMaxWidth(animatedProgress)
+                        .background(c.accent),
+                )
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = upload.title,
+            color = c.textPrimary.copy(alpha = 0.55f),
+            fontSize = 14.5.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+        )
+        Text(
+            text = "${if (isVi) "Đang tải lên" else "Uploading"} ${(animatedProgress * 100).toInt()}%",
+            color = c.accent,
+            fontSize = 12.sp,
+            maxLines = 1,
+            textAlign = TextAlign.Center,
+        )
     }
 }
 

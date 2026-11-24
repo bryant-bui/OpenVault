@@ -1,12 +1,12 @@
-import { Eye, EyeOff, KeyRound, Loader2 } from "lucide-react";
+import { ArrowRight, Eye, EyeOff, Loader2 } from "lucide-react";
 import { Fragment, useCallback, useEffect, useId, useRef, useState } from "react";
 import { getStrings, type AppLanguage } from "../../shared/i18n.js";
-import { normalizeAvatarDataUrl } from "../../shared/media.js";
 import { sendBg } from "../components/bridge.js";
 import { ConfirmDialog } from "../components/ConfirmDialog.js";
+import { OpenVaultLogo } from "../components/OpenVaultLogo.js";
 
 interface UnlockScreenProps {
-  email: string;
+  email?: string;
   accountAvatarBase64?: string | null;
   language?: AppLanguage;
   pinEnabled: boolean;
@@ -18,12 +18,12 @@ interface UnlockScreenProps {
 }
 
 /**
- * Atmospheric 3 + 3 Auto-Unlock PIN / Master Password Screen
- * with rotating vault keyhole unlock animation (#13) & clean footer without server URL (#17).
+ * Split Metallic Vault-Door Unlock Screen synchronized with Android `UnlockScreen.kt`:
+ * - Top & bottom vault plates separated by a horizontal bevel seam
+ * - Centered 90px Cobalt Keyhole Dial straddling the seam (rotates 90° clockwise & splits doors on unlock)
+ * - Clean 3+3 PIN slots or single-row Master Password bar
  */
 export function UnlockScreen({
-  email,
-  accountAvatarBase64,
   language = "en",
   pinEnabled,
   pinAvailableNow,
@@ -44,7 +44,7 @@ export function UnlockScreen({
   const [pin, setPin] = useState("");
   const [pinFocused, setPinFocused] = useState(false);
   const [shakeKey, setShakeKey] = useState(0);
-  const [unlockingDoors, setUnlockingDoors] = useState(false);
+  const [unlockPhase, setUnlockPhase] = useState<"idle" | "rotating" | "splitting">("idle");
 
   const [masterPassword, setMasterPassword] = useState("");
   const [showMasterPassword, setShowMasterPassword] = useState(false);
@@ -58,8 +58,7 @@ export function UnlockScreen({
   const submittingRef = useRef(false);
   const errorId = useId();
   const pinInputId = useId();
-
-  const avatarDataUrl = normalizeAvatarDataUrl(accountAvatarBase64);
+  const unlocking = unlockPhase !== "idle";
 
   useEffect(() => {
     setPinAvailable(pinAvailableNow);
@@ -77,7 +76,14 @@ export function UnlockScreen({
   }, [usePin]);
 
   const playKeyholeUnlockAndProceed = useCallback(async () => {
-    setUnlockingDoors(true);
+    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (reduced) {
+      await onUnlocked();
+      return;
+    }
+    setUnlockPhase("rotating");
+    await new Promise((r) => window.setTimeout(r, 270));
+    setUnlockPhase("splitting");
     await new Promise((r) => window.setTimeout(r, 300));
     await onUnlocked();
   }, [onUnlocked]);
@@ -93,7 +99,12 @@ export function UnlockScreen({
         setPin("");
         await playKeyholeUnlockAndProceed();
       } catch (err) {
-        const msg = err instanceof Error ? err.message : s.isVi ? "Mã PIN không chính xác." : "Incorrect PIN.";
+        const msg =
+          err instanceof Error
+            ? err.message
+            : s.isVi
+              ? "Mã PIN không chính xác."
+              : "Incorrect PIN.";
         setError(msg);
         setShakeKey((k) => k + 1);
         setPin("");
@@ -117,7 +128,7 @@ export function UnlockScreen({
   );
 
   const handlePinChange = (raw: string) => {
-    if (loading || unlockingDoors) return;
+    if (loading || unlocking) return;
     setError(null);
 
     if (useSegmentedBoxes) {
@@ -140,7 +151,7 @@ export function UnlockScreen({
 
   const handleMasterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!masterPassword || loading || unlockingDoors) return;
+    if (!masterPassword || loading || unlocking) return;
     setError(null);
     setLoading(true);
     try {
@@ -152,9 +163,10 @@ export function UnlockScreen({
         err instanceof Error
           ? err.message
           : s.isVi
-            ? "Master Password không chính xác."
+            ? "Mật khẩu chính không đúng."
             : "Incorrect Master Password.";
       setError(msg);
+      setShakeKey((k) => k + 1);
       window.requestAnimationFrame(() => {
         masterInputRef.current?.focus();
       });
@@ -172,252 +184,249 @@ export function UnlockScreen({
   const splitAfterIndex = safeSlotCount === 6 ? 2 : safeSlotCount === 8 ? 3 : -1;
 
   return (
-    <div
-      className={`ov-unlock-canvas flex-1 flex flex-col justify-between px-6 pb-5 pt-20 ${
-        unlockingDoors ? "ov-unlock-opening" : ""
-      }`}
-    >
-      {/* Peeking top OpenVault gradient emblem silhouette */}
-      <div className="ov-unlock-emblem" aria-hidden="true" />
+    <div className="ov-vault-door-shell" data-phase={unlockPhase}>
+      {/* Top Vault Door Plate (glides UP on unlock) */}
+      <div className="ov-vault-door-top" aria-hidden="true" />
 
-      <div className="flex-1 flex flex-col items-center justify-center relative z-10 w-full max-w-[360px] mx-auto">
-        {/* Rotating Vault Keyhole Dial (rotates 90° on unlock!) */}
-        <div className="flex items-center justify-center gap-3 mb-3">
-          <div className={`ov-keyhole-dial ${unlockingDoors ? "ov-keyhole-rotated" : ""}`} aria-hidden="true">
-            <div className="ov-keyhole-inner">
-              <div className="ov-keyhole-slot" />
-            </div>
-          </div>
-          {avatarDataUrl ? (
-            <img
-              src={avatarDataUrl}
-              alt=""
-              className="w-10 h-10 rounded-[12px] object-cover border border-[var(--border)] shadow-sm"
-            />
-          ) : null}
-        </div>
-
-        <h1 className="text-[22px] font-bold tracking-tight m-0 text-[var(--text-primary)] text-center">
-          {s.unlockHeading}{" "}
-          <span className="font-extrabold bg-gradient-to-r from-[#2f85ff] to-[#818cf8] bg-clip-text text-transparent">
-            OpenVault
-          </span>
-        </h1>
-
-        <p className="text-[13px] font-medium text-[var(--text-secondary)] mt-1.5 mb-5 text-center">
-          {usePin ? s.enterPinPrompt : s.enterMasterPrompt}
-        </p>
-
-        {pinEnabled && !pinAvailable && !pinWiped ? (
-          <div className="mb-4 px-3.5 py-2 rounded-[10px] text-[11.5px] bg-[var(--accent-soft)] text-[var(--accent)] text-center leading-snug w-full">
-            {s.pinRestartNotice}
-          </div>
-        ) : null}
-
-        {usePin ? (
-          <form
-            onSubmit={handlePinFormSubmit}
-            className="flex flex-col items-center w-full gap-4"
-            noValidate
-          >
-            {useSegmentedBoxes ? (
-              <div className="ov-pin-wrapper" onClick={() => pinInputRef.current?.focus()}>
-                <label htmlFor={pinInputId} className="sr-only">
-                  {s.enterPinPrompt}
-                </label>
-                <input
-                  ref={pinInputRef}
-                  id={pinInputId}
-                  type="password"
-                  inputMode="numeric"
-                  autoComplete="off"
-                  maxLength={safeSlotCount}
-                  value={pin}
-                  disabled={loading || unlockingDoors}
-                  autoFocus
-                  aria-invalid={error ? "true" : "false"}
-                  aria-describedby={error ? errorId : undefined}
-                  onFocus={() => setPinFocused(true)}
-                  onBlur={() => setPinFocused(false)}
-                  onChange={(e) => handlePinChange(e.target.value)}
-                  className="ov-pin-native-input"
-                />
-                <div
-                  key={shakeKey}
-                  className={`ov-pin-slots ${shakeKey > 0 && error ? "ov-pin-shake" : ""}`}
-                  aria-hidden="true"
-                >
-                  {Array.from({ length: safeSlotCount }).map((_, idx) => {
-                    const isFilled = idx < pin.length;
-                    const isActive =
-                      pinFocused && !loading && idx === Math.min(pin.length, safeSlotCount - 1);
-                    return (
-                      <Fragment key={idx}>
-                        <div
-                          className="ov-pin-slot"
-                          data-active={isActive ? "true" : "false"}
-                          data-filled={isFilled ? "true" : "false"}
-                          data-error={error ? "true" : "false"}
-                          data-loading={loading || unlockingDoors ? "true" : "false"}
-                        >
-                          {isFilled ? (
-                            <span className="ov-pin-dot" />
-                          ) : isActive ? (
-                            <span className="ov-pin-caret" />
-                          ) : null}
-                        </div>
-                        {idx === splitAfterIndex ? <div className="ov-pin-gap" /> : null}
-                      </Fragment>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : (
-              <div className="w-full flex flex-col gap-2.5">
-                <input
-                  ref={pinInputRef}
-                  id={pinInputId}
-                  type="password"
-                  inputMode="numeric"
-                  autoComplete="off"
-                  placeholder={s.enterPinPrompt}
-                  value={pin}
-                  disabled={loading || unlockingDoors}
-                  autoFocus
-                  aria-invalid={error ? "true" : "false"}
-                  aria-describedby={error ? errorId : undefined}
-                  onChange={(e) => handlePinChange(e.target.value)}
-                  className="ov-input font-mono-code text-center tracking-[0.25em] text-[15px] py-2.5"
-                />
-                <button
-                  type="submit"
-                  disabled={loading || unlockingDoors || pin.length < 4}
-                  className="ov-btn-primary w-full py-2.5"
-                >
-                  {loading || unlockingDoors ? s.unlocking : s.unlockHeading}
-                </button>
-              </div>
-            )}
-
-            <div className="min-h-[20px] flex items-center justify-center text-center" aria-live="polite">
-              {loading || unlockingDoors ? (
-                <span className="inline-flex items-center gap-1.5 text-[12px] font-medium text-[var(--accent)]">
-                  <Loader2 size={13} className="animate-spin" />
-                  <span>{s.unlocking}</span>
-                </span>
-              ) : error ? (
-                <span id={errorId} className="text-[12px] font-medium text-[var(--danger)]">
-                  {error}
-                </span>
-              ) : null}
-            </div>
-
-            <div className="flex items-center gap-4 mt-1 text-[12.5px] font-semibold">
-              <button
-                type="button"
-                onClick={() => {
-                  setUsePin(false);
-                  setPin("");
-                  setError(null);
-                }}
-                className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] bg-transparent border-0 cursor-pointer p-0 transition-colors"
-              >
-                {s.useMasterPassword}
-              </button>
-              <span className="text-[var(--border-strong)]" aria-hidden="true">
-                ·
-              </span>
-              <button
-                type="button"
-                onClick={() => setConfirmLogout(true)}
-                className="text-[var(--text-secondary)] hover:text-[var(--danger)] bg-transparent border-0 cursor-pointer p-0 transition-colors"
-              >
-                {s.signOut}
-              </button>
-            </div>
-          </form>
-        ) : (
-          <form onSubmit={handleMasterSubmit} className="flex flex-col gap-3 w-full">
-            <div className="relative">
-              <input
-                ref={masterInputRef}
-                type={showMasterPassword ? "text" : "password"}
-                className="ov-input pr-10 py-2.5 text-[13.5px]"
-                placeholder={s.enterMasterPrompt}
-                value={masterPassword}
-                onChange={(e) => {
-                  setMasterPassword(e.target.value);
-                  if (error) setError(null);
-                }}
-                autoFocus
-                autoComplete="current-password"
-                aria-invalid={error ? "true" : "false"}
-                aria-describedby={error ? errorId : undefined}
-              />
-              <button
-                type="button"
-                onClick={() => setShowMasterPassword((v) => !v)}
-                className="ov-icon-btn w-8 h-8 absolute right-1.5 top-1/2 -translate-y-1/2"
-                aria-label={showMasterPassword ? s.hidePassword : s.showPassword}
-              >
-                {showMasterPassword ? <EyeOff size={15} /> : <Eye size={15} />}
-              </button>
-            </div>
-
-            <div aria-live="polite">
-              {error ? (
-                <div
-                  id={errorId}
-                  className="px-3 py-2 rounded-[10px] text-[12px] font-medium bg-[var(--danger-soft)] text-[var(--danger)] text-center"
-                >
-                  {error}
-                </div>
-              ) : null}
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading || unlockingDoors || !masterPassword}
-              className="ov-btn-primary w-full py-2.5 flex items-center justify-center gap-2"
-            >
-              {loading || unlockingDoors ? <Loader2 size={15} className="animate-spin" /> : <KeyRound size={15} />}
-              <span>{loading || unlockingDoors ? s.unlocking : `${s.unlockHeading} OpenVault`}</span>
-            </button>
-
-            <div className="flex items-center justify-center gap-4 mt-1 text-[12.5px] font-semibold">
-              {pinAvailable ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setUsePin(true);
-                      setMasterPassword("");
-                      setError(null);
-                    }}
-                    className="text-[var(--accent)] hover:underline bg-transparent border-0 cursor-pointer p-0"
-                  >
-                    {s.usePin(remainingAttempts)}
-                  </button>
-                  <span className="text-[var(--border-strong)]" aria-hidden="true">
-                    ·
-                  </span>
-                </>
-              ) : null}
-              <button
-                type="button"
-                onClick={() => setConfirmLogout(true)}
-                className="text-[var(--text-secondary)] hover:text-[var(--danger)] bg-transparent border-0 cursor-pointer p-0 transition-colors"
-              >
-                {s.signOut}
-              </button>
-            </div>
-          </form>
-        )}
+      {/* Centered Rotating Keyhole Dial right on the Horizontal Seam */}
+      <div className="ov-vault-door-dial" aria-hidden="true">
+        <OpenVaultLogo variant="dial" size={90} rotated={unlockPhase !== "idle"} />
       </div>
 
-      {/* Clean email-only footer without server URL clutter (#17) */}
-      <div className="relative z-10 text-center text-[11px] text-[var(--text-muted)] truncate">
-        {email}
+      {/* Bottom Vault Door Plate (glides DOWN on unlock) */}
+      <div className="ov-vault-door-bottom px-6 pb-6 pt-[72px]">
+        <div className="flex-1 flex flex-col items-center w-full max-w-[360px] mx-auto">
+          {pinEnabled && !pinAvailable && !pinWiped ? (
+            <div className="mb-3 px-3.5 py-2 rounded-[10px] text-[11.5px] bg-[var(--accent-soft)] text-[var(--accent)] text-center leading-snug w-full">
+              {s.pinRestartNotice}
+            </div>
+          ) : null}
+
+          {usePin ? (
+            <form
+              onSubmit={handlePinFormSubmit}
+              className="flex flex-col items-center w-full gap-3.5"
+              noValidate
+            >
+              <div className="text-[13px] font-medium text-[var(--text-secondary)] text-center">
+                {loading || unlocking
+                  ? s.unlocking
+                  : `${s.enterPinPrompt} (${safeSlotCount})`}
+              </div>
+
+              {useSegmentedBoxes ? (
+                <div className="ov-pin-wrapper" onClick={() => pinInputRef.current?.focus()}>
+                  <label htmlFor={pinInputId} className="sr-only">
+                    {s.enterPinPrompt}
+                  </label>
+                  <input
+                    ref={pinInputRef}
+                    id={pinInputId}
+                    type="password"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    maxLength={safeSlotCount}
+                    value={pin}
+                    disabled={loading || unlocking}
+                    autoFocus
+                    aria-invalid={error ? "true" : "false"}
+                    aria-describedby={error ? errorId : undefined}
+                    onFocus={() => setPinFocused(true)}
+                    onBlur={() => setPinFocused(false)}
+                    onChange={(e) => handlePinChange(e.target.value)}
+                    className="ov-pin-native-input"
+                  />
+                  <div
+                    key={shakeKey}
+                    className={`ov-pin-slots ${shakeKey > 0 && error ? "ov-pin-shake" : ""}`}
+                    aria-hidden="true"
+                  >
+                    {Array.from({ length: safeSlotCount }).map((_, idx) => {
+                      const isFilled = idx < pin.length;
+                      const isActive =
+                        pinFocused && !loading && idx === Math.min(pin.length, safeSlotCount - 1);
+                      return (
+                        <Fragment key={idx}>
+                          <div
+                            className="ov-pin-slot"
+                            data-active={isActive ? "true" : "false"}
+                            data-filled={isFilled ? "true" : "false"}
+                            data-error={error ? "true" : "false"}
+                            data-loading={loading || unlocking ? "true" : "false"}
+                          >
+                            {isFilled ? (
+                              <span className="ov-pin-dot" />
+                            ) : isActive ? (
+                              <span className="ov-pin-caret" />
+                            ) : null}
+                          </div>
+                          {idx === splitAfterIndex ? <div className="ov-pin-gap" /> : null}
+                        </Fragment>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <div className="w-full flex flex-col gap-2.5">
+                  <input
+                    ref={pinInputRef}
+                    id={pinInputId}
+                    type="password"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    placeholder={s.enterPinPrompt}
+                    value={pin}
+                    disabled={loading || unlocking}
+                    autoFocus
+                    aria-invalid={error ? "true" : "false"}
+                    aria-describedby={error ? errorId : undefined}
+                    onChange={(e) => handlePinChange(e.target.value)}
+                    className="ov-input font-mono-code text-center tracking-[0.25em] text-[15px] py-2.5"
+                  />
+                  <button
+                    type="submit"
+                    disabled={loading || unlocking || pin.length < 4}
+                    className="ov-btn-primary w-full py-2.5"
+                  >
+                    {loading || unlocking ? s.unlocking : s.unlockHeading}
+                  </button>
+                </div>
+              )}
+
+              <div className="min-h-[20px] flex items-center justify-center text-center" aria-live="polite">
+                {loading || unlocking ? (
+                  <span className="inline-flex items-center gap-1.5 text-[12px] font-medium text-[var(--accent)]">
+                    <Loader2 size={13} className="animate-spin" />
+                    <span>{s.unlocking}</span>
+                  </span>
+                ) : error ? (
+                  <span id={errorId} className="text-[12px] font-medium text-[var(--danger)]">
+                    {error}
+                  </span>
+                ) : null}
+              </div>
+
+              <div className="flex items-center gap-3 text-[12.5px] font-semibold">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUsePin(false);
+                    setPin("");
+                    setError(null);
+                  }}
+                  className="text-[var(--accent)] hover:underline bg-transparent border-0 cursor-pointer p-0"
+                >
+                  {s.useMasterPassword}
+                </button>
+                <span className="text-[var(--border-strong)]" aria-hidden="true">
+                  ·
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setConfirmLogout(true)}
+                  className="text-[var(--text-secondary)] hover:text-[var(--danger)] bg-transparent border-0 cursor-pointer p-0 transition-colors"
+                >
+                  {s.signOut}
+                </button>
+              </div>
+            </form>
+          ) : (
+            <form
+              onSubmit={handleMasterSubmit}
+              className="flex flex-col items-center gap-3.5 w-full"
+            >
+              {/* Single-row Master Password Bar with vertical divider + Cobalt arrow submit */}
+              <div
+                key={shakeKey}
+                data-error={error ? "true" : "false"}
+                className={`ov-master-unlock-bar ${shakeKey > 0 && error ? "ov-pin-shake" : ""}`}
+              >
+                <input
+                  ref={masterInputRef}
+                  type={showMasterPassword ? "text" : "password"}
+                  className="flex-1 min-w-0 h-full bg-transparent border-0 outline-none px-4 text-[14.5px] text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
+                  placeholder={s.enterMasterPrompt}
+                  value={masterPassword}
+                  disabled={loading || unlocking}
+                  onChange={(e) => {
+                    setMasterPassword(e.target.value);
+                    if (error) setError(null);
+                  }}
+                  autoFocus
+                  autoComplete="current-password"
+                  aria-invalid={error ? "true" : "false"}
+                  aria-describedby={error ? errorId : undefined}
+                />
+                {masterPassword ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowMasterPassword((v) => !v)}
+                    className="ov-icon-btn w-8 h-8 mr-1 shrink-0"
+                    aria-label={showMasterPassword ? s.hidePassword : s.showPassword}
+                  >
+                    {showMasterPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                ) : null}
+                <div className="w-[1px] h-6 bg-[var(--border-strong)] shrink-0" aria-hidden="true" />
+                <button
+                  type="submit"
+                  disabled={loading || unlocking || !masterPassword}
+                  aria-label={s.unlockHeading}
+                  className="w-12 h-full bg-transparent border-0 flex items-center justify-center cursor-pointer shrink-0 disabled:cursor-default"
+                >
+                  {loading || unlocking ? (
+                    <Loader2 size={18} className="animate-spin text-[var(--accent)]" />
+                  ) : (
+                    <ArrowRight
+                      size={20}
+                      className={masterPassword ? "text-[var(--accent)]" : "text-[var(--text-muted)]"}
+                    />
+                  )}
+                </button>
+              </div>
+
+              <div className="min-h-[20px] text-center" aria-live="polite">
+                {error ? (
+                  <span id={errorId} className="text-[12.5px] font-medium text-[var(--danger)]">
+                    {error}
+                  </span>
+                ) : (
+                  <span className="text-[13px] text-[var(--text-secondary)]">
+                    {s.isVi ? "OpenVault đang khóa." : "OpenVault is locked."}
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center justify-center gap-3 text-[12.5px] font-semibold">
+                {pinAvailable ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUsePin(true);
+                        setMasterPassword("");
+                        setError(null);
+                      }}
+                      className="text-[var(--accent)] hover:underline bg-transparent border-0 cursor-pointer p-0"
+                    >
+                      {s.usePin(remainingAttempts)}
+                    </button>
+                    <span className="text-[var(--border-strong)]" aria-hidden="true">
+                      ·
+                    </span>
+                  </>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => setConfirmLogout(true)}
+                  className="text-[var(--text-secondary)] hover:text-[var(--danger)] bg-transparent border-0 cursor-pointer p-0 transition-colors"
+                >
+                  {s.signOut}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
       </div>
 
       <ConfirmDialog

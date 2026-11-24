@@ -145,16 +145,22 @@ data class VaultItem(
     val hasPasskeys: Boolean get() = !login?.fido2Credentials.isNullOrEmpty()
     val isInternalProfileItem: Boolean
         get() = name == PROFILE_SYNC_CIPHER_NAME ||
-            fields.any { it.name == ACCOUNT_AVATAR_FIELD_NAME }
+            fields.any {
+                it.name == ACCOUNT_AVATAR_FIELD_NAME || it.name == ACCOUNT_PROFILE_FIELD_NAME
+            }
     val secureNoteCategory: SecureNoteCategory
         get() = SecureNoteCategory.fromCode(secureNoteType)
     val syncedAccountAvatarBase64: String?
         get() = fields.firstOrNull { it.name == ACCOUNT_AVATAR_FIELD_NAME }?.value?.takeIf { it.isNotBlank() }
+    val syncedAccountProfileJson: String?
+        get() = fields.firstOrNull { it.name == ACCOUNT_PROFILE_FIELD_NAME }?.value?.takeIf { it.isNotBlank() }
     val customIconBase64: String?
         get() = fields.firstOrNull { it.name == CUSTOM_ICON_FIELD_NAME }?.value?.takeIf { it.isNotBlank() }
     val visibleFields: List<VaultField>
         get() = fields.filter {
-            it.name != CUSTOM_ICON_FIELD_NAME && it.name != ACCOUNT_AVATAR_FIELD_NAME
+            it.name != CUSTOM_ICON_FIELD_NAME &&
+                it.name != ACCOUNT_AVATAR_FIELD_NAME &&
+                it.name != ACCOUNT_PROFILE_FIELD_NAME
         }
     val primaryWebsiteUrl: String?
         get() = login?.uris?.firstOrNull { it.uri.isNotBlank() }?.uri
@@ -183,6 +189,7 @@ data class VaultItem(
         const val CUSTOM_ICON_FIELD_NAME = "_ov_icon"
         const val PROFILE_SYNC_CIPHER_NAME = "__openvault_profile__"
         const val ACCOUNT_AVATAR_FIELD_NAME = "_ov_account_avatar"
+        const val ACCOUNT_PROFILE_FIELD_NAME = "_ov_account_profile"
     }
 }
 

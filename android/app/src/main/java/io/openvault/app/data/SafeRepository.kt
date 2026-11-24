@@ -75,6 +75,7 @@ data class SafeStatusSnapshot(
     val maxFileBytes: Int = SafeCrypto.SAFE_MAX_FILE_BYTES,
     val biometricEnabled: Boolean = false,
     val flagSecureEnabled: Boolean = true,
+    val lockOnExit: Boolean = false,
     val hasRecoveryConfig: Boolean = false,
 )
 
@@ -135,6 +136,7 @@ class SafeRepository(
             maxFileBytes = cfg?.maxFileBytes ?: SafeCrypto.SAFE_MAX_FILE_BYTES,
             biometricEnabled = settings.safeBiometricEnabled && !recoveryReq && lockedUntil == null,
             flagSecureEnabled = settings.safeFlagSecureEnabled,
+            lockOnExit = settings.safeLockOnExit,
             hasRecoveryConfig = !cfg?.recoveryEncryptedSafeKey.isNullOrBlank(),
         )
     }.stateIn(scope, SharingStarted.Eagerly, SafeStatusSnapshot())
@@ -499,6 +501,11 @@ class SafeRepository(
         preferences.setSafeFlagSecureEnabled(enabled)
     }
 
+    fun setLockOnExit(enabled: Boolean) {
+        preferences.setSafeLockOnExit(enabled)
+        session.setLockOnExit(enabled)
+    }
+
     suspend fun changePin(currentPin: String, newPin: String) = withContext(Dispatchers.IO) {
         SafeCrypto.validateSafePin(currentPin)
         SafeCrypto.validateSafePin(newPin)
@@ -607,7 +614,9 @@ class SafeRepository(
         folderName: String? = null,
         notes: String?,
         expiresAt: String?,
+        favorite: Boolean = false,
         rawBytes: ByteArray,
+        onProgress: ((Float) -> Unit)? = null,
     ): DecryptedSafeItem = withContext(Dispatchers.IO) {
         val safeKey = session.getActiveKey() ?: error("Vault+ đang bị khóa.")
         require(rawBytes.isNotEmpty()) { "Tệp rỗng không hợp lệ." }
@@ -615,6 +624,7 @@ class SafeRepository(
             "Tệp vượt quá giới hạn tối đa 5 MB."
         }
         session.touchActivity()
+        onProgress?.invoke(0.08f)
 
         val cleanFolder = folderName?.trim()?.takeIf { it.isNotEmpty() }
         if (cleanFolder != null) {
@@ -625,6 +635,7 @@ class SafeRepository(
         val thumbJpeg = runCatching { generateCompressedThumbJpeg(rawBytes, mimeType) }.getOrNull()
         val thumbKey = if (thumbJpeg != null) SafeCrypto.generateFileKey() else null
         val encoder = Base64.getEncoder()
+        onProgress?.invoke(0.18f)
 
         val metadata = SafeItemMetadata(
             v = 1,
@@ -646,13 +657,18 @@ class SafeRepository(
             SafeItemCreateRequest(
                 category = category.wireValue,
                 encryptedMetadata = encMeta,
-                favorite = false,
+                favorite = favorite,
             ),
         )
+        onProgress?.invoke(0.28f)
 
         val ovsfBlob = SafeCrypto.encryptSafeFileBinary(rawBytes, fileKey, created.id, OvsfBlobKind.BLOB)
-        var readyDto = api.uploadBlob(created.id, ovsfBlob)
+        onProgress?.invoke(0.36f)
+        var readyDto = api.uploadBlob(created.id, ovsfBlob) { fraction ->
+            onProgress?.invoke((0.36f + fraction * 0.50f).coerceIn(0.36f, 0.86f))
+        }
         blobFile(created.id).writeBytes(ovsfBlob)
+        onProgress?.invoke(0.90f)
 
         if (thumbJpeg != null && thumbKey != null) {
             val ovsfThumb = SafeCrypto.encryptSafeFileBinary(
@@ -670,12 +686,14 @@ class SafeRepository(
                 )
             }
         }
+        onProgress?.invoke(0.97f)
 
         fileKey.fill(0)
         thumbKey?.fill(0)
 
         safeDao.upsertItem(readyDto.toEntity())
         runCatching { syncConfigUsageOnly() }
+        onProgress?.invoke(1.0f)
         DecryptedSafeItem(
             id = readyDto.id,
             category = category,

@@ -24,6 +24,7 @@ import io.openvault.app.core.database.EncryptedCipherEntity
 import io.openvault.app.core.database.EncryptedFolderEntity
 import io.openvault.app.core.database.VaultDao
 import io.openvault.app.core.network.BitwardenApiClient
+import io.openvault.app.core.network.ChangeMasterPasswordRequest
 import io.openvault.app.core.network.CipherDto
 import io.openvault.app.core.network.FolderDto
 import io.openvault.app.core.network.ImportVaultRequest
@@ -31,6 +32,7 @@ import io.openvault.app.core.network.R2BackupItemDto
 import io.openvault.app.core.network.R2BackupResultDto
 import io.openvault.app.core.network.RegisterKeysDto
 import io.openvault.app.core.network.RegisterRequest
+import io.openvault.app.core.security.AccountProfileInfo
 import io.openvault.app.core.security.AppPreferences
 import io.openvault.app.core.security.BiometricKeyManager
 import io.openvault.app.core.security.VaultLockState
@@ -69,6 +71,12 @@ class VaultRepository(
     @Volatile
     var onLogoutCleanup: (suspend () -> Unit)? = null
 
+    @Volatile
+    private var isSavingProfile = false
+
+    @Volatile
+    private var localProfileUpdatedAtMs = 0L
+
     private val _isSyncing = MutableStateFlow(false)
     val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
 
@@ -103,11 +111,26 @@ class VaultRepository(
                     VaultCipherCodec.decryptCipher(dto, key)
                 }.getOrNull()
             }
-            val profileItem = allDecrypted.firstOrNull { !it.isDeleted && it.isInternalProfileItem }
-            if (profileItem != null) {
+            val profileItem = allDecrypted
+                .filter { !it.isDeleted && it.isInternalProfileItem }
+                .maxByOrNull { it.revisionDate ?: it.creationDate ?: "" }
+            if (profileItem != null &&
+                !isSavingProfile &&
+                (System.currentTimeMillis() - localProfileUpdatedAtMs > 8_000L)
+            ) {
                 val syncedAvatar = profileItem.syncedAccountAvatarBase64
                 if (preferences.settings.value.accountAvatarBase64 != syncedAvatar) {
                     preferences.setAccountAvatarBase64(syncedAvatar)
+                }
+                val syncedProfileJson = profileItem.syncedAccountProfileJson
+                if (syncedProfileJson != null) {
+                    runCatching { json.decodeFromString<AccountProfileInfo>(syncedProfileJson) }
+                        .getOrNull()
+                        ?.let { remoteProfile ->
+                            if (preferences.settings.value.accountProfile != remoteProfile) {
+                                preferences.setAccountProfile(remoteProfile)
+                            }
+                        }
                 }
             }
             allDecrypted
@@ -412,34 +435,158 @@ class VaultRepository(
 
     suspend fun listR2Backups(): List<R2BackupItemDto> = api.listR2Backups()
 
-    suspend fun saveAccountAvatar(avatarBase64: String?) = withContext(Dispatchers.IO) {
+    suspend fun saveAccountAvatar(avatarBase64: String?): Boolean {
         val cleaned = avatarBase64?.trim()?.takeIf { it.isNotEmpty() }
+        localProfileUpdatedAtMs = System.currentTimeMillis()
         preferences.setAccountAvatarBase64(cleaned)
-        val key = session.getActiveKey() ?: return@withContext
+        return persistInternalProfileCipher(
+            avatarBase64 = cleaned,
+            profile = preferences.settings.value.accountProfile,
+        )
+    }
 
-        val existingProfile = dao.getAllCiphersOnce().firstNotNullOfOrNull { entity ->
-            runCatching {
-                val dto = json.decodeFromString<CipherDto>(entity.encryptedJson)
-                VaultCipherCodec.decryptCipher(dto, key)
-            }.getOrNull()?.takeIf { !it.isDeleted && it.isInternalProfileItem }
+    suspend fun saveAccountProfile(profile: AccountProfileInfo): Boolean {
+        val normalized = profile.copy(
+            displayName = profile.displayName.trim(),
+            birthDate = profile.birthDate.trim(),
+            phone = profile.phone.trim(),
+            city = profile.city.trim(),
+            address = profile.address.trim(),
+            bio = profile.bio.trim(),
+        )
+        localProfileUpdatedAtMs = System.currentTimeMillis()
+        preferences.setAccountProfile(normalized)
+        return persistInternalProfileCipher(
+            avatarBase64 = preferences.settings.value.accountAvatarBase64,
+            profile = normalized,
+        )
+    }
+
+    private suspend fun persistInternalProfileCipher(
+        avatarBase64: String?,
+        profile: AccountProfileInfo,
+    ): Boolean = withContext(Dispatchers.IO) {
+        isSavingProfile = true
+        localProfileUpdatedAtMs = System.currentTimeMillis()
+        try {
+            val key = session.getActiveKey() ?: return@withContext false
+
+            val existingProfile = dao.getAllCiphersOnce()
+                .mapNotNull { entity ->
+                    runCatching {
+                        val dto = json.decodeFromString<CipherDto>(entity.encryptedJson)
+                        VaultCipherCodec.decryptCipher(dto, key)
+                    }.getOrNull()
+                }
+                .filter { !it.isDeleted && it.isInternalProfileItem }
+                .maxByOrNull { it.revisionDate ?: it.creationDate ?: "" }
+
+            val otherFields = existingProfile?.fields?.filter {
+                it.name != VaultItem.ACCOUNT_AVATAR_FIELD_NAME &&
+                    it.name != VaultItem.ACCOUNT_PROFILE_FIELD_NAME
+            }.orEmpty()
+            val encodedProfile = json.encodeToString(profile)
+            val profileItem = (existingProfile ?: VaultItem(
+                type = CipherType.SECURE_NOTE,
+                secureNoteType = SecureNoteCategory.NOTE.typeCode,
+                name = VaultItem.PROFILE_SYNC_CIPHER_NAME,
+            )).copy(
+                name = VaultItem.PROFILE_SYNC_CIPHER_NAME,
+                fields = otherFields + listOf(
+                    VaultField(
+                        name = VaultItem.ACCOUNT_AVATAR_FIELD_NAME,
+                        value = avatarBase64.orEmpty(),
+                        type = 1,
+                    ),
+                    VaultField(
+                        name = VaultItem.ACCOUNT_PROFILE_FIELD_NAME,
+                        value = encodedProfile,
+                        type = 1,
+                    ),
+                ),
+            )
+            localProfileUpdatedAtMs = System.currentTimeMillis()
+            val synced = runCatching { saveItem(profileItem) }.isSuccess
+            localProfileUpdatedAtMs = System.currentTimeMillis()
+            synced
+        } finally {
+            isSavingProfile = false
+        }
+    }
+
+    suspend fun changeMasterPassword(
+        currentPassword: String,
+        newPassword: String,
+        hint: String? = null,
+    ) = withContext(Dispatchers.Default) {
+        val isVi = preferences.settings.value.language.isVietnameseActive()
+        val meta = preferences.account.value
+        require(meta.isLoggedIn) { if (isVi) "Chưa đăng nhập." else "Not signed in." }
+        require(newPassword.length >= 8) {
+            if (isVi) "Mật khẩu chính mới phải dài tối thiểu 8 ký tự."
+            else "New Master Password must be at least 8 characters."
+        }
+        require(newPassword != currentPassword) {
+            if (isVi) "Mật khẩu mới không được trùng mật khẩu hiện tại."
+            else "New Master Password must differ from current password."
         }
 
-        val otherFields = existingProfile?.fields?.filter {
-            it.name != VaultItem.ACCOUNT_AVATAR_FIELD_NAME
-        }.orEmpty()
-        val profileItem = (existingProfile ?: VaultItem(
-            type = CipherType.SECURE_NOTE,
-            secureNoteType = SecureNoteCategory.NOTE.typeCode,
-            name = VaultItem.PROFILE_SYNC_CIPHER_NAME,
-        )).copy(
-            name = VaultItem.PROFILE_SYNC_CIPHER_NAME,
-            fields = otherFields + VaultField(
-                name = VaultItem.ACCOUNT_AVATAR_FIELD_NAME,
-                value = cleaned.orEmpty(),
-                type = 1,
-            ),
-        )
-        runCatching { saveItem(profileItem) }
+        val oldMasterKey = BitwardenCryptoEngine.deriveMasterKey(currentPassword, meta.email, meta.kdfConfig)
+        val oldAuthHash = BitwardenCryptoEngine.computeMasterPasswordHash(oldMasterKey, currentPassword, 1)
+        val oldStretched = BitwardenCryptoEngine.stretchMasterKey(oldMasterKey)
+        val userKey = try {
+            BitwardenCryptoEngine.unprotectSymmetricKey(meta.protectedSymmetricKey, oldStretched)
+        } catch (_: MacVerificationException) {
+            oldMasterKey.fill(0)
+            oldStretched.wipe()
+            error(if (isVi) "Mật khẩu chính hiện tại không đúng." else "Current Master Password is incorrect.")
+        }
+
+        val newMasterKey = BitwardenCryptoEngine.deriveMasterKey(newPassword, meta.email, meta.kdfConfig)
+        val newAuthHash = BitwardenCryptoEngine.computeMasterPasswordHash(newMasterKey, newPassword, 1)
+        val newStretched = BitwardenCryptoEngine.stretchMasterKey(newMasterKey)
+        val newProtectedKey = BitwardenCryptoEngine.protectSymmetricKey(userKey, newStretched)
+
+        try {
+            val cleanHint = hint?.trim()?.takeIf { it.isNotEmpty() }
+            api.changeMasterPassword(
+                ChangeMasterPasswordRequest(
+                    masterPasswordHash = oldAuthHash,
+                    newMasterPasswordHash = newAuthHash,
+                    key = newProtectedKey,
+                    masterPasswordHint = cleanHint,
+                ),
+            )
+
+            // Re-authenticate immediately because server rotates security_stamp and revokes refresh tokens
+            val token = api.loginWithPassword(
+                serverUrl = meta.serverUrl,
+                email = meta.email,
+                masterPasswordHash = newAuthHash,
+                deviceId = preferences.getOrCreateDeviceId(),
+                deviceName = "${Build.MANUFACTURER} ${Build.MODEL}".trim(),
+            )
+            preferences.saveAccountSession(
+                serverUrl = meta.serverUrl,
+                email = meta.email,
+                kdfConfig = KdfConfig(
+                    kdfType = token.kdf,
+                    iterations = token.kdfIterations,
+                    memoryMiB = token.kdfMemory,
+                    parallelism = token.kdfParallelism,
+                ),
+                protectedSymmetricKey = token.key,
+                accessToken = token.accessToken,
+                refreshToken = token.refreshToken,
+            )
+            session.unlock(userKey)
+        } finally {
+            oldMasterKey.fill(0)
+            oldStretched.wipe()
+            newMasterKey.fill(0)
+            newStretched.wipe()
+            userKey.wipe()
+        }
     }
 
     suspend fun exportVaultJson(encrypted: Boolean): String = withContext(Dispatchers.IO) {

@@ -31,6 +31,12 @@ import {
   ) {
     PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable = () => Promise.resolve(true);
   }
+  if (
+    typeof PublicKeyCredential !== "undefined" &&
+    typeof PublicKeyCredential.isConditionalMediationAvailable === "function"
+  ) {
+    PublicKeyCredential.isConditionalMediationAvailable = () => Promise.resolve(true);
+  }
 
   function toUint8Array(source: BufferSource): Uint8Array {
     if (source instanceof ArrayBuffer) return new Uint8Array(source);
@@ -61,14 +67,20 @@ import {
   ): Promise<SerializedWebAuthnResponse> {
     return new Promise((resolve) => {
       let settled = false;
+      const isConditional = payload.kind === "get" && payload.mediation === "conditional";
       const done = (res: SerializedWebAuthnResponse) => {
         if (settled) return;
         settled = true;
         window.removeEventListener("message", onMessage);
         signal?.removeEventListener("abort", onAbort);
-        window.clearTimeout(timer);
+        if (timer !== null) window.clearTimeout(timer);
         resolve(res);
       };
+
+      const targetOrigin =
+        window.location.origin && window.location.origin !== "null"
+          ? window.location.origin
+          : "*";
 
       const onMessage = (event: MessageEvent) => {
         if (event.source !== window) return;
@@ -86,13 +98,23 @@ import {
       };
 
       const onAbort = () => {
+        window.postMessage(
+          {
+            channel: WEBAUTHN_BRIDGE_CHANNEL,
+            direction: "main-to-isolated",
+            payload: { kind: "abort", requestId: payload.requestId },
+          } satisfies WebAuthnBridgeRequestEnvelope,
+          targetOrigin,
+        );
         done({ requestId: payload.requestId, action: "cancel", reason: "Aborted" });
       };
 
-      // Generous timeout for user PIN/password entry, clean fallback if bridge never replies
-      const timer = window.setTimeout(() => {
-        done({ requestId: payload.requestId, action: "fallback" });
-      }, 120_000);
+      // Conditional requests remain passive until selected or aborted; modal requests time out safely after 120s
+      const timer = isConditional
+        ? null
+        : window.setTimeout(() => {
+            done({ requestId: payload.requestId, action: "fallback" });
+          }, 120_000);
 
       window.addEventListener("message", onMessage);
       if (signal) {
@@ -108,10 +130,6 @@ import {
         direction: "main-to-isolated",
         payload,
       };
-      const targetOrigin =
-        window.location.origin && window.location.origin !== "null"
-          ? window.location.origin
-          : "*";
       window.postMessage(envelope, targetOrigin);
     });
   }
@@ -253,7 +271,10 @@ import {
       return buildCreateCredential(res.data);
     }
     if (res.action === "cancel") {
-      throw new DOMException(res.reason || "The operation was aborted.", "NotAllowedError");
+      throw new DOMException(
+        res.reason || "The operation was aborted.",
+        options.signal?.aborted ? "AbortError" : "NotAllowedError",
+      );
     }
     return nativeCreate(options);
   };
@@ -262,7 +283,7 @@ import {
     options?: CredentialRequestOptions,
   ): Promise<Credential | null> {
     const pk = options?.publicKey;
-    if (!pk || options.mediation === "conditional") {
+    if (!pk) {
       return nativeGet(options);
     }
 
@@ -278,6 +299,7 @@ import {
         allowCredentialIds: (pk.allowCredentials ?? []).map((c) =>
           bytesToBase64Url(toUint8Array(c.id)),
         ),
+        mediation: options.mediation,
       },
       options.signal,
     );
@@ -286,7 +308,10 @@ import {
       return buildGetCredential(res.data);
     }
     if (res.action === "cancel") {
-      throw new DOMException(res.reason || "The operation was aborted.", "NotAllowedError");
+      throw new DOMException(
+        res.reason || "The operation was aborted.",
+        options.signal?.aborted ? "AbortError" : "NotAllowedError",
+      );
     }
     return nativeGet(options);
   };

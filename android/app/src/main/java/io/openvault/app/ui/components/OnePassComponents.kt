@@ -87,18 +87,21 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
@@ -116,10 +119,12 @@ import io.openvault.app.core.media.IconLoader
 import io.openvault.app.core.media.rememberWebsiteFavicon
 import io.openvault.app.ui.theme.AppStrings
 import io.openvault.app.ui.theme.LocalAccountAvatar
+import io.openvault.app.ui.theme.LocalAccountDisplayName
 import io.openvault.app.ui.theme.LocalFoldableLayout
 import io.openvault.app.ui.theme.LocalOpenVaultColors
 import io.openvault.app.ui.theme.LocalShowWebsiteIcons
 import io.openvault.app.ui.theme.LocalStrings
+import io.openvault.app.ui.theme.OpenVaultMonoFontFamily
 import kotlin.math.abs
 
 enum class MainTab(val icon: ImageVector) {
@@ -264,9 +269,14 @@ fun OnePassTopSearchBar(
     val fold = LocalFoldableLayout.current
     var menuExpanded by remember { mutableStateOf(false) }
 
-    val displayName = remember(email) {
-        val local = email.substringBefore("@").trim()
-        if (local.isNotBlank()) local.replaceFirstChar { it.uppercaseChar() } else "OpenVault"
+    val customDisplayName = LocalAccountDisplayName.current?.trim()?.takeIf { it.isNotEmpty() }
+    val displayName = remember(email, customDisplayName) {
+        if (customDisplayName != null) {
+            customDisplayName
+        } else {
+            val local = email.substringBefore("@").trim()
+            if (local.isNotBlank()) local.replaceFirstChar { it.uppercaseChar() } else "OpenVault"
+        }
     }
 
     Row(
@@ -326,7 +336,7 @@ fun OnePassTopSearchBar(
         Box {
             Row(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(CircleShape)
                     .clickable { menuExpanded = true }
                     .padding(horizontal = 2.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -961,7 +971,7 @@ fun OnePassNavigationRail(
 }
 
 /**
- * Rounded-square Account Avatar matching 1Password 8 Android — automatically shows custom user photo when set!
+ * Circular Account Avatar — automatically shows custom user photo when set!
  */
 @Composable
 fun OnePassAccountAvatar(
@@ -975,7 +985,7 @@ fun OnePassAccountAvatar(
     val avatarB64 = avatarBase64Override ?: LocalAccountAvatar.current
     val bitmap = remember(avatarB64) { IconLoader.decodeBase64Bitmap(avatarB64) }
     val initial = email.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "O"
-    val shape = RoundedCornerShape(size * 0.28f)
+    val shape = CircleShape
 
     Box(
         modifier = modifier
@@ -1157,39 +1167,126 @@ fun OnePassChip(
     }
 }
 
+/**
+ * Canonical OpenVault circular metallic Cobalt Vault Dial (shared with UnlockScreen & Chrome Extension):
+ * - Outer silver/white beveled ring
+ * - Cobalt-to-sky gradient ring
+ * - Soft recessed silver center disc
+ * - Rotating notched dark-navy keyhole bolt (0° -> 90° clockwise on unlock)
+ */
+@Composable
+fun OpenVaultKeyholeDial(
+    rotationDegrees: Float = 0f,
+    showShadow: Boolean = true,
+    modifier: Modifier = Modifier,
+) {
+    Canvas(modifier = modifier) {
+        val r = size.minDimension / 2f
+        val center = Offset(size.width / 2f, size.height / 2f)
+
+        if (showShadow) {
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(Color.Black.copy(alpha = 0.42f), Color.Transparent),
+                    center = Offset(center.x, center.y + r * 0.08f),
+                    radius = r * 1.08f,
+                ),
+                radius = r * 1.06f,
+                center = Offset(center.x, center.y + r * 0.06f),
+            )
+        }
+
+        // Outer polished silver/white ring
+        drawCircle(
+            brush = Brush.linearGradient(
+                colors = listOf(Color(0xFFF8FAFC), Color(0xFFCBD5E1), Color(0xFFE2E8F0)),
+                start = Offset(0f, 0f),
+                end = Offset(size.width, size.height),
+            ),
+            radius = r * 0.96f,
+            center = center,
+        )
+
+        // Inner Cobalt / Sapphire ring
+        drawCircle(
+            brush = Brush.linearGradient(
+                colors = listOf(Color(0xFF1A56DB), Color(0xFF0C74F2), Color(0xFF60A5FA)),
+                start = Offset(center.x, center.y - r),
+                end = Offset(center.x, center.y + r),
+            ),
+            radius = r * 0.80f,
+            center = center,
+        )
+
+        // Subtle sky-blue halo ring inside Cobalt
+        drawCircle(
+            color = Color(0xFF93C5FD).copy(alpha = 0.45f),
+            radius = r * 0.66f,
+            center = center,
+            style = Stroke(width = r * 0.06f),
+        )
+
+        // Recessed bright center cylinder disc
+        drawCircle(
+            brush = Brush.linearGradient(
+                colors = listOf(Color(0xFFFFFFFF), Color(0xFFE5ECF6)),
+                start = Offset(center.x - r * 0.4f, center.y - r * 0.4f),
+                end = Offset(center.x + r * 0.4f, center.y + r * 0.4f),
+            ),
+            radius = r * 0.56f,
+            center = center,
+        )
+
+        // Notched dark-navy keyhole bolt (0° -> 90° clockwise on unlock)
+        rotate(degrees = rotationDegrees, pivot = center) {
+            val slotW = r * 0.25f
+            val slotH = r * 0.72f
+            val left = center.x - slotW / 2f
+            val top = center.y - slotH / 2f
+
+            drawRoundRect(
+                color = Color(0xFF0F172A),
+                topLeft = Offset(left, top),
+                size = Size(slotW, slotH),
+                cornerRadius = CornerRadius(slotW * 0.28f, slotW * 0.28f),
+            )
+
+            val notchPath = Path().apply {
+                moveTo(left - 1f, center.y - slotH * 0.14f)
+                lineTo(left + slotW * 0.42f, center.y - slotH * 0.04f)
+                lineTo(left - 1f, center.y + slotH * 0.04f)
+                close()
+                moveTo(left + slotW + 1f, center.y + slotH * 0.02f)
+                lineTo(left + slotW * 0.58f, center.y + slotH * 0.12f)
+                lineTo(left + slotW + 1f, center.y + slotH * 0.22f)
+                close()
+            }
+            drawPath(notchPath, color = Color(0xFFEAF0F7))
+        }
+    }
+}
+
 @Composable
 fun OpenVaultBrandCrest(
     size: Dp = 56.dp,
     modifier: Modifier = Modifier,
 ) {
-    val shape = RoundedCornerShape(size * 0.28f)
+    val shape = RoundedCornerShape(size * 0.25f)
     Box(
         modifier = modifier
             .size(size)
             .clip(shape)
-            .background(Color(0xFF0C74F2)),
+            .background(
+                Brush.linearGradient(
+                    colors = listOf(Color(0xFF0C74F2), Color(0xFF0558C9)),
+                ),
+            ),
         contentAlignment = Alignment.Center,
     ) {
-        Canvas(modifier = Modifier.size(size * 0.6f)) {
-            val stroke = this.size.minDimension * 0.16f
-            drawCircle(
-                color = Color.White,
-                radius = (this.size.minDimension - stroke) / 2f,
-                style = Stroke(width = stroke),
-            )
-            drawCircle(
-                color = Color.White,
-                radius = this.size.minDimension * 0.14f,
-                center = Offset(center.x, center.y - this.size.height * 0.06f),
-            )
-            drawLine(
-                color = Color.White,
-                start = Offset(center.x, center.y),
-                end = Offset(center.x, center.y + this.size.height * 0.24f),
-                strokeWidth = this.size.minDimension * 0.13f,
-                cap = StrokeCap.Round,
-            )
-        }
+        OpenVaultKeyholeDial(
+            showShadow = false,
+            modifier = Modifier.fillMaxSize(0.76f),
+        )
     }
 }
 
@@ -1220,13 +1317,13 @@ fun CategoryIconBadge(
 
 private val ITEM_ICON_COLORS = listOf(
     Color(0xFF0C74F2),
-    Color(0xFF0D9488),
     Color(0xFF7C3AED),
-    Color(0xFFDC2626),
+    Color(0xFF0D9488),
     Color(0xFFD97706),
-    Color(0xFF0891B2),
-    Color(0xFF4F46E5),
+    Color(0xFFE11D48),
+    Color(0xFF2563EB),
     Color(0xFF059669),
+    Color(0xFFEA580C),
 )
 
 /**
@@ -1513,7 +1610,7 @@ fun TotpInlineCountdown(
             color = arcColor,
             fontSize = 13.sp,
             fontWeight = FontWeight.SemiBold,
-            fontFamily = FontFamily.Monospace,
+            fontFamily = OpenVaultMonoFontFamily,
         )
     }
 }
@@ -1560,7 +1657,7 @@ fun TotpCountdownRing(
             color = ringColor,
             fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
-            fontFamily = FontFamily.Monospace,
+            fontFamily = OpenVaultMonoFontFamily,
         )
     }
 }
@@ -1578,7 +1675,7 @@ fun SyntaxColoredPasswordText(
         Text(
             text = "•".repeat(password.length.coerceIn(8, 18)),
             color = c.textPrimary,
-            fontFamily = FontFamily.Monospace,
+            fontFamily = OpenVaultMonoFontFamily,
             fontSize = fontSize,
             letterSpacing = 2.sp,
             maxLines = 1,
@@ -1608,7 +1705,7 @@ fun SyntaxColoredPasswordText(
 
     Text(
         text = annotated,
-        fontFamily = FontFamily.Monospace,
+        fontFamily = OpenVaultMonoFontFamily,
         fontSize = fontSize,
         lineHeight = fontSize * 1.45f,
         maxLines = maxLines,
@@ -1679,7 +1776,7 @@ fun LargeTypePasswordDialog(
                             Text(
                                 text = ch.toString(),
                                 color = color,
-                                fontFamily = FontFamily.Monospace,
+                                fontFamily = OpenVaultMonoFontFamily,
                                 fontSize = 21.sp,
                                 fontWeight = FontWeight.Bold,
                             )

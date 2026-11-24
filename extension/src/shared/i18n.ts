@@ -126,6 +126,7 @@ export interface ExtStrings {
   settingsTabAutofill: string;
   settingsTabSecurity: string;
   settingsTabData: string;
+  settingsTabAbout: string;
   // Watchtower
   watchtowerTitle: string;
   vaultHealthScore: string;
@@ -309,6 +310,7 @@ const EN: ExtStrings = {
   settingsTabAutofill: "Autofill",
   settingsTabSecurity: "Security",
   settingsTabData: "Data",
+  settingsTabAbout: "About",
   watchtowerTitle: "Watchtower Security",
   vaultHealthScore: "Vault Health Score",
   watchtowerLocalNote: (total) =>
@@ -469,7 +471,7 @@ const VI: ExtStrings = {
   removePasskeyDesc: "Passkey này sẽ bị xóa vĩnh viễn khi bạn nhấn Lưu.",
   fieldLabelPlaceholder: "Tên Trường",
   fieldValuePlaceholder: "Nội Dung",
-  addRecoveryCodes: "Mã Khôi Phục (20 Ô)",
+  addRecoveryCodes: "Mã Khôi Phục",
   recoveryCodesTitle: "Mã Khôi Phục",
   pasteAll: "Dán Nhanh",
   clearAll: "Xóa Hết",
@@ -508,6 +510,7 @@ const VI: ExtStrings = {
   settingsTabAutofill: "Tự Điền",
   settingsTabSecurity: "Bảo Mật",
   settingsTabData: "Dữ Liệu",
+  settingsTabAbout: "Giới Thiệu",
   autoSyncActive: "Tự Động Đồng Bộ Đang Bật",
   changeAvatar: "Đổi Ảnh",
   removeAvatar: "Xóa",

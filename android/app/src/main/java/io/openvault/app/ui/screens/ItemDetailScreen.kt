@@ -61,7 +61,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -83,6 +82,7 @@ import io.openvault.app.ui.components.TotpInlineCountdown
 import io.openvault.app.ui.theme.LocalFoldableLayout
 import io.openvault.app.ui.theme.LocalOpenVaultColors
 import io.openvault.app.ui.theme.LocalStrings
+import io.openvault.app.ui.theme.OpenVaultMonoFontFamily
 import io.openvault.app.ui.theme.formatLocalTimestamp
 import kotlinx.coroutines.delay
 
@@ -507,7 +507,7 @@ fun ItemDetailScreen(
                                                 Text(
                                                     text = dotFormatted,
                                                     color = c.textPrimary,
-                                                    fontFamily = FontFamily.Monospace,
+                                                    fontFamily = OpenVaultMonoFontFamily,
                                                     fontSize = 24.sp,
                                                     fontWeight = FontWeight.SemiBold,
                                                 )
@@ -673,7 +673,7 @@ fun ItemDetailScreen(
                             Text(
                                 text = displayNum,
                                 color = Color.White,
-                                fontFamily = FontFamily.Monospace,
+                                fontFamily = OpenVaultMonoFontFamily,
                                 fontSize = if (fold.isNarrowCover) 18.sp else 20.sp,
                                 fontWeight = FontWeight.SemiBold,
                             )
@@ -687,7 +687,7 @@ fun ItemDetailScreen(
                                     Text(
                                         "${card.expMonth.ifBlank { "--" }}/${card.expYear.takeLast(2).ifBlank { "--" }}",
                                         color = Color.White,
-                                        fontFamily = FontFamily.Monospace,
+                                        fontFamily = OpenVaultMonoFontFamily,
                                         fontSize = 15.sp,
                                     )
                                 }
@@ -764,13 +764,13 @@ fun ItemDetailScreen(
                     }
                 }
 
-                // RECOVERY CODES TABLE UI (4x5 bordered grid on standard screens, 2x10 on narrow fold cover)
+                // RECOVERY CODES TABLE UI (2-column dynamic grid supporting 6-digit / paired / >10 codes)
                 recoveryFields.forEachIndexed { rIdx, rcField ->
                     val fieldKey = "${rcField.name}_$rIdx"
                     val showCodes = recoveryRevealMap[fieldKey] ?: (rcField.type != 1)
-                    val slots = remember(rcField.value) { RecoveryCodeUtils.parseRecoveryCodesToSlots(rcField.value) }
-                    val filledCount = remember(slots) { RecoveryCodeUtils.countFilledRecoveryCodes(slots) }
-                    val cols = if (fold.isNarrowCover) 2 else 4
+                    val codes = remember(rcField.value) { RecoveryCodeUtils.parseRecoveryCodesPaste(rcField.value) }
+                    val filledCount = codes.size
+                    val cols = 2
                     val title = rcField.name.ifBlank { s.recoveryCodesTitle }
 
                     OnePassCard(
@@ -804,7 +804,7 @@ fun ItemDetailScreen(
                                     modifier = Modifier.weight(1f),
                                 )
                                 Text(
-                                    text = "$filledCount/20",
+                                    text = "$filledCount ${if (s.isVi) "mã" else "codes"}",
                                     color = c.accent,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold,
@@ -826,7 +826,7 @@ fun ItemDetailScreen(
                                 }
                                 IconButton(
                                     onClick = {
-                                        val allText = slots.filter { it.isNotBlank() }.joinToString(" ")
+                                        val allText = codes.joinToString("\n")
                                         if (allText.isNotBlank()) onCopy(title, allText, true)
                                     },
                                     modifier = Modifier.size(34.dp),
@@ -840,56 +840,62 @@ fun ItemDetailScreen(
                                 }
                             }
                             HorizontalDivider(color = c.divider, thickness = 0.8.dp)
-                            val chunkedRows = slots.chunked(cols)
-                            Column(modifier = Modifier.fillMaxWidth()) {
-                                chunkedRows.forEachIndexed { rowIdx, rowCells ->
-                                    if (rowIdx > 0) HorizontalDivider(color = c.divider, thickness = 0.7.dp)
-                                    Row(modifier = Modifier.fillMaxWidth()) {
-                                        rowCells.forEachIndexed { colIdx, code ->
-                                            val slotIdx = rowIdx * cols + colIdx
-                                            if (colIdx > 0) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .width(0.7.dp)
-                                                        .height(44.dp)
-                                                        .background(c.divider),
-                                                )
-                                            }
-                                            Row(
-                                                modifier = Modifier
-                                                    .weight(1f)
-                                                    .height(44.dp)
-                                                    .let { baseMod ->
-                                                        if (code.isNotBlank()) {
-                                                            baseMod.clickable {
+                            if (codes.isEmpty()) {
+                                Text(
+                                    text = if (s.isVi) "Chưa có mã khôi phục nào." else "No recovery codes saved.",
+                                    color = c.textMuted,
+                                    fontSize = 13.sp,
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                                )
+                            } else {
+                                val chunkedRows = codes.chunked(cols)
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    chunkedRows.forEachIndexed { rowIdx, rowCells ->
+                                        if (rowIdx > 0) HorizontalDivider(color = c.divider, thickness = 0.7.dp)
+                                        Row(modifier = Modifier.fillMaxWidth()) {
+                                            for (colIdx in 0 until cols) {
+                                                val code = rowCells.getOrNull(colIdx)
+                                                val slotIdx = rowIdx * cols + colIdx
+                                                if (colIdx > 0) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .width(0.7.dp)
+                                                            .height(48.dp)
+                                                            .background(c.divider),
+                                                    )
+                                                }
+                                                if (code != null) {
+                                                    val maskLen = code.replace(" ", "").length.coerceIn(6, 8)
+                                                    Row(
+                                                        modifier = Modifier
+                                                            .weight(1f)
+                                                            .height(48.dp)
+                                                            .clickable {
                                                                 onCopy("$title #${slotIdx + 1}", code, true)
                                                             }
-                                                        } else {
-                                                            baseMod
-                                                        }
+                                                            .padding(horizontal = 12.dp),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                    ) {
+                                                        Text(
+                                                            text = "%02d".format(slotIdx + 1),
+                                                            color = c.textMuted,
+                                                            fontFamily = OpenVaultMonoFontFamily,
+                                                            fontSize = 11.5.sp,
+                                                        )
+                                                        Text(
+                                                            text = if (showCodes) code else "•".repeat(maskLen),
+                                                            color = c.textPrimary,
+                                                            fontFamily = OpenVaultMonoFontFamily,
+                                                            fontSize = 14.5.sp,
+                                                            fontWeight = FontWeight.SemiBold,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis,
+                                                        )
                                                     }
-                                                    .padding(horizontal = 10.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                            ) {
-                                                Text(
-                                                    text = "%02d".format(slotIdx + 1),
-                                                    color = c.textMuted,
-                                                    fontFamily = FontFamily.Monospace,
-                                                    fontSize = 11.5.sp,
-                                                )
-                                                Text(
-                                                    text = when {
-                                                        code.isBlank() -> "----"
-                                                        !showCodes -> "••••"
-                                                        else -> code
-                                                    },
-                                                    color = if (code.isBlank()) c.textMuted.copy(alpha = 0.45f) else c.textPrimary,
-                                                    fontFamily = FontFamily.Monospace,
-                                                    fontSize = 15.sp,
-                                                    fontWeight = if (code.isNotBlank()) FontWeight.SemiBold else FontWeight.Normal,
-                                                    maxLines = 1,
-                                                )
+                                                } else {
+                                                    Spacer(modifier = Modifier.weight(1f).height(48.dp))
+                                                }
                                             }
                                         }
                                     }

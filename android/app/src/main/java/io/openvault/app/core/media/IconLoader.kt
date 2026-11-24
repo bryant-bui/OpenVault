@@ -3,6 +3,8 @@ package io.openvault.app.core.media
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.ColorSpace
+import android.graphics.ImageDecoder
 import android.net.Uri
 import android.os.Build
 import android.util.Base64
@@ -18,6 +20,9 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.ByteArrayOutputStream
@@ -25,6 +30,44 @@ import java.io.File
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 import kotlin.math.min
+
+data class GitHubAuthorInfo(
+    val name: String,
+    val login: String,
+    val bio: String?,
+    val avatarUrl: String,
+    val profileUrl: String,
+    val repoUrl: String,
+    val repoFullName: String,
+    val primaryLanguage: String?,
+    val stars: Int?,
+    val licenseName: String,
+)
+
+@Serializable
+private data class GitHubUserDto(
+    val login: String = "",
+    val name: String? = null,
+    val bio: String? = null,
+    @SerialName("avatar_url") val avatarUrl: String = "",
+    @SerialName("html_url") val htmlUrl: String = "",
+)
+
+@Serializable
+private data class GitHubLicenseDto(
+    @SerialName("spdx_id") val spdxId: String? = null,
+    val name: String? = null,
+)
+
+@Serializable
+private data class GitHubRepoDto(
+    @SerialName("full_name") val fullName: String = "",
+    @SerialName("html_url") val htmlUrl: String = "",
+    val description: String? = null,
+    @SerialName("stargazers_count") val stargazersCount: Int = 0,
+    val language: String? = null,
+    val license: GitHubLicenseDto? = null,
+)
 
 /**
  * Lightweight, privacy-respecting image & website favicon manager:
@@ -36,6 +79,10 @@ object IconLoader {
 
     private val memoryCache = LruCache<String, ImageBitmap>(180)
     private val negativeHosts = mutableSetOf<String>()
+    private val githubJson = Json { ignoreUnknownKeys = true }
+
+    @Volatile
+    private var cachedGitHubAuthor: GitHubAuthorInfo? = null
 
     private val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
@@ -59,35 +106,28 @@ object IconLoader {
 
     /**
      * Reads a picked gallery URI, center-crops to a crisp square, resizes to [targetPx],
-     * compresses to WebP (~3-10 KB), and returns a pure Base64 string safe for E2EE D1 storage.
+     * compresses to WebP (with JPEG fallback), and returns a pure Base64 string safe for E2EE D1 storage.
      */
     suspend fun compressPickedImageToBase64(
         context: Context,
         uri: Uri,
-        targetPx: Int = 96,
-        quality: Int = 80,
+        targetPx: Int = 192,
+        quality: Int = 82,
     ): String? = withContext(Dispatchers.IO) {
         runCatching {
-            // Pass 1: measure bounds without loading full bitmap into RAM
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-            val srcW = bounds.outWidth
-            val srcH = bounds.outHeight
-            if (srcW <= 0 || srcH <= 0) return@runCatching null
-
-            var sample = 1
-            while ((srcW / sample) > targetPx * 3 && (srcH / sample) > targetPx * 3) {
-                sample *= 2
+            val rawDecoded = decodeUriForAvatar(context, uri, targetPx) ?: return@runCatching null
+            val decoded = if (rawDecoded.config != Bitmap.Config.ARGB_8888) {
+                rawDecoded.copy(Bitmap.Config.ARGB_8888, false).also { rawDecoded.recycle() }
+            } else {
+                rawDecoded
             }
-
-            // Pass 2: decode downsampled bitmap
-            val decodeOpts = BitmapFactory.Options().apply { inSampleSize = sample }
-            val decoded = context.contentResolver.openInputStream(uri)?.use {
-                BitmapFactory.decodeStream(it, null, decodeOpts)
-            } ?: return@runCatching null
 
             // Center-crop square
             val side = min(decoded.width, decoded.height)
+            if (side <= 0) {
+                decoded.recycle()
+                return@runCatching null
+            }
             val x = (decoded.width - side) / 2
             val y = (decoded.height - side) / 2
             val square = Bitmap.createBitmap(decoded, x, y, side, side)
@@ -101,25 +141,160 @@ object IconLoader {
                 square
             }
 
-            val format = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                Bitmap.CompressFormat.WEBP_LOSSY
-            } else {
-                @Suppress("DEPRECATION")
-                Bitmap.CompressFormat.WEBP
+            val encoded = encodeBoundedBase64(scaled, quality) ?: run {
+                val smaller = if (scaled.width > 128) {
+                    Bitmap.createScaledBitmap(scaled, 128, 128, true)
+                } else {
+                    null
+                }
+                val retry = smaller?.let { bmp ->
+                    encodeBoundedBase64(bmp, 72).also {
+                        if (bmp !== scaled) bmp.recycle()
+                    }
+                }
+                retry
             }
-            var encodedB64: String? = null
-            for (q in listOf(quality, min(quality, 70), 56, 42)) {
+            scaled.recycle()
+            encoded
+        }.getOrNull()
+    }
+
+    private fun decodeUriForAvatar(context: Context, uri: Uri, targetPx: Int): Bitmap? {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val decoded = runCatching {
+                val source = ImageDecoder.createSource(context.contentResolver, uri)
+                ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+                    decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                    decoder.setTargetColorSpace(ColorSpace.get(ColorSpace.Named.SRGB))
+                    val minSide = min(info.size.width, info.size.height)
+                    if (minSide > targetPx * 3) {
+                        val sample = (minSide / (targetPx * 2)).coerceAtLeast(2)
+                        decoder.setTargetSampleSize(sample)
+                    }
+                }
+            }.getOrNull()
+            if (decoded != null) return decoded
+        }
+
+        // Single-open fallback for streams that reject double openInputStream calls
+        val rawBytes = runCatching {
+            context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+        }.getOrNull() ?: return null
+        if (rawBytes.isEmpty()) return null
+
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, bounds)
+        val srcW = bounds.outWidth
+        val srcH = bounds.outHeight
+        if (srcW <= 0 || srcH <= 0) return null
+
+        var sample = 1
+        while ((srcW / sample) > targetPx * 3 && (srcH / sample) > targetPx * 3) {
+            sample *= 2
+        }
+        val decodeOpts = BitmapFactory.Options().apply {
+            inSampleSize = sample
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        return BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, decodeOpts)
+    }
+
+    private fun encodeBoundedBase64(bitmap: Bitmap, initialQuality: Int): String? {
+        val webpFormat = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Bitmap.CompressFormat.WEBP_LOSSY
+        } else {
+            @Suppress("DEPRECATION")
+            Bitmap.CompressFormat.WEBP
+        }
+        val qualities = listOf(initialQuality, min(initialQuality, 70), 56, 40)
+        for (format in listOf(webpFormat, Bitmap.CompressFormat.JPEG)) {
+            for (q in qualities) {
                 val baos = ByteArrayOutputStream()
-                scaled.compress(format, q, baos)
+                val ok = bitmap.compress(format, q, baos)
+                if (!ok) continue
                 val compressed = baos.toByteArray()
                 if (compressed.isEmpty()) continue
                 val b64 = Base64.encodeToString(compressed, Base64.NO_WRAP)
-                encodedB64 = b64
-                if (b64.length <= 36_000) break
+                if (b64.length <= 36_000) return b64
             }
-            scaled.recycle()
+        }
+        return null
+    }
 
-            encodedB64?.takeIf { it.length <= 36_000 }
+    suspend fun loadRemoteAvatar(context: Context, url: String): ImageBitmap? = withContext(Dispatchers.IO) {
+        if (url.isBlank()) return@withContext null
+        val cacheKey = "gh_avatar:$url"
+        memoryCache.get(cacheKey)?.let { return@withContext it }
+
+        val dir = File(context.cacheDir, "ov_avatars").apply { mkdirs() }
+        val file = File(dir, "${sha256Short(url)}.img")
+        if (file.exists() && file.length() > 64L) {
+            val bmp = runCatching { BitmapFactory.decodeFile(file.absolutePath) }.getOrNull()
+            if (bmp != null) {
+                return@withContext bmp.asImageBitmap().also { memoryCache.put(cacheKey, it) }
+            }
+        }
+
+        val bytes = runCatching {
+            val req = Request.Builder()
+                .url(url)
+                .header("User-Agent", "OpenVault-Android")
+                .get()
+                .build()
+            httpClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return@runCatching null
+                val data = resp.body?.bytes() ?: return@runCatching null
+                if (data.size < 64 || data.size > 2_000_000) return@runCatching null
+                data
+            }
+        }.getOrNull() ?: return@withContext null
+
+        val bmp = runCatching { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }.getOrNull()
+            ?: return@withContext null
+        runCatching { file.writeBytes(bytes) }
+        bmp.asImageBitmap().also { memoryCache.put(cacheKey, it) }
+    }
+
+    suspend fun fetchGitHubAuthorInfo(): GitHubAuthorInfo? = withContext(Dispatchers.IO) {
+        cachedGitHubAuthor?.let { return@withContext it }
+        runCatching {
+            val userReq = Request.Builder()
+                .url("https://api.github.com/users/bryant-bui")
+                .header("Accept", "application/vnd.github+json")
+                .header("User-Agent", "OpenVault-Android")
+                .get()
+                .build()
+            val userBody = httpClient.newCall(userReq).execute().use { resp ->
+                if (!resp.isSuccessful) return@runCatching null
+                resp.body?.string()
+            } ?: return@runCatching null
+            val userDto = githubJson.decodeFromString<GitHubUserDto>(userBody)
+
+            val repoDto = runCatching {
+                val repoReq = Request.Builder()
+                    .url("https://api.github.com/repos/bryant-bui/OpenVault")
+                    .header("Accept", "application/vnd.github+json")
+                    .header("User-Agent", "OpenVault-Android")
+                    .get()
+                    .build()
+                httpClient.newCall(repoReq).execute().use { resp ->
+                    if (!resp.isSuccessful) return@use null
+                    resp.body?.string()?.let { githubJson.decodeFromString<GitHubRepoDto>(it) }
+                }
+            }.getOrNull()
+
+            GitHubAuthorInfo(
+                name = userDto.name?.takeIf { it.isNotBlank() } ?: "Bryant Bui",
+                login = userDto.login.ifBlank { "bryant-bui" },
+                bio = userDto.bio?.takeIf { it.isNotBlank() },
+                avatarUrl = userDto.avatarUrl.ifBlank { "https://avatars.githubusercontent.com/u/249981187?v=4" },
+                profileUrl = userDto.htmlUrl.ifBlank { "https://github.com/bryant-bui" },
+                repoUrl = repoDto?.htmlUrl?.takeIf { it.isNotBlank() } ?: "https://github.com/bryant-bui/OpenVault",
+                repoFullName = repoDto?.fullName?.takeIf { it.isNotBlank() } ?: "bryant-bui/OpenVault",
+                primaryLanguage = repoDto?.language,
+                stars = repoDto?.stargazersCount,
+                licenseName = repoDto?.license?.spdxId ?: repoDto?.license?.name ?: "MIT",
+            ).also { cachedGitHubAuthor = it }
         }.getOrNull()
     }
 
