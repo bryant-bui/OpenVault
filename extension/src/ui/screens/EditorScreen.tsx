@@ -1,6 +1,7 @@
 import {
   CipherType,
   FieldType,
+  SecureNoteType,
   generatePassword,
   type CipherField,
   type CipherPayload,
@@ -9,12 +10,19 @@ import {
 } from "@openvault/crypto-core";
 import {
   ArrowLeft,
+  BookOpen,
   Camera,
   ChevronDown,
+  ClipboardPaste,
   Dices,
+  Eraser,
   Eye,
   EyeOff,
+  FileText,
   Fingerprint,
+  Grid3X3,
+  IdCard,
+  Package,
   Plus,
   RotateCcw,
   Save,
@@ -29,12 +37,22 @@ import {
   getRawCustomIconBase64,
   getVisibleCustomFields,
 } from "../../shared/media.js";
+import {
+  RECOVERY_CODES_SLOT_COUNT,
+  RECOVERY_CODE_MAX_LEN,
+  applyRecoveryCodesPaste,
+  countFilledRecoveryCodes,
+  isRecoveryCodesField,
+  parseRecoveryCodesToSlots,
+  serializeRecoveryCodesSlots,
+} from "../../shared/recovery-codes.js";
 import { BrandAvatar } from "../components/BrandAvatar.js";
 import { ConfirmDialog } from "../components/ConfirmDialog.js";
 import { TotpRing } from "../components/TotpRing.js";
 
 interface EditorScreenProps {
   initialCipher: CipherPayload | null;
+  initialNoteType?: number;
   folders: FolderPayload[];
   currentTabUrl: string;
   language?: AppLanguage;
@@ -52,8 +70,203 @@ interface EditableCustomField {
   type: FieldType;
 }
 
+function getTemplateFieldsForNoteType(
+  noteType: SecureNoteType,
+  isVi: boolean,
+): Array<{ name: string; type: FieldType }> {
+  switch (noteType) {
+    case SecureNoteType.Software:
+      return [
+        { name: isVi ? "Khóa Bản Quyền (License Key)" : "License Key", type: FieldType.Hidden },
+        { name: isVi ? "Phiên Bản" : "Version", type: FieldType.Text },
+        { name: isVi ? "Nhà Phát Hành" : "Publisher", type: FieldType.Text },
+        { name: "Email", type: FieldType.Text },
+        { name: "Website", type: FieldType.Text },
+      ];
+    case SecureNoteType.Passport:
+      return [
+        { name: isVi ? "Họ Và Tên" : "Full Name", type: FieldType.Text },
+        { name: isVi ? "Số Hộ Chiếu" : "Passport Number", type: FieldType.Hidden },
+        { name: isVi ? "Quốc Gia Cấp" : "Issuing Country", type: FieldType.Text },
+        { name: isVi ? "Quốc Tịch" : "Nationality", type: FieldType.Text },
+        { name: isVi ? "Ngày Sinh" : "Date of Birth", type: FieldType.Text },
+        { name: isVi ? "Ngày Cấp" : "Issue Date", type: FieldType.Text },
+        { name: isVi ? "Ngày Hết Hạn" : "Expiry Date", type: FieldType.Text },
+      ];
+    case SecureNoteType.IdCard:
+      return [
+        { name: isVi ? "Họ Và Tên" : "Full Name", type: FieldType.Text },
+        { name: isVi ? "Số Thẻ / CCCD" : "ID Number", type: FieldType.Hidden },
+        { name: isVi ? "Nơi Cấp" : "Issuing Authority", type: FieldType.Text },
+        { name: isVi ? "Ngày Sinh" : "Date of Birth", type: FieldType.Text },
+        { name: isVi ? "Ngày Cấp" : "Issue Date", type: FieldType.Text },
+        { name: isVi ? "Ngày Hết Hạn" : "Expiry Date", type: FieldType.Text },
+      ];
+    default:
+      return [];
+  }
+}
+
+interface RecoveryCodeEditorProps {
+  field: EditableCustomField;
+  s: ReturnType<typeof getStrings>;
+  onChangeValue: (nextValue: string) => void;
+  onChangeName: (nextName: string) => void;
+  onDelete: () => void;
+}
+
+function RecoveryCodeGridEditor({
+  field,
+  s,
+  onChangeValue,
+  onChangeName,
+  onDelete,
+}: RecoveryCodeEditorProps) {
+  const slots = parseRecoveryCodesToSlots(field.value);
+  const filledCount = countFilledRecoveryCodes(slots);
+  const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
+
+  const commitSlots = (nextSlots: string[], focusIndex?: number) => {
+    onChangeValue(serializeRecoveryCodesSlots(nextSlots));
+    if (typeof focusIndex === "number" && focusIndex >= 0 && focusIndex < RECOVERY_CODES_SLOT_COUNT) {
+      window.requestAnimationFrame(() => {
+        inputRefs.current[focusIndex]?.focus();
+      });
+    }
+  };
+
+  const handleSlotChange = (idx: number, raw: string) => {
+    // Handle multi-code paste via input event (e.g., mobile/browser paste menu)
+    if (raw.length > RECOVERY_CODE_MAX_LEN || /[\s,;|\-_/\\]/.test(raw)) {
+      const { slots: next, nextFocusIndex } = applyRecoveryCodesPaste(slots, idx, raw, false);
+      commitSlots(next, nextFocusIndex);
+      return;
+    }
+    const clean = raw.replace(/[^A-Za-z0-9]/g, "").slice(0, RECOVERY_CODE_MAX_LEN);
+    const next = [...slots];
+    next[idx] = clean;
+    const advanceTo =
+      clean.length >= RECOVERY_CODE_MAX_LEN && idx + 1 < RECOVERY_CODES_SLOT_COUNT ? idx + 1 : undefined;
+    commitSlots(next, advanceTo);
+  };
+
+  const handlePasteFromClipboard = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text.trim()) return;
+      const { slots: next, nextFocusIndex } = applyRecoveryCodesPaste(slots, 0, text, true);
+      commitSlots(next, nextFocusIndex);
+    } catch {
+      // Clipboard read denied; direct paste into any box still triggers onPaste
+      inputRefs.current[0]?.focus();
+    }
+  };
+
+  return (
+    <div className="p-3 rounded-[10px] bg-[var(--surface-subtle)] border border-[var(--border)] flex flex-col gap-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <Grid3X3 size={15} className="shrink-0" style={{ color: "var(--field-label)" }} />
+          <input
+            type="text"
+            className="flex-1 min-w-0 bg-transparent border-0 border-b border-[var(--border)] px-1 py-0.5 text-[13px] font-bold outline-none text-[var(--field-label)]"
+            placeholder={s.recoveryCodesTitle}
+            value={field.name}
+            onChange={(e) => onChangeName(e.target.value)}
+          />
+          <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-[var(--accent-soft)] text-[var(--accent)] shrink-0 tabular-nums">
+            {filledCount}/20
+          </span>
+        </div>
+
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            type="button"
+            onClick={() => {
+              void handlePasteFromClipboard();
+            }}
+            className="ov-btn-ghost px-2 py-1 text-[11.5px] inline-flex items-center gap-1"
+            title={s.pasteAll}
+          >
+            <ClipboardPaste size={12} />
+            <span>{s.pasteAll}</span>
+          </button>
+          {filledCount > 0 ? (
+            <button
+              type="button"
+              onClick={() => commitSlots(Array<string>(RECOVERY_CODES_SLOT_COUNT).fill(""))}
+              className="ov-icon-btn w-7 h-7 hover:text-[var(--danger)]"
+              title={s.clearAll}
+              aria-label={s.clearAll}
+            >
+              <Eraser size={13} />
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={onDelete}
+            className="ov-icon-btn w-7 h-7 hover:text-[var(--danger)]"
+            aria-label={s.delete}
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-4 gap-1.5">
+        {slots.map((code, idx) => (
+          <div
+            key={idx}
+            className="relative flex flex-col rounded-[8px] border border-[var(--border)] bg-[var(--surface)] px-1.5 pt-1 pb-1.5 focus-within:border-[var(--accent)] focus-within:ring-2 focus-within:ring-[var(--accent-soft)]"
+          >
+            <span className="text-[9.5px] font-semibold text-[var(--text-muted)] leading-none tabular-nums">
+              {String(idx + 1).padStart(2, "0")}
+            </span>
+            <input
+              ref={(el) => {
+                inputRefs.current[idx] = el;
+              }}
+              type="text"
+              inputMode="numeric"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="none"
+              spellCheck={false}
+              maxLength={RECOVERY_CODE_MAX_LEN}
+              aria-label={`${s.recoveryCodesTitle} #${idx + 1}`}
+              placeholder="0000"
+              value={code}
+              onChange={(e) => handleSlotChange(idx, e.target.value)}
+              onPaste={(e) => {
+                const pasted = e.clipboardData.getData("text");
+                if (!pasted) return;
+                e.preventDefault();
+                const { slots: next, nextFocusIndex } = applyRecoveryCodesPaste(
+                  slots,
+                  idx,
+                  pasted,
+                  false,
+                );
+                commitSlots(next, nextFocusIndex);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Backspace" && !code && idx > 0) {
+                  e.preventDefault();
+                  inputRefs.current[idx - 1]?.focus();
+                }
+              }}
+              className="w-full bg-transparent border-0 outline-none font-mono-code text-[13.5px] font-bold tracking-[0.06em] text-[var(--text-primary)] placeholder:text-[var(--text-muted)]/40 mt-0.5 p-0"
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function EditorScreen({
   initialCipher,
+  initialNoteType = SecureNoteType.Generic,
   folders,
   currentTabUrl,
   language = "en",
@@ -66,6 +279,10 @@ export function EditorScreen({
   const s = getStrings(language);
   const isEditing = Boolean(initialCipher?.id);
   const [type, setType] = useState<CipherType>(initialCipher?.type ?? CipherType.Login);
+  const [noteType, setNoteType] = useState<SecureNoteType>(
+    (initialCipher?.secureNote?.type as SecureNoteType | undefined) ??
+      (initialNoteType as SecureNoteType),
+  );
   const [name, setName] = useState(
     initialCipher?.name ?? (currentTabUrl ? extractDisplayDomain(currentTabUrl) : ""),
   );
@@ -96,22 +313,32 @@ export function EditorScreen({
     return [""];
   });
 
-  // Editable Passkey list (#6: delete passkeys directly in editor!)
+  // Editable Passkey list
   const [passkeys, setPasskeys] = useState<Fido2Credential[]>(
     () => initialCipher?.login?.fido2Credentials ?? [],
   );
   const [passkeyToDelete, setPasskeyToDelete] = useState<Fido2Credential | null>(null);
 
-  // Deep Editable Custom Fields (#3 & #4)
+  // Deep Editable Custom Fields (pre-seeded for structured Note categories if creating new)
   const nextFieldIdRef = useRef(1);
-  const [customFields, setCustomFields] = useState<EditableCustomField[]>(() =>
-    getVisibleCustomFields(initialCipher?.fields).map((f) => ({
+  const [customFields, setCustomFields] = useState<EditableCustomField[]>(() => {
+    const existing = getVisibleCustomFields(initialCipher?.fields).map((f) => ({
       id: nextFieldIdRef.current++,
       name: f.name ?? "",
       value: f.value ?? "",
       type: f.type,
-    })),
-  );
+    }));
+    if (existing.length > 0 || isEditing) return existing;
+    if ((initialCipher?.type ?? CipherType.Login) === CipherType.SecureNote) {
+      return getTemplateFieldsForNoteType(initialNoteType as SecureNoteType, s.isVi).map((tpl) => ({
+        id: nextFieldIdRef.current++,
+        name: tpl.name,
+        value: "",
+        type: tpl.type,
+      }));
+    }
+    return [];
+  });
   const addMorePopoverId = useId();
   const addMorePopoverRef = useRef<HTMLDivElement>(null);
 
@@ -141,6 +368,25 @@ export function EditorScreen({
   const [notes, setNotes] = useState(initialCipher?.notes ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const selectNoteSubType = (nextNoteType: SecureNoteType) => {
+    setType(CipherType.SecureNote);
+    setNoteType(nextNoteType);
+    if (!isEditing) {
+      // Only swap template fields if all current fields are blank untouched template rows
+      const hasAnyValue = customFields.some((f) => f.value.trim().length > 0);
+      if (!hasAnyValue) {
+        setCustomFields(
+          getTemplateFieldsForNoteType(nextNoteType, s.isVi).map((tpl) => ({
+            id: nextFieldIdRef.current++,
+            name: tpl.name,
+            value: "",
+            type: tpl.type,
+          })),
+        );
+      }
+    }
+  };
 
   const handleGenerateInline = () => {
     const generated = generatePassword({
@@ -200,7 +446,7 @@ export function EditorScreen({
       const builtFields: CipherField[] = customFields
         .filter((f) => f.name.trim() || f.value.trim())
         .map((f) => ({
-          name: f.name.trim() || "field",
+          name: f.name.trim() || "Field",
           value: f.value,
           type: f.type,
           linkedId: null,
@@ -235,7 +481,7 @@ export function EditorScreen({
                 fido2Credentials: passkeys.length > 0 ? passkeys : null,
               }
             : null,
-        secureNote: type === CipherType.SecureNote ? { type: 0 } : null,
+        secureNote: type === CipherType.SecureNote ? { type: noteType } : null,
         card:
           type === CipherType.Card
             ? {
@@ -280,574 +526,671 @@ export function EditorScreen({
     : null;
 
   return (
-    <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0">
-      <header className="px-3 py-2.5 border-b border-[var(--border)] bg-[var(--surface)] flex items-center justify-between">
+    <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0 bg-[var(--bg)]">
+      <header className="h-[46px] shrink-0 px-4 border-b border-[var(--border)] bg-[var(--surface)] flex items-center justify-between">
         <button
           type="button"
           onClick={onCancel}
-          className="ov-icon-btn px-2 py-1.5 gap-1 text-[12.5px] font-semibold"
+          className="ov-icon-btn px-2.5 py-1.5 gap-1.5 text-[13.5px] font-semibold"
         >
-          <ArrowLeft size={15} />
+          <ArrowLeft size={16} />
           <span>{s.cancel}</span>
         </button>
 
-        <span className="text-[13.5px] font-bold">
+        <span className="text-[15px] font-bold">
           {isEditing ? s.editItemTitle : s.newItemTitle}
         </span>
 
         <button
           type="submit"
           disabled={saving}
-          className="ov-btn-primary px-3 py-1.5 inline-flex items-center gap-1.5 text-[12.5px]"
+          className="ov-btn-primary px-3.5 py-1.5 inline-flex items-center gap-1.5 text-[13.5px]"
         >
-          <Save size={13} />
+          <Save size={15} />
           <span>{saving ? s.saving : s.save}</span>
         </button>
       </header>
 
-      <div className="flex-1 overflow-y-auto ov-scroll p-3.5 flex flex-col gap-3">
-        {!isEditing ? (
-          <div className="grid grid-cols-4 gap-1.5">
-            {[
-              { id: CipherType.Login, label: s.logins },
-              { id: CipherType.Card, label: s.isVi ? "Thẻ" : "Card" },
-              { id: CipherType.Identity, label: s.identities },
-              { id: CipherType.SecureNote, label: s.isVi ? "Ghi chú" : "Note" },
-            ].map((opt) => (
-              <button
-                key={opt.id}
-                type="button"
-                onClick={() => setType(opt.id)}
-                className={`py-1.5 rounded-[10px] text-[11.5px] font-semibold border cursor-pointer ${
-                  type === opt.id
-                    ? "bg-[var(--accent-soft)] text-[var(--accent)] border-[var(--accent-border)]"
-                    : "bg-[var(--surface)] text-[var(--text-secondary)] border-[var(--border)]"
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        ) : null}
+      <div className="flex-1 overflow-y-auto ov-scroll p-4">
+        <div className="flex flex-col gap-3.5 pb-6">
+          {!isEditing ? (
+            <div className="flex flex-col gap-1.5">
+              <div className="grid grid-cols-4 gap-1.5">
+                {[
+                  { id: CipherType.Login, label: s.logins },
+                  { id: CipherType.Card, label: s.isVi ? "Thẻ" : "Card" },
+                  { id: CipherType.Identity, label: s.identities },
+                  { id: CipherType.SecureNote, label: s.secureNotes },
+                ].map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => {
+                      if (opt.id === CipherType.SecureNote) {
+                        selectNoteSubType(noteType);
+                      } else {
+                        setType(opt.id);
+                      }
+                    }}
+                    className={`py-2 rounded-[10px] text-[12.5px] font-semibold border cursor-pointer transition-colors ${
+                      type === opt.id
+                        ? "bg-[var(--accent-soft)] text-[var(--accent)] border-[var(--accent-border)]"
+                        : "bg-[var(--surface)] text-[var(--text-secondary)] border-[var(--border)]"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
 
-        {/* Title + Custom Item Icon Picker (#7) */}
-        <div className="ov-card p-3 flex flex-col gap-3">
-          <div className="flex items-center gap-3">
-            <div className="flex flex-col items-center gap-1 shrink-0">
-              <input
-                ref={iconFileRef}
-                type="file"
-                accept="image/*"
-                className="sr-only"
-                onChange={(e) => {
-                  void handleIconPick(e);
-                }}
-              />
-              <button
-                type="button"
-                onClick={() => iconFileRef.current?.click()}
-                className="relative group p-0 border-0 bg-transparent cursor-pointer rounded-[12px]"
-                title={s.changeIcon}
-              >
-                <BrandAvatar
-                  name={name || "O"}
-                  type={type}
-                  uri={uris[0]}
-                  customIconDataUrl={previewIconDataUrl}
-                  showFavicon={showFavicons}
-                  size="lg"
-                />
-                <span className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-[var(--accent)] text-white flex items-center justify-center shadow-sm">
-                  <Camera size={11} />
-                </span>
-              </button>
-              {customIconBase64 ? (
-                <button
-                  type="button"
-                  onClick={() => setCustomIconBase64(null)}
-                  className="text-[10px] font-semibold text-[var(--text-muted)] hover:text-[var(--danger)] bg-transparent border-0 p-0 cursor-pointer inline-flex items-center gap-0.5"
-                >
-                  <RotateCcw size={9} />
-                  <span>{s.resetIcon}</span>
-                </button>
+              {type === CipherType.SecureNote ? (
+                <div className="grid grid-cols-4 gap-1.5">
+                  {[
+                    { id: SecureNoteType.Software, label: s.categorySoftware, icon: Package },
+                    { id: SecureNoteType.Generic, label: s.categoryNotes, icon: FileText },
+                    { id: SecureNoteType.Passport, label: s.categoryPassport, icon: BookOpen },
+                    { id: SecureNoteType.IdCard, label: s.categoryIdCard, icon: IdCard },
+                  ].map((sub) => {
+                    const SubIcon = sub.icon;
+                    const active = noteType === sub.id;
+                    return (
+                      <button
+                        key={sub.id}
+                        type="button"
+                        onClick={() => selectNoteSubType(sub.id)}
+                        className={`py-1.5 px-2 rounded-[9px] text-[12px] font-semibold border inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${
+                          active
+                            ? "bg-[var(--accent)] text-white border-[var(--accent)]"
+                            : "bg-[var(--surface)] text-[var(--text-secondary)] border-[var(--border)]"
+                        }`}
+                      >
+                        <SubIcon size={13} />
+                        <span className="truncate">{sub.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               ) : null}
             </div>
-
-            <div className="flex-1 min-w-0">
-              <label className="block text-[11px] font-semibold text-[var(--text-muted)] uppercase mb-1">
-                {s.itemNameLabel}
-              </label>
-              <input
-                type="text"
-                className="ov-input"
-                placeholder={s.itemNamePlaceholder}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-                autoFocus
-              />
+          ) : type === CipherType.SecureNote ? (
+            <div className="grid grid-cols-4 gap-1.5">
+              {[
+                { id: SecureNoteType.Software, label: s.categorySoftware, icon: Package },
+                { id: SecureNoteType.Generic, label: s.categoryNotes, icon: FileText },
+                { id: SecureNoteType.Passport, label: s.categoryPassport, icon: BookOpen },
+                { id: SecureNoteType.IdCard, label: s.categoryIdCard, icon: IdCard },
+              ].map((sub) => {
+                const SubIcon = sub.icon;
+                const active = noteType === sub.id;
+                return (
+                  <button
+                    key={sub.id}
+                    type="button"
+                    onClick={() => setNoteType(sub.id)}
+                    className={`py-1.5 px-2 rounded-[9px] text-[12px] font-semibold border inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors ${
+                      active
+                        ? "bg-[var(--accent)] text-white border-[var(--accent)]"
+                        : "bg-[var(--surface)] text-[var(--text-secondary)] border-[var(--border)]"
+                    }`}
+                  >
+                    <SubIcon size={13} />
+                    <span className="truncate">{sub.label}</span>
+                  </button>
+                );
+              })}
             </div>
-          </div>
+          ) : null}
 
-          <div className="flex items-center gap-3">
-            {folders.length > 0 ? (
-              <div className="flex-1">
-                <label className="block text-[11px] font-semibold text-[var(--text-muted)] uppercase mb-1">
-                  {s.folderLabel}
-                </label>
-                <select
-                  value={folderId}
-                  onChange={(e) => setFolderId(e.target.value)}
-                  className="ov-input py-1.5 text-[12.5px]"
+          {/* Title + Custom Item Icon Picker */}
+          <div className="ov-card p-3.5 flex flex-col gap-3">
+            <div className="flex items-center gap-3.5">
+              <div className="flex flex-col items-center gap-1 shrink-0">
+                <input
+                  ref={iconFileRef}
+                  type="file"
+                  accept="image/*"
+                  className="sr-only"
+                  onChange={(e) => {
+                    void handleIconPick(e);
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => iconFileRef.current?.click()}
+                  className="relative group p-0 border-0 bg-transparent cursor-pointer rounded-[12px]"
+                  title={s.changeIcon}
                 >
-                  <option value="">{s.noFolder}</option>
-                  {folders.map((f) => (
-                    <option key={f.id} value={f.id}>
-                      {f.name}
-                    </option>
-                  ))}
-                </select>
+                  <BrandAvatar
+                    name={name || "O"}
+                    type={type}
+                    secureNoteType={noteType}
+                    uri={uris[0]}
+                    customIconDataUrl={previewIconDataUrl}
+                    showFavicon={showFavicons}
+                    size="lg"
+                  />
+                  <span className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-[var(--accent)] text-white flex items-center justify-center shadow-sm">
+                    <Camera size={11} />
+                  </span>
+                </button>
+                {customIconBase64 ? (
+                  <button
+                    type="button"
+                    onClick={() => setCustomIconBase64(null)}
+                    className="text-[11px] font-semibold text-[var(--text-muted)] hover:text-[var(--danger)] bg-transparent border-0 p-0 cursor-pointer inline-flex items-center gap-0.5"
+                  >
+                    <RotateCcw size={10} />
+                    <span>{s.resetIcon}</span>
+                  </button>
+                ) : null}
               </div>
-            ) : null}
 
-            <label className="inline-flex items-center gap-2 text-[12.5px] font-medium cursor-pointer pt-4">
-              <input
-                type="checkbox"
-                checked={favorite}
-                onChange={(e) => setFavorite(e.target.checked)}
-              />
-              <span>{s.favoriteLabel}</span>
-            </label>
-          </div>
-        </div>
-
-        {type === CipherType.Login ? (
-          <>
-            <div className="ov-card p-3 flex flex-col gap-3">
-              <div>
-                <label className="block text-[11px] font-semibold text-[var(--text-muted)] uppercase mb-1">
-                  {s.usernameLabel}
+              <div className="flex-1 min-w-0">
+                <label className="block text-[12px] font-semibold text-[var(--text-secondary)] mb-1">
+                  {s.itemNameLabel}
                 </label>
                 <input
                   type="text"
                   className="ov-input"
-                  placeholder="user@example.com"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder={s.itemNamePlaceholder}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  required
+                  autoFocus
                 />
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-[11px] font-semibold text-[var(--text-muted)] uppercase">
-                    {s.passwordLabel}
-                  </label>
-                  <button
-                    type="button"
-                    onClick={handleGenerateInline}
-                    className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-[var(--accent)] bg-transparent border-0 cursor-pointer p-0"
-                  >
-                    <Dices size={13} />
-                    <span>{s.generateStrong}</span>
-                  </button>
-                </div>
-                <div className="relative">
-                  <input
-                    type={showPassword ? "text" : "password"}
-                    className="ov-input font-mono-code pr-9"
-                    placeholder={s.passwordPlaceholder}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((v) => !v)}
-                    className="ov-icon-btn w-7 h-7 absolute right-1.5 top-1/2 -translate-y-1/2"
-                    aria-label={showPassword ? s.hidePassword : s.showPassword}
-                  >
-                    {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold text-[var(--text-muted)] uppercase mb-1">
-                  {s.totpLabel}
-                </label>
-                <input
-                  type="text"
-                  className="ov-input font-mono-code text-[12px]"
-                  placeholder="JBSWY3DPEHPK3PXP or otpauth://totp/..."
-                  value={totp}
-                  onChange={(e) => setTotp(e.target.value)}
-                />
-                {totp.trim().length >= 8 ? (
-                  <div className="mt-2 px-2 py-1 rounded-[10px] bg-[var(--surface-subtle)]">
-                    <TotpRing
-                      secretOrUri={totp}
-                      compact
-                      onCopy={(code) => {
-                        void onCopyText(code, s.isVi ? "Đã sao chép mã 2FA" : "Copied 2FA code");
-                      }}
-                    />
-                  </div>
-                ) : null}
               </div>
             </div>
 
-            {/* Passkey Management with Delete (#6) */}
-            {passkeys.length > 0 ? (
-              <div className="ov-card p-3 flex flex-col gap-2">
-                <span className="text-[11px] font-semibold text-[var(--text-muted)] uppercase">
-                  {s.passkeys}
-                </span>
-                {passkeys.map((cred) => (
-                  <div
-                    key={cred.credentialId}
-                    className="flex items-center justify-between gap-2 px-2.5 py-2 rounded-[9px]"
-                    style={{ background: "var(--passkey-soft)" }}
+            <div className="flex items-center gap-3">
+              {folders.length > 0 ? (
+                <div className="flex-1">
+                  <label className="block text-[12px] font-semibold text-[var(--text-secondary)] mb-1">
+                    {s.folderLabel}
+                  </label>
+                  <select
+                    value={folderId}
+                    onChange={(e) => setFolderId(e.target.value)}
+                    className="ov-input py-1.5 text-[13.5px]"
                   >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <Fingerprint size={15} style={{ color: "var(--passkey)" }} />
-                      <div className="min-w-0">
-                        <div className="text-[12.5px] font-semibold truncate">{cred.rpId}</div>
-                        <div className="text-[11px] text-[var(--text-secondary)] truncate">
-                          {cred.userName || cred.userDisplayName || "ECDSA P-256"}
-                        </div>
-                      </div>
-                    </div>
+                    <option value="">{s.noFolder}</option>
+                    {folders.map((f) => (
+                      <option key={f.id} value={f.id}>
+                        {f.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
+
+              <label className="inline-flex items-center gap-2 text-[13.5px] font-medium cursor-pointer pt-4">
+                <input
+                  type="checkbox"
+                  checked={favorite}
+                  onChange={(e) => setFavorite(e.target.checked)}
+                />
+                <span>{s.favoriteLabel}</span>
+              </label>
+            </div>
+          </div>
+
+          {type === CipherType.Login ? (
+            <>
+              <div className="ov-card p-3.5 flex flex-col gap-3">
+                <div>
+                  <label className="block text-[12px] font-semibold text-[var(--text-secondary)] mb-1">
+                    {s.usernameLabel}
+                  </label>
+                  <input
+                    type="text"
+                    className="ov-input"
+                    placeholder="user@example.com"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[12px] font-semibold text-[var(--text-secondary)]">
+                      {s.passwordLabel}
+                    </label>
                     <button
                       type="button"
-                      onClick={() => setPasskeyToDelete(cred)}
-                      className="ov-icon-btn w-7 h-7 shrink-0 hover:text-[var(--danger)]"
-                      title={s.remove}
-                      aria-label={s.remove}
+                      onClick={handleGenerateInline}
+                      className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-[var(--accent)] bg-transparent border-0 cursor-pointer p-0"
                     >
-                      <Trash2 size={14} />
+                      <Dices size={14} />
+                      <span>{s.generateStrong}</span>
                     </button>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      className="ov-input font-mono-code pr-10"
+                      placeholder={s.passwordPlaceholder}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((v) => !v)}
+                      aria-pressed={showPassword}
+                      className="ov-icon-btn w-8 h-8 absolute right-1.5 top-1/2 -translate-y-1/2"
+                      aria-label={showPassword ? s.hidePassword : s.showPassword}
+                    >
+                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[12px] font-semibold text-[var(--text-secondary)] mb-1">
+                    {s.totpLabel}
+                  </label>
+                  <input
+                    type="text"
+                    className="ov-input font-mono-code text-[13px]"
+                    placeholder="JBSWY3DPEHPK3PXP or otpauth://totp/..."
+                    value={totp}
+                    onChange={(e) => setTotp(e.target.value)}
+                  />
+                  {totp.trim().length >= 8 ? (
+                    <div className="mt-2 px-2.5 py-1.5 rounded-[10px] bg-[var(--surface-subtle)]">
+                      <TotpRing
+                        secretOrUri={totp}
+                        compact
+                        onCopy={(code) => {
+                          void onCopyText(code, s.isVi ? "Đã sao chép mã 2FA" : "Copied 2FA code");
+                        }}
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+              {/* Passkey Management with Delete */}
+              {passkeys.length > 0 ? (
+                <div className="ov-card p-3.5 flex flex-col gap-2">
+                  <span className="text-[12px] font-semibold text-[var(--text-secondary)]">
+                    {s.passkeys}
+                  </span>
+                  {passkeys.map((cred) => (
+                    <div
+                      key={cred.credentialId}
+                      className="flex items-center justify-between gap-2 px-3 py-2 rounded-[9px]"
+                      style={{ background: "var(--passkey-soft)" }}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <Fingerprint size={17} style={{ color: "var(--passkey)" }} />
+                        <div className="min-w-0">
+                          <div className="text-[13.5px] font-semibold truncate">{cred.rpId}</div>
+                          <div className="text-[12px] text-[var(--text-secondary)] truncate">
+                            {cred.userName || cred.userDisplayName || "ECDSA P-256"}
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setPasskeyToDelete(cred)}
+                        className="ov-icon-btn w-8 h-8 shrink-0 hover:text-[var(--danger)]"
+                        title={s.remove}
+                        aria-label={s.remove}
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              {/* Websites */}
+              <div className="ov-card p-3.5 flex flex-col gap-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[12px] font-semibold text-[var(--text-secondary)]">
+                    {s.websitesLabel}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setUris((prev) => [...prev, ""])}
+                    className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-[var(--accent)] bg-transparent border-0 cursor-pointer p-0"
+                  >
+                    <Plus size={14} />
+                    <span>{s.addWebsite}</span>
+                  </button>
+                </div>
+                {uris.map((u, idx) => (
+                  <div key={idx} className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      className="ov-input text-[13.5px] truncate"
+                      placeholder="https://github.com"
+                      value={u}
+                      title={u}
+                      onChange={(e) =>
+                        setUris((prev) => prev.map((val, i) => (i === idx ? e.target.value : val)))
+                      }
+                    />
+                    {uris.length > 1 ? (
+                      <button
+                        type="button"
+                        onClick={() => setUris((prev) => prev.filter((_, i) => i !== idx))}
+                        className="ov-icon-btn w-8 h-8 shrink-0 hover:text-[var(--danger)]"
+                        aria-label={s.delete}
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    ) : null}
                   </div>
                 ))}
               </div>
-            ) : null}
+            </>
+          ) : null}
 
-            {/* Single-line Truncated Websites (#3) */}
-            <div className="ov-card p-3 flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-semibold text-[var(--text-muted)] uppercase">
-                  {s.websitesLabel}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setUris((prev) => [...prev, ""])}
-                  className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-[var(--accent)] bg-transparent border-0 cursor-pointer p-0"
-                >
-                  <Plus size={13} />
-                  <span>{s.addWebsite}</span>
-                </button>
-              </div>
-              {uris.map((u, idx) => (
-                <div key={idx} className="flex items-center gap-1.5">
-                  <input
-                    type="text"
-                    className="ov-input text-[12.5px] truncate"
-                    placeholder="https://github.com"
-                    value={u}
-                    title={u}
-                    onChange={(e) =>
-                      setUris((prev) => prev.map((val, i) => (i === idx ? e.target.value : val)))
-                    }
-                  />
-                  {uris.length > 1 ? (
-                    <button
-                      type="button"
-                      onClick={() => setUris((prev) => prev.filter((_, i) => i !== idx))}
-                      className="ov-icon-btn w-8 h-8 shrink-0 hover:text-[var(--danger)]"
-                      aria-label={s.delete}
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          </>
-        ) : null}
-
-        {type === CipherType.Card ? (
-          <div className="ov-card p-3 flex flex-col gap-2.5">
-            <input
-              type="text"
-              className="ov-input"
-              placeholder={s.isVi ? "Tên chủ thẻ" : "Cardholder name"}
-              value={cardholderName}
-              onChange={(e) => setCardholderName(e.target.value)}
-            />
-            <input
-              type="text"
-              className="ov-input"
-              placeholder={s.isVi ? "Thương hiệu (Visa, Mastercard...)" : "Brand (Visa, Mastercard...)"}
-              value={brand}
-              onChange={(e) => setBrand(e.target.value)}
-            />
-            <input
-              type="text"
-              className="ov-input font-mono-code"
-              placeholder={s.isVi ? "Số thẻ" : "Card number"}
-              value={cardNumber}
-              onChange={(e) => setCardNumber(e.target.value)}
-            />
-            <div className="grid grid-cols-3 gap-2">
+          {type === CipherType.Card ? (
+            <div className="ov-card p-3.5 flex flex-col gap-2.5">
               <input
                 type="text"
                 className="ov-input"
-                placeholder="MM"
-                value={expMonth}
-                onChange={(e) => setExpMonth(e.target.value)}
+                placeholder={s.isVi ? "Tên Chủ Thẻ" : "Cardholder Name"}
+                value={cardholderName}
+                onChange={(e) => setCardholderName(e.target.value)}
               />
               <input
                 type="text"
                 className="ov-input"
-                placeholder="YYYY"
-                value={expYear}
-                onChange={(e) => setExpYear(e.target.value)}
+                placeholder={s.isVi ? "Thương Hiệu (Visa, Mastercard...)" : "Brand (Visa, Mastercard...)"}
+                value={brand}
+                onChange={(e) => setBrand(e.target.value)}
               />
               <input
                 type="text"
                 className="ov-input font-mono-code"
-                placeholder="CVV"
-                value={cardCode}
-                onChange={(e) => setCardCode(e.target.value)}
+                placeholder={s.isVi ? "Số Thẻ" : "Card Number"}
+                value={cardNumber}
+                onChange={(e) => setCardNumber(e.target.value)}
               />
+              <div className="grid grid-cols-3 gap-2">
+                <input
+                  type="text"
+                  className="ov-input"
+                  placeholder="MM"
+                  value={expMonth}
+                  onChange={(e) => setExpMonth(e.target.value)}
+                />
+                <input
+                  type="text"
+                  className="ov-input"
+                  placeholder="YYYY"
+                  value={expYear}
+                  onChange={(e) => setExpYear(e.target.value)}
+                />
+                <input
+                  type="text"
+                  className="ov-input font-mono-code"
+                  placeholder="CVV"
+                  value={cardCode}
+                  onChange={(e) => setCardCode(e.target.value)}
+                />
+              </div>
             </div>
-          </div>
-        ) : null}
+          ) : null}
 
-        {type === CipherType.Identity ? (
-          <div className="ov-card p-3 flex flex-col gap-2.5">
-            <div className="grid grid-cols-3 gap-2">
+          {type === CipherType.Identity ? (
+            <div className="ov-card p-3.5 flex flex-col gap-2.5">
+              <div className="grid grid-cols-3 gap-2">
+                <input
+                  type="text"
+                  className="ov-input"
+                  placeholder={s.isVi ? "Họ" : "First Name"}
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                />
+                <input
+                  type="text"
+                  className="ov-input"
+                  placeholder={s.isVi ? "Tên Đệm" : "Middle Name"}
+                  value={middleName}
+                  onChange={(e) => setMiddleName(e.target.value)}
+                />
+                <input
+                  type="text"
+                  className="ov-input"
+                  placeholder={s.isVi ? "Tên" : "Last Name"}
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  type="email"
+                  className="ov-input"
+                  placeholder="Email"
+                  value={idEmail}
+                  onChange={(e) => setIdEmail(e.target.value)}
+                />
+                <input
+                  type="tel"
+                  className="ov-input"
+                  placeholder={s.isVi ? "Số Điện Thoại" : "Phone"}
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                />
+              </div>
               <input
                 type="text"
                 className="ov-input"
-                placeholder={s.isVi ? "Họ" : "First name"}
-                value={firstName}
-                onChange={(e) => setFirstName(e.target.value)}
+                placeholder={s.isVi ? "Công Ty / Tổ Chức" : "Company / Organization"}
+                value={company}
+                onChange={(e) => setCompany(e.target.value)}
               />
               <input
                 type="text"
                 className="ov-input"
-                placeholder={s.isVi ? "Tên đệm" : "Middle"}
-                value={middleName}
-                onChange={(e) => setMiddleName(e.target.value)}
+                placeholder={s.isVi ? "Địa Chỉ (Dòng 1)" : "Address Line 1"}
+                value={address1}
+                onChange={(e) => setAddress1(e.target.value)}
               />
               <input
                 type="text"
                 className="ov-input"
-                placeholder={s.isVi ? "Tên" : "Last name"}
-                value={lastName}
-                onChange={(e) => setLastName(e.target.value)}
+                placeholder={s.isVi ? "Địa Chỉ (Dòng 2)" : "Address Line 2"}
+                value={address2}
+                onChange={(e) => setAddress2(e.target.value)}
               />
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  type="text"
+                  className="ov-input"
+                  placeholder={s.isVi ? "Thành Phố" : "City"}
+                  value={city}
+                  onChange={(e) => setCity(e.target.value)}
+                />
+                <input
+                  type="text"
+                  className="ov-input"
+                  placeholder={s.isVi ? "Tỉnh / Bang" : "State / Province"}
+                  value={stateRegion}
+                  onChange={(e) => setStateRegion(e.target.value)}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  type="text"
+                  className="ov-input"
+                  placeholder={s.isVi ? "Mã Bưu Chính" : "Postal Code"}
+                  value={postalCode}
+                  onChange={(e) => setPostalCode(e.target.value)}
+                />
+                <input
+                  type="text"
+                  className="ov-input"
+                  placeholder={s.isVi ? "Quốc Gia" : "Country"}
+                  value={country}
+                  onChange={(e) => setCountry(e.target.value)}
+                />
+              </div>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <input
-                type="email"
-                className="ov-input"
-                placeholder="Email"
-                value={idEmail}
-                onChange={(e) => setIdEmail(e.target.value)}
-              />
-              <input
-                type="tel"
-                className="ov-input"
-                placeholder={s.isVi ? "Số điện thoại" : "Phone"}
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-              />
-            </div>
-            <input
-              type="text"
-              className="ov-input"
-              placeholder={s.isVi ? "Công ty / Tổ chức" : "Company / Organization"}
-              value={company}
-              onChange={(e) => setCompany(e.target.value)}
-            />
-            <input
-              type="text"
-              className="ov-input"
-              placeholder={s.isVi ? "Địa chỉ (Dòng 1)" : "Address line 1"}
-              value={address1}
-              onChange={(e) => setAddress1(e.target.value)}
-            />
-            <input
-              type="text"
-              className="ov-input"
-              placeholder={s.isVi ? "Địa chỉ (Dòng 2)" : "Address line 2"}
-              value={address2}
-              onChange={(e) => setAddress2(e.target.value)}
-            />
-            <div className="grid grid-cols-2 gap-2">
-              <input
-                type="text"
-                className="ov-input"
-                placeholder={s.isVi ? "Thành phố" : "City"}
-                value={city}
-                onChange={(e) => setCity(e.target.value)}
-              />
-              <input
-                type="text"
-                className="ov-input"
-                placeholder={s.isVi ? "Tỉnh / Bang" : "State / Province"}
-                value={stateRegion}
-                onChange={(e) => setStateRegion(e.target.value)}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <input
-                type="text"
-                className="ov-input"
-                placeholder={s.isVi ? "Mã bưu chính" : "Postal code"}
-                value={postalCode}
-                onChange={(e) => setPostalCode(e.target.value)}
-              />
-              <input
-                type="text"
-                className="ov-input"
-                placeholder={s.isVi ? "Quốc gia" : "Country"}
-                value={country}
-                onChange={(e) => setCountry(e.target.value)}
-              />
-            </div>
-          </div>
-        ) : null}
+          ) : null}
 
-        {/* Deep Editable Custom Fields + "+ Add more" Dropdown (#3 & #4) */}
-        <div className="ov-card p-3 flex flex-col gap-2.5">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-[var(--text-muted)] uppercase">
-              {s.customFields}
-            </span>
-            <button
-              type="button"
-              popoverTarget={addMorePopoverId}
-              className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-[var(--accent)] bg-transparent border-0 cursor-pointer p-0"
-            >
-              <Plus size={13} />
-              <span>{s.addMore}</span>
-              <ChevronDown size={12} />
-            </button>
-            <div
-              id={addMorePopoverId}
-              ref={addMorePopoverRef}
-              popover="auto"
-              className="ov-popover ov-popover-end"
-            >
+          {/* Custom Fields + "+ Add More" including Recovery Codes (20 boxes) */}
+          <div className="ov-card p-3.5 flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <span className="text-[12px] font-semibold text-[var(--text-secondary)]">
+                {s.customFields}
+              </span>
               <button
                 type="button"
-                className="ov-popover-item"
-                onClick={() =>
-                  addCustomField(
-                    s.addSecQuestion,
-                    FieldType.Hidden,
-                    generatePassword({ length: 16, lowercase: true, uppercase: true, digits: true, symbols: false }),
-                  )
-                }
+                popoverTarget={addMorePopoverId}
+                className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-[var(--accent)] bg-transparent border-0 cursor-pointer p-0"
               >
-                <span>{s.addSecQuestion}</span>
+                <Plus size={14} />
+                <span>{s.addMore}</span>
+                <ChevronDown size={13} />
               </button>
-              <hr className="my-1 border-0 border-t border-[var(--border)]" />
-              <button type="button" className="ov-popover-item" onClick={() => addCustomField(s.addText, FieldType.Text)}>
-                <span>{s.addText}</span>
-              </button>
-              <button type="button" className="ov-popover-item" onClick={() => addCustomField(s.addUrl, FieldType.Text)}>
-                <span>{s.addUrl}</span>
-              </button>
-              <button type="button" className="ov-popover-item" onClick={() => addCustomField(s.addEmail, FieldType.Text)}>
-                <span>{s.addEmail}</span>
-              </button>
-              <button type="button" className="ov-popover-item" onClick={() => addCustomField(s.addAddress, FieldType.Text)}>
-                <span>{s.addAddress}</span>
-              </button>
-              <button type="button" className="ov-popover-item" onClick={() => addCustomField(s.addDate, FieldType.Text)}>
-                <span>{s.addDate}</span>
-              </button>
-              <button type="button" className="ov-popover-item" onClick={() => addCustomField(s.addOtp, FieldType.Hidden)}>
-                <span>{s.addOtp}</span>
-              </button>
-              <button type="button" className="ov-popover-item" onClick={() => addCustomField(s.addPasswordField, FieldType.Hidden)}>
-                <span>{s.addPasswordField}</span>
-              </button>
-              <button type="button" className="ov-popover-item" onClick={() => addCustomField(s.addPhone, FieldType.Text)}>
-                <span>{s.addPhone}</span>
-              </button>
-            </div>
-          </div>
-
-          {customFields.length > 0 ? (
-            <div className="flex flex-col gap-2">
-              {customFields.map((field) => (
-                <div
-                  key={field.id}
-                  className="p-2 rounded-[9px] bg-[var(--surface-subtle)] border border-[var(--border)] flex flex-col gap-1.5"
+              <div
+                id={addMorePopoverId}
+                ref={addMorePopoverRef}
+                popover="auto"
+                className="ov-popover ov-popover-end"
+              >
+                <button
+                  type="button"
+                  className="ov-popover-item"
+                  onClick={() => addCustomField(s.recoveryCodesTitle, FieldType.Hidden, "")}
                 >
-                  <div className="flex items-center gap-1.5">
-                    <input
-                      type="text"
-                      className="flex-1 bg-transparent border-0 border-b border-[var(--border)] px-1 py-0.5 text-[11.5px] font-semibold outline-none text-[var(--field-label)]"
-                      placeholder={s.fieldLabelPlaceholder}
-                      value={field.name}
-                      onChange={(e) =>
+                  <Grid3X3 size={15} className="text-[var(--accent)]" />
+                  <span>{s.addRecoveryCodes}</span>
+                </button>
+                <button
+                  type="button"
+                  className="ov-popover-item"
+                  onClick={() =>
+                    addCustomField(
+                      s.addSecQuestion,
+                      FieldType.Hidden,
+                      generatePassword({ length: 16, lowercase: true, uppercase: true, digits: true, symbols: false }),
+                    )
+                  }
+                >
+                  <span>{s.addSecQuestion}</span>
+                </button>
+                <hr className="my-1 border-0 border-t border-[var(--border)]" />
+                <button type="button" className="ov-popover-item" onClick={() => addCustomField(s.addText, FieldType.Text)}>
+                  <span>{s.addText}</span>
+                </button>
+                <button type="button" className="ov-popover-item" onClick={() => addCustomField(s.addUrl, FieldType.Text)}>
+                  <span>{s.addUrl}</span>
+                </button>
+                <button type="button" className="ov-popover-item" onClick={() => addCustomField(s.addEmail, FieldType.Text)}>
+                  <span>{s.addEmail}</span>
+                </button>
+                <button type="button" className="ov-popover-item" onClick={() => addCustomField(s.addAddress, FieldType.Text)}>
+                  <span>{s.addAddress}</span>
+                </button>
+                <button type="button" className="ov-popover-item" onClick={() => addCustomField(s.addDate, FieldType.Text)}>
+                  <span>{s.addDate}</span>
+                </button>
+                <button type="button" className="ov-popover-item" onClick={() => addCustomField(s.addOtp, FieldType.Hidden)}>
+                  <span>{s.addOtp}</span>
+                </button>
+                <button type="button" className="ov-popover-item" onClick={() => addCustomField(s.addPasswordField, FieldType.Hidden)}>
+                  <span>{s.addPasswordField}</span>
+                </button>
+                <button type="button" className="ov-popover-item" onClick={() => addCustomField(s.addPhone, FieldType.Text)}>
+                  <span>{s.addPhone}</span>
+                </button>
+              </div>
+            </div>
+
+            {customFields.length > 0 ? (
+              <div className="flex flex-col gap-2.5">
+                {customFields.map((field) =>
+                  isRecoveryCodesField(field.name) ? (
+                    <RecoveryCodeGridEditor
+                      key={field.id}
+                      field={field}
+                      s={s}
+                      onChangeValue={(nextVal) =>
                         setCustomFields((prev) =>
-                          prev.map((f) => (f.id === field.id ? { ...f, name: e.target.value } : f)),
+                          prev.map((f) => (f.id === field.id ? { ...f, value: nextVal } : f)),
                         )
                       }
-                    />
-                    <button
-                      type="button"
-                      onClick={() =>
+                      onChangeName={(nextName) =>
+                        setCustomFields((prev) =>
+                          prev.map((f) => (f.id === field.id ? { ...f, name: nextName } : f)),
+                        )
+                      }
+                      onDelete={() =>
                         setCustomFields((prev) => prev.filter((f) => f.id !== field.id))
                       }
-                      className="ov-icon-btn w-6 h-6 shrink-0 hover:text-[var(--danger)]"
-                      aria-label={s.delete}
+                    />
+                  ) : (
+                    <div
+                      key={field.id}
+                      className="p-2.5 rounded-[10px] bg-[var(--surface-subtle)] border border-[var(--border)] flex flex-col gap-1.5"
                     >
-                      <Trash2 size={12} />
-                    </button>
-                  </div>
-                  <input
-                    type={field.type === FieldType.Hidden ? "text" : "text"}
-                    className={`ov-input py-1.5 text-[12.5px] ${
-                      field.type === FieldType.Hidden ? "font-mono-code" : ""
-                    }`}
-                    placeholder={s.fieldValuePlaceholder}
-                    value={field.value}
-                    onChange={(e) =>
-                      setCustomFields((prev) =>
-                        prev.map((f) => (f.id === field.id ? { ...f, value: e.target.value } : f)),
-                      )
-                    }
-                  />
-                </div>
-              ))}
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="text"
+                          className="flex-1 bg-transparent border-0 border-b border-[var(--border)] px-1 py-0.5 text-[12.5px] font-semibold outline-none text-[var(--field-label)]"
+                          placeholder={s.fieldLabelPlaceholder}
+                          value={field.name}
+                          onChange={(e) =>
+                            setCustomFields((prev) =>
+                              prev.map((f) => (f.id === field.id ? { ...f, name: e.target.value } : f)),
+                            )
+                          }
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setCustomFields((prev) => prev.filter((f) => f.id !== field.id))
+                          }
+                          className="ov-icon-btn w-7 h-7 shrink-0 hover:text-[var(--danger)]"
+                          aria-label={s.delete}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                      <input
+                        type="text"
+                        className={`ov-input py-2 text-[13.5px] ${
+                          field.type === FieldType.Hidden ? "font-mono-code" : ""
+                        }`}
+                        placeholder={s.fieldValuePlaceholder}
+                        value={field.value}
+                        onChange={(e) =>
+                          setCustomFields((prev) =>
+                            prev.map((f) => (f.id === field.id ? { ...f, value: e.target.value } : f)),
+                          )
+                        }
+                      />
+                    </div>
+                  ),
+                )}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="ov-card p-3.5">
+            <label className="block text-[12px] font-semibold text-[var(--text-secondary)] mb-1.5">
+              {s.notesLabel}
+            </label>
+            <textarea
+              rows={3}
+              className="ov-input resize-y"
+              placeholder={s.notesPlaceholder}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+            />
+          </div>
+
+          {error ? (
+            <div className="px-3.5 py-2.5 rounded-[10px] text-[13px] font-medium bg-[var(--danger-soft)] text-[var(--danger)]">
+              {error}
             </div>
           ) : null}
         </div>
-
-        <div className="ov-card p-3">
-          <label className="block text-[11px] font-semibold text-[var(--text-muted)] uppercase mb-1">
-            {s.notesLabel}
-          </label>
-          <textarea
-            rows={3}
-            className="ov-input resize-y"
-            placeholder={s.notesPlaceholder}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-          />
-        </div>
-
-        {error ? (
-          <div className="px-3 py-2 rounded-[10px] text-[12px] font-medium bg-[var(--danger-soft)] text-[var(--danger)]">
-            {error}
-          </div>
-        ) : null}
       </div>
 
       <ConfirmDialog

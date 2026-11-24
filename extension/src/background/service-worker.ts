@@ -1,6 +1,7 @@
 import {
   CipherType,
   DEFAULT_ARGON2ID_CONFIG,
+  FieldType,
   MAX_PIN_ATTEMPTS,
   base64ToBytes,
   base64UrlToBytes,
@@ -62,7 +63,17 @@ import {
   LOCAL_KEYS,
   SESSION_KEYS,
 } from "../shared/constants.js";
-import { findMatchingLogins } from "../shared/domain-match.js";
+import {
+  findMatchingLoginCipher,
+  findMatchingLogins,
+  findPasskeyTargetLoginCiphers,
+} from "../shared/domain-match.js";
+import {
+  ACCOUNT_AVATAR_FIELD_NAME,
+  PROFILE_SYNC_CIPHER_NAME,
+  getSyncedAvatarFromCiphers,
+  isInternalProfileCipher,
+} from "../shared/media.js";
 import {
   isValidRpIdForOrigin,
   type PasskeyMatchSummary,
@@ -89,6 +100,45 @@ import type {
 } from "../shared/types.js";
 
 // --- Storage Helpers (Zero mutable global state in MV3 Service Worker) ---
+
+const UNLOCKED_ICON_PATHS: Record<string, string> = {
+  16: "icons/icon-16.png",
+  32: "icons/icon-32.png",
+  48: "icons/icon-48.png",
+  128: "icons/icon-128.png",
+};
+
+const LOCKED_ICON_PATHS: Record<string, string> = {
+  16: "icons/icon-locked-16.png",
+  32: "icons/icon-locked-32.png",
+  48: "icons/icon-locked-48.png",
+  128: "icons/icon-locked-128.png",
+};
+
+async function updateActionLockIcon(): Promise<void> {
+  try {
+    const [account, secrets] = await Promise.all([getAccount(), getSessionSecrets()]);
+    const unlocked = Boolean(account && secrets);
+    await Promise.all([
+      chrome.action.setIcon({ path: unlocked ? UNLOCKED_ICON_PATHS : LOCKED_ICON_PATHS }),
+      chrome.action.setTitle({ title: unlocked ? "OpenVault" : "OpenVault (Locked)" }),
+    ]);
+  } catch {
+    // Action API unavailable during unit test or transient browser teardown
+  }
+}
+
+async function syncLocalAvatarFromDecryptedVault(ciphers: CipherPayload[]): Promise<void> {
+  const profile = ciphers.find((c) => !c.deletedDate && isInternalProfileCipher(c));
+  if (!profile) return;
+  const syncedAvatar = getSyncedAvatarFromCiphers([profile]);
+  const settings = await getSettings();
+  if ((settings.accountAvatarBase64 ?? null) !== syncedAvatar) {
+    await chrome.storage.local.set({
+      [LOCAL_KEYS.SETTINGS]: { ...settings, accountAvatarBase64: syncedAvatar },
+    });
+  }
+}
 
 async function ensureSessionAccessPolicy(): Promise<void> {
   try {
@@ -285,7 +335,7 @@ async function syncEncryptedVaultFromServer(force = false): Promise<StoredVaultC
     lastRevisionMs: remoteRevision,
     lastSyncAt: nowIso,
   });
-  // Notify any open popup or sidepanel so remote edits appear immediately
+  // Notify any open popup so remote edits appear immediately
   chrome.runtime.sendMessage({ type: "OV_VAULT_UPDATED" }).catch(() => undefined);
   return nextCache;
 }
@@ -294,8 +344,9 @@ async function decryptVaultCache(
   cache: StoredVaultCache,
   key: SymmetricKey,
   lastSyncAt: string | null,
+  includeInternal = false,
 ): Promise<DecryptedVault> {
-  const [folders, ciphers] = await Promise.all([
+  const [folders, allCiphers] = await Promise.all([
     Promise.all(
       cache.folders.map(async (f) => {
         try {
@@ -315,6 +366,11 @@ async function decryptVaultCache(
       }),
     ),
   ]);
+
+  await syncLocalAvatarFromDecryptedVault(allCiphers).catch(() => undefined);
+  const ciphers = includeInternal
+    ? allCiphers
+    : allCiphers.filter((c) => !isInternalProfileCipher(c));
 
   return { folders, ciphers, lastSyncAt };
 }
@@ -352,6 +408,7 @@ async function updateBadgeForTab(tabId: number, url?: string): Promise<void> {
 }
 
 async function refreshActiveTabBadge(): Promise<void> {
+  await updateActionLockIcon();
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (tab?.id) {
     await updateBadgeForTab(tab.id, tab.url);
@@ -360,11 +417,6 @@ async function refreshActiveTabBadge(): Promise<void> {
 
 async function setupContextMenus(): Promise<void> {
   await chrome.contextMenus.removeAll();
-  chrome.contextMenus.create({
-    id: CONTEXT_MENUS.OPEN_SIDE_PANEL,
-    title: "Mở OpenVault ở Side Panel",
-    contexts: ["action", "page"],
-  });
   chrome.contextMenus.create({
     id: CONTEXT_MENUS.AUTOFILL_LOGIN,
     title: "OpenVault: Tự động điền tài khoản",
@@ -648,6 +700,7 @@ async function handleMessage(
 ): Promise<BgResponse> {
   switch (request.type) {
     case "GET_STATUS": {
+      await updateActionLockIcon();
       const [account, secrets, settings, pendingSave, pinInfo] = await Promise.all([
         getAccount(),
         getSessionSecrets(),
@@ -1186,6 +1239,52 @@ async function handleMessage(
       return { ok: true, data: next };
     }
 
+    case "SET_ACCOUNT_AVATAR": {
+      const current = await getSettings();
+      const cleaned = request.avatarBase64?.trim() ? request.avatarBase64.trim() : null;
+      const next = { ...current, accountAvatarBase64: cleaned };
+      await chrome.storage.local.set({ [LOCAL_KEYS.SETTINGS]: next });
+
+      const [account, secrets] = await Promise.all([getAccount(), getSessionSecrets()]);
+      if (account && secrets) {
+        const key = splitSymmetricKey(base64ToBytes(secrets.userKeyB64));
+        const cache = (await getVaultCache()) ?? (await syncEncryptedVaultFromServer(true));
+        const allDecrypted = await decryptVaultCache(cache, key, account.lastSyncAt, true);
+        const existingProfile = allDecrypted.ciphers.find(
+          (c) => !c.deletedDate && isInternalProfileCipher(c) && c.id,
+        );
+        const profilePayload: CipherPayload = {
+          ...(existingProfile ?? {
+            type: CipherType.SecureNote,
+            secureNote: { type: 0 },
+            favorite: false,
+          }),
+          name: PROFILE_SYNC_CIPHER_NAME,
+          type: CipherType.SecureNote,
+          secureNote: { type: 0 },
+          fields: [
+            ...(existingProfile?.fields?.filter((f) => f.name !== ACCOUNT_AVATAR_FIELD_NAME) ?? []),
+            {
+              name: ACCOUNT_AVATAR_FIELD_NAME,
+              value: cleaned ?? "",
+              type: FieldType.Hidden,
+            },
+          ],
+        };
+        const encrypted = await encryptCipher(profilePayload, key);
+        if (existingProfile?.id) {
+          await withValidAccessToken((url, token) =>
+            apiUpdateCipher(url, token, existingProfile.id!, encrypted),
+          );
+        } else {
+          await withValidAccessToken((url, token) => apiCreateCipher(url, token, encrypted));
+        }
+        await syncEncryptedVaultFromServer(true);
+      }
+
+      return { ok: true, data: next };
+    }
+
     case "GET_MATCHES_FOR_URL": {
       const [account, secrets, settings, cache] = await Promise.all([
         getAccount(),
@@ -1346,7 +1445,7 @@ async function handleMessage(
         return { ok: true, data: { prompt: false } };
       }
 
-      // Check if an identical username + password is already stored for this domain
+      // Check if an existing Login matches this domain + username/email/filled cipher
       const key = splitSymmetricKey(base64ToBytes(secrets.userKeyB64));
       const decrypted = await decryptVaultCache(cache, key, account.lastSyncAt);
       const existingMatches = findMatchingLogins(decrypted.ciphers, request.payload.url);
@@ -1359,8 +1458,21 @@ async function handleMessage(
         return { ok: true, data: { prompt: false } };
       }
 
+      const matchedCipher = findMatchingLoginCipher(
+        decrypted.ciphers,
+        request.payload.url,
+        request.payload.username,
+        request.payload.preferredCipherId,
+      );
+      if (matchedCipher?.login?.password === request.payload.password) {
+        return { ok: true, data: { prompt: false } };
+      }
+
       const pending: PendingSaveCredential = {
         ...request.payload,
+        username: request.payload.username || matchedCipher?.login?.username || "",
+        existingCipherId: matchedCipher?.id ?? null,
+        existingCipherName: matchedCipher?.name ?? null,
         detectedAt: Date.now(),
       };
       await chrome.storage.session.set({ [SESSION_KEYS.PENDING_SAVE]: pending });
@@ -1382,27 +1494,60 @@ async function handleMessage(
     }
 
     case "SAVE_PENDING_CREDENTIAL": {
-      const { key } = await getUnlockedKey();
+      const { key, account } = await getUnlockedKey();
       const pending = await getPendingSave();
       if (!pending) return { ok: false, error: "Không có tài khoản chờ lưu." };
 
-      const cipher: CipherPayload = {
-        type: CipherType.Login,
-        name: pending.title || new URL(pending.url).hostname.replace(/^www\./, ""),
-        favorite: false,
-        login: {
-          uris: [{ uri: pending.origin, match: null }],
-          username: pending.username,
-          password: pending.password,
-          totp: null,
-        },
-      };
-      const encrypted = await encryptCipher(cipher, key);
-      await withValidAccessToken((url, token) => apiCreateCipher(url, token, encrypted));
+      const cache = (await getVaultCache()) ?? (await syncEncryptedVaultFromServer(true));
+      const decrypted = await decryptVaultCache(cache, key, account.lastSyncAt);
+      const matchedCipher = findMatchingLoginCipher(
+        decrypted.ciphers,
+        pending.url,
+        pending.username,
+        pending.existingCipherId ?? pending.preferredCipherId,
+      );
+
+      if (matchedCipher?.id && matchedCipher.login) {
+        const existingUris = matchedCipher.login.uris ?? [];
+        const hasOriginUri = existingUris.some(
+          (u) => (u.uri ?? "").trim().toLowerCase() === pending.origin.trim().toLowerCase(),
+        );
+        const updatedCipher: CipherPayload = {
+          ...matchedCipher,
+          login: {
+            ...matchedCipher.login,
+            username: matchedCipher.login.username?.trim()
+              ? matchedCipher.login.username
+              : pending.username || null,
+            password: pending.password,
+            passwordRevisionDate: new Date().toISOString(),
+            uris: hasOriginUri ? existingUris : [...existingUris, { uri: pending.origin, match: null }],
+          },
+        };
+        const encrypted = await encryptCipher(updatedCipher, key);
+        await withValidAccessToken((url, token) =>
+          apiUpdateCipher(url, token, matchedCipher.id!, encrypted),
+        );
+      } else {
+        const cipher: CipherPayload = {
+          type: CipherType.Login,
+          name: pending.title || new URL(pending.url).hostname.replace(/^www\./, ""),
+          favorite: false,
+          login: {
+            uris: [{ uri: pending.origin, match: null }],
+            username: pending.username,
+            password: pending.password,
+            totp: null,
+          },
+        };
+        const encrypted = await encryptCipher(cipher, key);
+        await withValidAccessToken((url, token) => apiCreateCipher(url, token, encrypted));
+      }
+
       await chrome.storage.session.remove(SESSION_KEYS.PENDING_SAVE);
       await syncEncryptedVaultFromServer(true);
       await refreshActiveTabBadge();
-      return { ok: true, data: { saved: true } };
+      return { ok: true, data: { saved: true, updated: Boolean(matchedCipher?.id) } };
     }
 
     case "PASSKEY_PREPARE_CREATE": {
@@ -1424,22 +1569,28 @@ async function handleMessage(
       );
 
       let alreadyExcluded = false;
-      if (
-        validOrigin &&
-        settings.passkeySaveEnabled &&
-        account &&
-        secrets &&
-        cache &&
-        request.excludeCredentialIds.length > 0
-      ) {
+      let existingCiphers: PasskeyPrepareCreateResponse["existingCiphers"] = [];
+      let recommendedCipherId: string | null = null;
+      if (validOrigin && settings.passkeySaveEnabled && account && secrets && cache) {
         const key = splitSymmetricKey(base64ToBytes(secrets.userKeyB64));
         const decrypted = await decryptVaultCache(cache, key, account.lastSyncAt);
-        const excludedMatches = findMatchingPasskeys(
+        if (request.excludeCredentialIds.length > 0) {
+          const excludedMatches = findMatchingPasskeys(
+            decrypted.ciphers,
+            request.rpId,
+            request.excludeCredentialIds,
+          );
+          alreadyExcluded = excludedMatches.length > 0;
+        }
+        const targetResult = findPasskeyTargetLoginCiphers(
           decrypted.ciphers,
+          request.origin,
           request.rpId,
-          request.excludeCredentialIds,
+          request.userName,
+          request.userDisplayName,
         );
-        alreadyExcluded = excludedMatches.length > 0;
+        existingCiphers = targetResult.candidates;
+        recommendedCipherId = targetResult.recommendedId;
       }
 
       const data: PasskeyPrepareCreateResponse = {
@@ -1451,6 +1602,8 @@ async function handleMessage(
         pinAvailableNow,
         pinLength: pinLocal?.pinLength ?? 6,
         alreadyExcluded,
+        existingCiphers,
+        recommendedCipherId,
       };
       return { ok: true, data };
     }
@@ -1480,32 +1633,31 @@ async function handleMessage(
         discoverable: request.discoverable,
       });
 
-      // Attach passkey to an existing matching Login cipher if username matches, otherwise create a new Login item
-      const normalizedUser = request.userName.trim().toLowerCase();
-      const domainMatches = findMatchingLogins(decrypted.ciphers, request.origin);
+      // Attach passkey to chosen cipher or best-matched existing Login cipher instead of duplicating
       let existingCipher: CipherPayload | undefined;
-
-      for (const m of domainMatches) {
-        const candidate = decrypted.ciphers.find((c) => c.id === m.id && !c.deletedDate);
-        if (!candidate?.login) continue;
-        const candUser = (candidate.login.username ?? "").trim().toLowerCase();
-        if (normalizedUser && candUser === normalizedUser) {
-          existingCipher = candidate;
-          break;
-        }
-      }
-
-      if (!existingCipher) {
+      if (request.targetCipherId === "__new__" || request.targetCipherId === null) {
+        existingCipher = undefined;
+      } else if (typeof request.targetCipherId === "string" && request.targetCipherId.trim()) {
         existingCipher = decrypted.ciphers.find(
           (c) =>
+            c.id === request.targetCipherId &&
             !c.deletedDate &&
             c.type === CipherType.Login &&
-            c.login?.fido2Credentials?.some(
-              (f) =>
-                f.rpId.toLowerCase() === cleanRpId &&
-                (f.userName ?? "").trim().toLowerCase() === normalizedUser,
-            ),
+            Boolean(c.login),
         );
+      } else {
+        const targetResult = findPasskeyTargetLoginCiphers(
+          decrypted.ciphers,
+          request.origin,
+          request.rpId,
+          request.userName,
+          request.userDisplayName,
+        );
+        if (targetResult.recommendedId) {
+          existingCipher = decrypted.ciphers.find(
+            (c) => c.id === targetResult.recommendedId && !c.deletedDate && Boolean(c.login),
+          );
+        }
       }
 
       if (existingCipher?.id && existingCipher.login) {
@@ -1516,11 +1668,16 @@ async function handleMessage(
               f.userHandle === created.credential.userHandle
             ),
         );
+        const existingUris = existingCipher.login.uris ?? [];
+        const hasOriginUri = existingUris.some(
+          (u) => (u.uri ?? "").trim().toLowerCase() === request.origin.trim().toLowerCase(),
+        );
         const updatedCipher: CipherPayload = {
           ...existingCipher,
           login: {
             ...existingCipher.login,
-            username: existingCipher.login.username || request.userName,
+            username: existingCipher.login.username || request.userName || null,
+            uris: hasOriginUri ? existingUris : [...existingUris, { uri: request.origin, match: null }],
             fido2Credentials: [...existingCreds, created.credential],
           },
         };
@@ -1665,6 +1822,7 @@ chrome.runtime.onInstalled.addListener(() => {
   void (async () => {
     await ensureSessionAccessPolicy();
     await setupContextMenus();
+    await updateActionLockIcon();
     await chrome.alarms.create(ALARMS.SYNC_POLL, { periodInMinutes: 0.5 });
     const settings = await getSettings();
     if (settings.defaultBrowserPasswordManager) {
@@ -1677,6 +1835,7 @@ chrome.runtime.onStartup.addListener(() => {
   void (async () => {
     await ensureSessionAccessPolicy();
     await setupContextMenus();
+    await updateActionLockIcon();
     await chrome.alarms.create(ALARMS.SYNC_POLL, { periodInMinutes: 0.5 });
     const settings = await getSettings();
     if (settings.defaultBrowserPasswordManager) {
@@ -1801,10 +1960,6 @@ chrome.commands.onCommand.addListener((command) => {
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   void (async () => {
-    if (info.menuItemId === CONTEXT_MENUS.OPEN_SIDE_PANEL && tab?.windowId) {
-      await chrome.sidePanel.open({ windowId: tab.windowId });
-      return;
-    }
     if (info.menuItemId === CONTEXT_MENUS.AUTOFILL_LOGIN && tab?.id) {
       try {
         const filled = await autofillCandidateInTab(tab.id);
@@ -1857,3 +2012,6 @@ chrome.runtime.onMessage.addListener((message: BgRequest, sender, sendResponse) 
   })();
   return true;
 });
+
+// Keep toolbar lock indicator synchronized when Chrome wakes the service worker
+void updateActionLockIcon();

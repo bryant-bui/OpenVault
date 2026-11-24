@@ -126,6 +126,13 @@ export interface PasskeyMatchSummary {
   userDisplayName: string;
 }
 
+export interface PasskeyTargetCipherSummary {
+  id: string;
+  name: string;
+  username: string;
+  hasPasskey: boolean;
+}
+
 export interface PasskeyPrepareCreateResponse {
   enabled: boolean;
   validOrigin: boolean;
@@ -135,6 +142,8 @@ export interface PasskeyPrepareCreateResponse {
   pinAvailableNow: boolean;
   pinLength: number;
   alreadyExcluded: boolean;
+  existingCiphers: PasskeyTargetCipherSummary[];
+  recommendedCipherId: string | null;
 }
 
 export interface PasskeyPrepareGetResponse {

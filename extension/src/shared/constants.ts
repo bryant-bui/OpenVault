@@ -1,4 +1,9 @@
-export const DEFAULT_SERVER_URL = "https://your-openvault-api.workers.dev";
+const ENV_SERVER_URL =
+  typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_OPENVAULT_SERVER_URL
+    ? String(import.meta.env.VITE_OPENVAULT_SERVER_URL).trim()
+    : "";
+
+export const DEFAULT_SERVER_URL = ENV_SERVER_URL || "https://your-openvault-api.workers.dev";
 
 export const LOCAL_KEYS = {
   ACCOUNT: "ov_account",
@@ -22,7 +27,6 @@ export const ALARMS = {
 } as const;
 
 export const CONTEXT_MENUS = {
-  OPEN_SIDE_PANEL: "ov_open_side_panel",
   AUTOFILL_LOGIN: "ov_autofill_login",
   GENERATE_PASSWORD: "ov_generate_password",
 } as const;

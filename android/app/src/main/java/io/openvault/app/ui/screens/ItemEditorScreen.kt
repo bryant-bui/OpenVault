@@ -31,7 +31,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.ContentPaste
+import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.DragHandle
+import androidx.compose.material.icons.rounded.GridView
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
@@ -59,11 +62,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -73,6 +80,8 @@ import io.openvault.app.core.crypto.CipherType
 import io.openvault.app.core.crypto.PassphraseOptions
 import io.openvault.app.core.crypto.PasswordGenerator
 import io.openvault.app.core.crypto.PasswordOptions
+import io.openvault.app.core.crypto.RecoveryCodeUtils
+import io.openvault.app.core.crypto.SecureNoteCategory
 import io.openvault.app.core.crypto.TotpEngine
 import io.openvault.app.core.crypto.VaultCard
 import io.openvault.app.core.crypto.VaultFido2Credential
@@ -100,21 +109,22 @@ private data class EditableCustomField(
     val bitwardenType: Int, // 0 = Text, 1 = Hidden/Password
     val keyboardType: KeyboardType = KeyboardType.Text,
     val isSecurityQuestion: Boolean = false,
+    val isTemplateSeed: Boolean = false,
 )
 
 /**
  * Authentic 1Password 8 Android Item Editor:
  * - Purple Diagonal-Striped Editing Header + Cobalt Save button
- * - Tappable Item Icon with gallery image picker (E2EE compressed 96x96 WebP stored in `_ov_icon`)
- * - Single-line websites with coral remove button & quick reorder
- * - Full Passkeys management with per-passkey removal & confirmation dialog
- * - Deep editable custom fields (both Title/Label & Value editable inline, blue focus border!)
- * - "+ add more ⌄" menu (Security Questions, Text, URL, Email, Address, Date, One-Time Password, Password, Phone)
+ * - Split Secure Note categories (Software, Notes, Passport, ID Card) with optional templates
+ * - Clickable website inputs without redundant "website" label
+ * - 20-box 4-char Recovery Code Editor with Paste All & auto multi-code paste distribution
+ * - Zero hardcoded PII placeholders (open-source i18n compliant)
  */
 @Composable
 fun ItemEditorScreen(
     initialItem: VaultItem?,
     initialType: CipherType = CipherType.LOGIN,
+    initialSecureNoteType: Int = 0,
     email: String = "",
     prefillUsername: Boolean = true,
     folders: List<VaultFolder>,
@@ -129,10 +139,14 @@ fun ItemEditorScreen(
     val s = LocalStrings.current
     val fold = LocalFoldableLayout.current
     val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     val isEdit = initialItem != null && initialItem.id.isNotBlank()
 
     var type by remember(initialItem, initialType) { mutableStateOf(initialItem?.type ?: initialType) }
+    var secureNoteType by remember(initialItem, initialSecureNoteType) {
+        mutableStateOf(initialItem?.secureNoteType ?: initialSecureNoteType)
+    }
     var name by remember(initialItem) { mutableStateOf(initialItem?.name.orEmpty()) }
     var folderId by remember(initialItem) { mutableStateOf(initialItem?.folderId) }
     var favorite by remember(initialItem) { mutableStateOf(initialItem?.favorite ?: false) }
@@ -178,6 +192,47 @@ fun ItemEditorScreen(
         }
     }
     var addMoreExpanded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(type, secureNoteType) {
+        if (!isEdit && type == CipherType.SECURE_NOTE) {
+            val untouched = customFields.all { it.isTemplateSeed && it.value.isBlank() }
+            if (untouched) {
+                customFields.clear()
+                val seeds = when (SecureNoteCategory.fromCode(secureNoteType)) {
+                    SecureNoteCategory.SOFTWARE -> listOf(
+                        (if (s.isVi) "Mã Bản Quyền (License Key)" else "License Key") to 1,
+                        (if (s.isVi) "Phiên Bản" else "Version") to 0,
+                        "Email" to 0,
+                    )
+                    SecureNoteCategory.PASSPORT -> listOf(
+                        (if (s.isVi) "Số Hộ Chiếu" else "Passport Number") to 1,
+                        (if (s.isVi) "Họ Và Tên" else "Full Name") to 0,
+                        (if (s.isVi) "Quốc Tịch" else "Nationality") to 0,
+                        (if (s.isVi) "Ngày Hết Hạn" else "Expiry Date") to 0,
+                    )
+                    SecureNoteCategory.ID_CARD -> listOf(
+                        (if (s.isVi) "Số CCCD / CMND" else "ID Number") to 1,
+                        (if (s.isVi) "Họ Và Tên" else "Full Name") to 0,
+                        (if (s.isVi) "Ngày Sinh" else "Date Of Birth") to 0,
+                        (if (s.isVi) "Ngày Cấp" else "Issue Date") to 0,
+                    )
+                    SecureNoteCategory.NOTE -> emptyList()
+                }
+                seeds.forEach { (lbl, bType) ->
+                    nextFieldId += 1L
+                    customFields.add(
+                        EditableCustomField(
+                            id = nextFieldId,
+                            label = lbl,
+                            value = "",
+                            bitwardenType = bType,
+                            isTemplateSeed = true,
+                        ),
+                    )
+                }
+            }
+        }
+    }
 
     var cardholder by remember(initialItem) { mutableStateOf(initialItem?.card?.cardholderName.orEmpty()) }
     var cardBrand by remember(initialItem) { mutableStateOf(initialItem?.card?.brand.orEmpty()) }
@@ -256,10 +311,10 @@ fun ItemEditorScreen(
 
         val finalFields = buildList {
             customFields.forEach { f ->
-                if (f.label.isNotBlank() || f.value.isNotBlank()) {
+                if ((!f.isTemplateSeed && f.label.isNotBlank()) || f.value.isNotBlank()) {
                     add(
                         VaultField(
-                            name = f.label.trim().ifBlank { "Field" },
+                            name = f.label.trim().ifBlank { if (s.isVi) "Trường" else "Field" },
                             value = f.value,
                             type = f.bitwardenType,
                         ),
@@ -281,7 +336,8 @@ fun ItemEditorScreen(
             id = initialItem?.id.orEmpty(),
             folderId = folderId,
             type = type,
-            name = name.trim().ifBlank { if (s.isVi) "Không có tiêu đề" else "Untitled" },
+            secureNoteType = if (type == CipherType.SECURE_NOTE) secureNoteType else 0,
+            name = name.trim().ifBlank { if (s.isVi) "Không Có Tiêu Đề" else "Untitled" },
             notes = notes,
             favorite = favorite,
             login = if (type == CipherType.LOGIN) {
@@ -322,6 +378,12 @@ fun ItemEditorScreen(
         onSave(built)
     }
 
+    val headerCreateSuffix = if (type == CipherType.SECURE_NOTE) {
+        SecureNoteCategory.fromCode(secureNoteType).label(s.isVi)
+    } else {
+        type.label(s.isVi)
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -330,7 +392,7 @@ fun ItemEditorScreen(
             .imePadding(),
     ) {
         EditingStripedHeader(
-            title = if (isEdit) s.editing else "${s.createPrefix}${type.label(s.isVi)}",
+            title = if (isEdit) s.editing else "${s.createPrefix}$headerCreateSuffix",
             saveEnabled = name.isNotBlank(),
             isSaving = isSaving,
             onCancel = onCancel,
@@ -355,27 +417,27 @@ fun ItemEditorScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    OnePassAccountAvatar(email = email, size = 22.dp)
-                    Text(ownerName, color = c.textSecondary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                    Text("|", color = c.divider, fontSize = 14.sp)
+                    OnePassAccountAvatar(email = email, size = 24.dp)
+                    Text(ownerName, color = c.textSecondary, fontSize = 14.5.sp, fontWeight = FontWeight.Medium)
+                    Text("|", color = c.divider, fontSize = 14.5.sp)
                     Box(
                         modifier = Modifier
-                            .size(20.dp)
+                            .size(22.dp)
                             .clip(CircleShape)
                             .background(Color(0xFF475569)),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(Icons.Rounded.Shield, contentDescription = null, tint = Color(0xFFCBD5E1), modifier = Modifier.size(12.dp))
+                        Icon(Icons.Rounded.Shield, contentDescription = null, tint = Color(0xFFCBD5E1), modifier = Modifier.size(13.dp))
                     }
                     Text(
                         text = folders.firstOrNull { it.id == folderId }?.name ?: s.personalVault,
                         color = c.textSecondary,
-                        fontSize = 14.sp,
+                        fontSize = 14.5.sp,
                         fontWeight = FontWeight.Medium,
                     )
                 }
 
-                // Hero [Tappable Custom Icon w/ ⌄ badge] [Bordered Title Input] (Requirement #7 + Image 3!)
+                // Hero [Tappable Custom Icon w/ badge] [Bordered Title Input]
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -383,9 +445,10 @@ fun ItemEditorScreen(
                 ) {
                     Box {
                         ItemIconTile(
-                            title = name.ifBlank { type.label(s.isVi) },
+                            title = name.ifBlank { headerCreateSuffix },
                             type = type,
-                            size = 56.dp,
+                            size = 58.dp,
+                            secureNoteType = secureNoteType,
                             customIconBase64 = customIconBase64,
                             websiteUrl = websiteList.firstOrNull { it.isNotBlank() },
                             showDropdownBadge = true,
@@ -400,7 +463,7 @@ fun ItemEditorScreen(
                             border = BorderStroke(1.dp, c.cardBorder),
                         ) {
                             DropdownMenuItem(
-                                text = { Text(s.chooseIconImage, color = c.textPrimary, fontSize = 14.5.sp) },
+                                text = { Text(s.chooseIconImage, color = c.textPrimary, fontSize = 15.5.sp) },
                                 leadingIcon = { Icon(Icons.Rounded.Image, contentDescription = null, tint = c.accent) },
                                 onClick = {
                                     showIconMenu = false
@@ -411,7 +474,7 @@ fun ItemEditorScreen(
                             )
                             if (customIconBase64 != null) {
                                 DropdownMenuItem(
-                                    text = { Text(s.resetIconDefault, color = c.textSecondary, fontSize = 14.5.sp) },
+                                    text = { Text(s.resetIconDefault, color = c.textSecondary, fontSize = 15.5.sp) },
                                     leadingIcon = { Icon(Icons.Rounded.Refresh, contentDescription = null, tint = c.textSecondary) },
                                     onClick = {
                                         showIconMenu = false
@@ -429,7 +492,7 @@ fun ItemEditorScreen(
                         singleLine = true,
                         textStyle = TextStyle(
                             color = c.textPrimary,
-                            fontSize = 19.sp,
+                            fontSize = 20.sp,
                             fontWeight = FontWeight.SemiBold,
                         ),
                         cursorBrush = SolidColor(c.accent),
@@ -443,13 +506,30 @@ fun ItemEditorScreen(
                                     .padding(horizontal = 14.dp, vertical = 14.dp),
                             ) {
                                 if (name.isEmpty()) {
-                                    Text(s.titlePlaceholder, color = c.textMuted, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(s.titlePlaceholder, color = c.textMuted, fontSize = 16.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
                                 inner()
                             }
                         },
                         modifier = Modifier.weight(1f),
                     )
+                }
+
+                // Split Secure Note Category Chips (Software, Notes, Passport, ID Card)
+                if (type == CipherType.SECURE_NOTE) {
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        SecureNoteCategory.entries.forEach { cat ->
+                            OnePassChip(
+                                label = cat.label(s.isVi),
+                                selected = SecureNoteCategory.fromCode(secureNoteType) == cat,
+                            ) {
+                                secureNoteType = cat.typeCode
+                            }
+                        }
+                    }
                 }
 
                 // Folder chips
@@ -468,7 +548,6 @@ fun ItemEditorScreen(
                 // Type-specific fields
                 when (type) {
                     CipherType.LOGIN -> {
-                        // Primary Credentials Box (username + password + optional TOTP)
                         OnePassCard(
                             modifier = Modifier.fillMaxWidth(),
                             cornerRadius = 12.dp,
@@ -487,7 +566,7 @@ fun ItemEditorScreen(
                                 EditorFieldRow(
                                     label = s.password,
                                     value = password,
-                                    placeholder = if (s.isVi) "Nhập hoặc tạo mật khẩu mạnh" else "Enter or generate password",
+                                    placeholder = if (s.isVi) "Nhập Hoặc Tạo Mật Khẩu Mạnh" else "Enter Or Generate Password",
                                     onValueChange = { password = it },
                                     trailing = {
                                         IconButton(
@@ -496,9 +575,9 @@ fun ItemEditorScreen(
                                                     PasswordOptions(length = 20, symbols = true),
                                                 )
                                             },
-                                            modifier = Modifier.size(34.dp),
+                                            modifier = Modifier.size(36.dp),
                                         ) {
-                                            Icon(Icons.Rounded.AutoAwesome, contentDescription = s.passwordGenerator, tint = c.accent, modifier = Modifier.size(20.dp))
+                                            Icon(Icons.Rounded.AutoAwesome, contentDescription = s.passwordGenerator, tint = c.accent, modifier = Modifier.size(21.dp))
                                         }
                                     },
                                 )
@@ -507,11 +586,11 @@ fun ItemEditorScreen(
                                     EditorFieldRow(
                                         label = s.oneTimePassword,
                                         value = totp,
-                                        placeholder = "Base32 secret or otpauth://",
+                                        placeholder = "Base32 Or otpauth://",
                                         onValueChange = { totp = it },
                                         trailing = {
-                                            IconButton(onClick = onRequestQrScan, modifier = Modifier.size(34.dp)) {
-                                                Icon(Icons.Rounded.QrCodeScanner, contentDescription = s.scanQr2fa, tint = c.accent, modifier = Modifier.size(20.dp))
+                                            IconButton(onClick = onRequestQrScan, modifier = Modifier.size(36.dp)) {
+                                                Icon(Icons.Rounded.QrCodeScanner, contentDescription = s.scanQr2fa, tint = c.accent, modifier = Modifier.size(21.dp))
                                             }
                                         },
                                     )
@@ -519,7 +598,6 @@ fun ItemEditorScreen(
                             }
                         }
 
-                        // Passkeys Management Card (Requirement #6 — Delete Passkey!)
                         if (passkeys.isNotEmpty()) {
                             OnePassCard(
                                 modifier = Modifier.fillMaxWidth(),
@@ -532,15 +610,15 @@ fun ItemEditorScreen(
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                                            .padding(horizontal = 16.dp, vertical = 11.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     ) {
-                                        Icon(Icons.Rounded.Key, contentDescription = null, tint = Color(0xFFA78BFA), modifier = Modifier.size(16.dp))
+                                        Icon(Icons.Rounded.Key, contentDescription = null, tint = Color(0xFFA78BFA), modifier = Modifier.size(18.dp))
                                         Text(
                                             text = s.passkeys,
                                             color = Color(0xFFC4B5FD),
-                                            fontSize = 13.sp,
+                                            fontSize = 14.sp,
                                             fontWeight = FontWeight.SemiBold,
                                         )
                                     }
@@ -555,20 +633,20 @@ fun ItemEditorScreen(
                                         ) {
                                             IconButton(
                                                 onClick = { pendingDeletePasskey = pk },
-                                                modifier = Modifier.size(32.dp),
+                                                modifier = Modifier.size(34.dp),
                                             ) {
                                                 Icon(
                                                     Icons.Rounded.RemoveCircleOutline,
                                                     contentDescription = s.remove,
                                                     tint = c.danger,
-                                                    modifier = Modifier.size(20.dp),
+                                                    modifier = Modifier.size(21.dp),
                                                 )
                                             }
                                             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                                 Text(
                                                     text = pk.rpName?.takeIf { it.isNotBlank() } ?: pk.rpId,
                                                     color = c.textPrimary,
-                                                    fontSize = 15.sp,
+                                                    fontSize = 16.sp,
                                                     fontWeight = FontWeight.Medium,
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis,
@@ -576,7 +654,7 @@ fun ItemEditorScreen(
                                                 Text(
                                                     text = pk.userName?.takeIf { it.isNotBlank() } ?: pk.credentialId.take(16),
                                                     color = c.textSecondary,
-                                                    fontSize = 13.sp,
+                                                    fontSize = 14.sp,
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis,
                                                 )
@@ -587,7 +665,7 @@ fun ItemEditorScreen(
                             }
                         }
 
-                        // Single-Line Websites Card (Requirement #3 — Images 3 & 4!)
+                        // Single-Line Websites Card (URL links ONLY, no redundant "website" label)
                         OnePassCard(
                             modifier = Modifier.fillMaxWidth(),
                             cornerRadius = 12.dp,
@@ -604,7 +682,7 @@ fun ItemEditorScreen(
                                             .let {
                                                 if (focused) it.border(1.5.dp, c.accentButtonBg, RoundedCornerShape(8.dp)) else it
                                             }
-                                            .padding(start = 8.dp, end = 10.dp, top = 10.dp, bottom = 10.dp),
+                                            .padding(start = 8.dp, end = 10.dp, top = 12.dp, bottom = 12.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     ) {
@@ -616,27 +694,21 @@ fun ItemEditorScreen(
                                                     websiteList[0] = ""
                                                 }
                                             },
-                                            modifier = Modifier.size(32.dp),
+                                            modifier = Modifier.size(34.dp),
                                         ) {
                                             Icon(
                                                 Icons.Rounded.RemoveCircleOutline,
                                                 contentDescription = s.remove,
                                                 tint = c.danger.copy(alpha = 0.85f),
-                                                modifier = Modifier.size(20.dp),
+                                                modifier = Modifier.size(21.dp),
                                             )
                                         }
-                                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                            Text(
-                                                text = if (idx == 0) s.website else "${s.website} #${idx + 1}",
-                                                color = c.textSecondary,
-                                                fontSize = 12.5.sp,
-                                            )
+                                        Box(modifier = Modifier.weight(1f)) {
                                             if (!focused && site.length > 34) {
-                                                // Truncate cleanly to 1 line with "..." when unfocused (tap to edit full URL)
                                                 Text(
                                                     text = site,
-                                                    color = c.textPrimary,
-                                                    fontSize = 15.sp,
+                                                    color = c.accent,
+                                                    fontSize = 16.sp,
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis,
                                                     modifier = Modifier
@@ -649,11 +721,11 @@ fun ItemEditorScreen(
                                                     onValueChange = { websiteList[idx] = it },
                                                     singleLine = true,
                                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                                                    textStyle = TextStyle(color = c.textPrimary, fontSize = 15.sp),
+                                                    textStyle = TextStyle(color = c.textPrimary, fontSize = 16.sp),
                                                     cursorBrush = SolidColor(c.accent),
                                                     decorationBox = { inner ->
                                                         if (site.isEmpty()) {
-                                                            Text("https://example.com", color = c.textMuted, fontSize = 15.sp, maxLines = 1)
+                                                            Text("https://example.com", color = c.textMuted, fontSize = 16.sp, maxLines = 1)
                                                         }
                                                         inner()
                                                     },
@@ -670,13 +742,13 @@ fun ItemEditorScreen(
                                                     val moved = websiteList.removeAt(idx)
                                                     websiteList.add(target, moved)
                                                 },
-                                                modifier = Modifier.size(30.dp),
+                                                modifier = Modifier.size(32.dp),
                                             ) {
                                                 Icon(
                                                     Icons.Rounded.DragHandle,
                                                     contentDescription = "Reorder",
                                                     tint = c.textMuted,
-                                                    modifier = Modifier.size(18.dp),
+                                                    modifier = Modifier.size(20.dp),
                                                 )
                                             }
                                         }
@@ -691,11 +763,11 @@ fun ItemEditorScreen(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                                 ) {
-                                    Icon(Icons.Rounded.Add, contentDescription = null, tint = c.navActiveContent, modifier = Modifier.size(20.dp))
+                                    Icon(Icons.Rounded.Add, contentDescription = null, tint = c.navActiveContent, modifier = Modifier.size(22.dp))
                                     Text(
                                         text = s.addAnotherWebsite,
                                         color = c.navActiveContent,
-                                        fontSize = 15.sp,
+                                        fontSize = 16.sp,
                                         fontWeight = FontWeight.Medium,
                                     )
                                 }
@@ -712,16 +784,21 @@ fun ItemEditorScreen(
                             padding = PaddingValues(0.dp),
                         ) {
                             Column {
-                                EditorFieldRow(if (s.isVi) "tên chủ thẻ" else "cardholder", cardholder, "JOHN DOE", onValueChange = { cardholder = it })
+                                val holderLabel = if (s.isVi) "Tên Chủ Thẻ" else "Cardholder"
+                                val brandLabel = if (s.isVi) "Loại Thẻ" else "Brand"
+                                val numLabel = if (s.isVi) "Số Thẻ" else "Card Number"
+                                val monthLabel = if (s.isVi) "Tháng" else "Month"
+                                val yearLabel = if (s.isVi) "Năm" else "Year"
+                                EditorFieldRow(holderLabel, cardholder, holderLabel, onValueChange = { cardholder = it })
                                 HorizontalDivider(color = c.divider, thickness = 0.8.dp)
-                                EditorFieldRow(if (s.isVi) "loại thẻ" else "brand", cardBrand, "Visa / Mastercard", onValueChange = { cardBrand = it })
+                                EditorFieldRow(brandLabel, cardBrand, "Visa / Mastercard", onValueChange = { cardBrand = it })
                                 HorizontalDivider(color = c.divider, thickness = 0.8.dp)
-                                EditorFieldRow(if (s.isVi) "số thẻ" else "number", cardNumber, "4242 •••• •••• 4242", keyboardType = KeyboardType.Number, onValueChange = { cardNumber = it })
+                                EditorFieldRow(numLabel, cardNumber, "•••• •••• •••• ••••", keyboardType = KeyboardType.Number, onValueChange = { cardNumber = it })
                                 HorizontalDivider(color = c.divider, thickness = 0.8.dp)
                                 Row {
-                                    EditorFieldRow(if (s.isVi) "tháng" else "month", expMonth, "08", keyboardType = KeyboardType.Number, modifier = Modifier.weight(1f), onValueChange = { expMonth = it })
-                                    EditorFieldRow(if (s.isVi) "năm" else "year", expYear, "2029", keyboardType = KeyboardType.Number, modifier = Modifier.weight(1f), onValueChange = { expYear = it })
-                                    EditorFieldRow("cvv", cardCvv, "123", keyboardType = KeyboardType.Number, modifier = Modifier.weight(1f), onValueChange = { cardCvv = it })
+                                    EditorFieldRow(monthLabel, expMonth, "MM", keyboardType = KeyboardType.Number, modifier = Modifier.weight(1f), onValueChange = { expMonth = it })
+                                    EditorFieldRow(yearLabel, expYear, "YYYY", keyboardType = KeyboardType.Number, modifier = Modifier.weight(1f), onValueChange = { expYear = it })
+                                    EditorFieldRow("CVV", cardCvv, "•••", keyboardType = KeyboardType.Number, modifier = Modifier.weight(1f), onValueChange = { cardCvv = it })
                                 }
                             }
                         }
@@ -737,24 +814,27 @@ fun ItemEditorScreen(
                         ) {
                             Column {
                                 Row {
-                                    EditorFieldRow(if (s.isVi) "tên" else "first name", idFirstName, "Hoang", modifier = Modifier.weight(1f), onValueChange = { idFirstName = it })
-                                    EditorFieldRow(if (s.isVi) "họ" else "last name", idLastName, "Phi", modifier = Modifier.weight(1f), onValueChange = { idLastName = it })
+                                    EditorFieldRow(s.firstNamePlaceholder, idFirstName, s.firstNamePlaceholder, modifier = Modifier.weight(1f), onValueChange = { idFirstName = it })
+                                    EditorFieldRow(s.lastNamePlaceholder, idLastName, s.lastNamePlaceholder, modifier = Modifier.weight(1f), onValueChange = { idLastName = it })
                                 }
                                 HorizontalDivider(color = c.divider, thickness = 0.8.dp)
-                                EditorFieldRow("email", idEmail, "email@example.com", keyboardType = KeyboardType.Email, onValueChange = { idEmail = it })
+                                EditorFieldRow("Email", idEmail, "email@example.com", keyboardType = KeyboardType.Email, onValueChange = { idEmail = it })
                                 HorizontalDivider(color = c.divider, thickness = 0.8.dp)
-                                EditorFieldRow(if (s.isVi) "số điện thoại" else "phone", idPhone, "+84...", keyboardType = KeyboardType.Phone, onValueChange = { idPhone = it })
+                                EditorFieldRow(s.phonePlaceholder, idPhone, s.phonePlaceholder, keyboardType = KeyboardType.Phone, onValueChange = { idPhone = it })
                                 HorizontalDivider(color = c.divider, thickness = 0.8.dp)
-                                EditorFieldRow(if (s.isVi) "công ty" else "company", idCompany, "Company", onValueChange = { idCompany = it })
+                                val companyLabel = if (s.isVi) "Công Ty" else "Company"
+                                val addrLabel = if (s.isVi) "Địa Chỉ" else "Address"
+                                val passportLabel = if (s.isVi) "CCCD / Hộ Chiếu" else "Passport / ID"
+                                EditorFieldRow(companyLabel, idCompany, companyLabel, onValueChange = { idCompany = it })
                                 HorizontalDivider(color = c.divider, thickness = 0.8.dp)
-                                EditorFieldRow(if (s.isVi) "địa chỉ" else "address", idAddress, "Street address", onValueChange = { idAddress = it })
+                                EditorFieldRow(addrLabel, idAddress, addrLabel, onValueChange = { idAddress = it })
                                 HorizontalDivider(color = c.divider, thickness = 0.8.dp)
                                 Row {
-                                    EditorFieldRow(if (s.isVi) "thành phố" else "city", idCity, "Da Nang", modifier = Modifier.weight(1f), onValueChange = { idCity = it })
-                                    EditorFieldRow(if (s.isVi) "quốc gia" else "country", idCountry, "Vietnam", modifier = Modifier.weight(1f), onValueChange = { idCountry = it })
+                                    EditorFieldRow(s.cityPlaceholder, idCity, s.cityPlaceholder, modifier = Modifier.weight(1f), onValueChange = { idCity = it })
+                                    EditorFieldRow(s.countryPlaceholder, idCountry, s.countryPlaceholder, modifier = Modifier.weight(1f), onValueChange = { idCountry = it })
                                 }
                                 HorizontalDivider(color = c.divider, thickness = 0.8.dp)
-                                EditorFieldRow(if (s.isVi) "cccd / hộ chiếu" else "passport / id", idPassport, "ID number", onValueChange = { idPassport = it })
+                                EditorFieldRow(passportLabel, idPassport, passportLabel, onValueChange = { idPassport = it })
                             }
                         }
                     }
@@ -762,7 +842,7 @@ fun ItemEditorScreen(
                     CipherType.SECURE_NOTE -> Unit
                 }
 
-                // Deep Editable Custom Fields (BOTH Title/Label AND Value editable inline — Requirement #3 Image 4!)
+                // Deep Editable Custom Fields + 20-Box Recovery Codes Editor
                 if (customFields.isNotEmpty()) {
                     OnePassCard(
                         modifier = Modifier.fillMaxWidth(),
@@ -773,109 +853,307 @@ fun ItemEditorScreen(
                         Column {
                             customFields.forEachIndexed { idx, field ->
                                 if (idx > 0) HorizontalDivider(color = c.divider, thickness = 0.8.dp)
-                                var isFocused by remember(field.id) { mutableStateOf(false) }
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .let {
-                                            if (isFocused) it.border(1.5.dp, c.accentButtonBg, RoundedCornerShape(8.dp)) else it
-                                        }
-                                        .padding(start = 8.dp, end = 10.dp, top = 10.dp, bottom = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                ) {
-                                    IconButton(
-                                        onClick = { customFields.removeAt(idx) },
-                                        modifier = Modifier.size(32.dp),
-                                    ) {
-                                        Icon(
-                                            Icons.Rounded.RemoveCircleOutline,
-                                            contentDescription = s.remove,
-                                            tint = c.danger.copy(alpha = 0.85f),
-                                            modifier = Modifier.size(20.dp),
-                                        )
+
+                                if (RecoveryCodeUtils.isRecoveryCodesField(field.label)) {
+                                    val slots = RecoveryCodeUtils.parseRecoveryCodesToSlots(field.value)
+                                    val filledCount = RecoveryCodeUtils.countFilledRecoveryCodes(slots)
+                                    val cols = if (fold.isNarrowCover) 2 else 4
+                                    val focusRequesters = remember(field.id) {
+                                        List(RecoveryCodeUtils.RECOVERY_SLOT_COUNT) { FocusRequester() }
                                     }
 
                                     Column(
-                                        modifier = Modifier.weight(1f),
-                                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 10.dp, vertical = 12.dp),
+                                        verticalArrangement = Arrangement.spacedBy(10.dp),
                                     ) {
-                                        // Editable Field Title / Label
-                                        BasicTextField(
-                                            value = field.label,
-                                            onValueChange = { updatedLabel ->
-                                                customFields[idx] = field.copy(label = updatedLabel)
-                                            },
-                                            singleLine = true,
-                                            textStyle = TextStyle(
-                                                color = c.fieldLabel,
-                                                fontSize = 13.sp,
-                                                fontWeight = FontWeight.Medium,
-                                            ),
-                                            cursorBrush = SolidColor(c.accent),
-                                            decorationBox = { inner ->
-                                                if (field.label.isEmpty()) {
-                                                    Text(s.fieldTitlePlaceholder, color = c.textMuted, fontSize = 13.sp)
-                                                }
-                                                inner()
-                                            },
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .onFocusChanged { if (it.isFocused) isFocused = true },
-                                        )
-
-                                        HorizontalDivider(color = c.divider.copy(alpha = 0.65f), thickness = 0.7.dp)
-
-                                        // Editable Field Value
-                                        BasicTextField(
-                                            value = field.value,
-                                            onValueChange = { updatedVal ->
-                                                customFields[idx] = field.copy(value = updatedVal)
-                                            },
-                                            singleLine = true,
-                                            keyboardOptions = KeyboardOptions(keyboardType = field.keyboardType),
-                                            textStyle = TextStyle(color = c.textPrimary, fontSize = 15.sp),
-                                            cursorBrush = SolidColor(c.accent),
-                                            decorationBox = { inner ->
-                                                if (field.value.isEmpty()) {
-                                                    Text(s.fieldValuePlaceholder, color = c.textMuted, fontSize = 15.sp)
-                                                }
-                                                inner()
-                                            },
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .onFocusChanged { isFocused = it.isFocused },
-                                        )
-                                    }
-
-                                    if (field.bitwardenType == 1 || field.isSecurityQuestion) {
-                                        IconButton(
-                                            onClick = {
-                                                val generated = if (field.isSecurityQuestion) {
-                                                    PasswordGenerator.generatePassphrase(
-                                                        PassphraseOptions(wordCount = 3, separator = "-", capitalize = true, includeNumber = true),
-                                                    )
-                                                } else {
-                                                    PasswordGenerator.generatePassword(PasswordOptions(length = 18, symbols = true))
-                                                }
-                                                customFields[idx] = field.copy(value = generated)
-                                            },
-                                            modifier = Modifier.size(32.dp),
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
                                         ) {
-                                            Icon(Icons.Rounded.AutoAwesome, contentDescription = "Generate", tint = c.accent, modifier = Modifier.size(18.dp))
+                                            IconButton(
+                                                onClick = { customFields.removeAt(idx) },
+                                                modifier = Modifier.size(34.dp),
+                                            ) {
+                                                Icon(
+                                                    Icons.Rounded.RemoveCircleOutline,
+                                                    contentDescription = s.remove,
+                                                    tint = c.danger.copy(alpha = 0.85f),
+                                                    modifier = Modifier.size(21.dp),
+                                                )
+                                            }
+                                            Icon(
+                                                Icons.Rounded.GridView,
+                                                contentDescription = null,
+                                                tint = c.accent,
+                                                modifier = Modifier.size(19.dp),
+                                            )
+                                            BasicTextField(
+                                                value = field.label,
+                                                onValueChange = { updatedLabel ->
+                                                    customFields[idx] = field.copy(label = updatedLabel, isTemplateSeed = false)
+                                                },
+                                                singleLine = true,
+                                                textStyle = TextStyle(
+                                                    color = c.fieldLabel,
+                                                    fontSize = 14.5.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                ),
+                                                cursorBrush = SolidColor(c.accent),
+                                                modifier = Modifier.weight(1f),
+                                            )
+                                            Text(
+                                                text = "$filledCount/20",
+                                                color = c.accent,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(6.dp))
+                                                    .background(c.accentSoft)
+                                                    .padding(horizontal = 7.dp, vertical = 2.dp),
+                                            )
+                                            IconButton(
+                                                onClick = {
+                                                    val clip = clipboard.getText()?.text.orEmpty()
+                                                    if (clip.isNotBlank()) {
+                                                        val (nextSlots, _) = RecoveryCodeUtils.applyRecoveryCodesPaste(
+                                                            currentSlots = slots,
+                                                            targetIndex = 0,
+                                                            rawText = clip,
+                                                            forceFromStart = true,
+                                                        )
+                                                        customFields[idx] = field.copy(
+                                                            value = RecoveryCodeUtils.serializeRecoveryCodesSlots(nextSlots),
+                                                            isTemplateSeed = false,
+                                                        )
+                                                    }
+                                                },
+                                                modifier = Modifier.size(34.dp),
+                                            ) {
+                                                Icon(
+                                                    Icons.Rounded.ContentPaste,
+                                                    contentDescription = s.pasteAll,
+                                                    tint = c.accent,
+                                                    modifier = Modifier.size(19.dp),
+                                                )
+                                            }
+                                            IconButton(
+                                                onClick = {
+                                                    customFields[idx] = field.copy(value = "", isTemplateSeed = false)
+                                                },
+                                                modifier = Modifier.size(34.dp),
+                                            ) {
+                                                Icon(
+                                                    Icons.Rounded.DeleteSweep,
+                                                    contentDescription = s.clearAll,
+                                                    tint = c.textSecondary,
+                                                    modifier = Modifier.size(19.dp),
+                                                )
+                                            }
+                                        }
+
+                                        Column(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                                        ) {
+                                            slots.chunked(cols).forEachIndexed { rowIdx, rowCells ->
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                ) {
+                                                    rowCells.forEachIndexed { colIdx, slotVal ->
+                                                        val slotIdx = rowIdx * cols + colIdx
+                                                        var slotFocused by remember(field.id, slotIdx) { mutableStateOf(false) }
+                                                        Row(
+                                                            modifier = Modifier
+                                                                .weight(1f)
+                                                                .height(44.dp)
+                                                                .clip(RoundedCornerShape(8.dp))
+                                                                .background(if (c.isDark) Color(0xFF14171D) else c.sheetBackground)
+                                                                .border(
+                                                                    width = if (slotFocused) 1.5.dp else 1.dp,
+                                                                    color = if (slotFocused) c.accentButtonBg else c.cardBorder,
+                                                                    shape = RoundedCornerShape(8.dp),
+                                                                )
+                                                                .padding(horizontal = 8.dp),
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                                        ) {
+                                                            Text(
+                                                                text = "%02d".format(slotIdx + 1),
+                                                                color = c.textMuted,
+                                                                fontFamily = FontFamily.Monospace,
+                                                                fontSize = 11.5.sp,
+                                                            )
+                                                            BasicTextField(
+                                                                value = slotVal,
+                                                                onValueChange = { rawInput ->
+                                                                    val hasDelimiterOrMulti = rawInput.length > RecoveryCodeUtils.RECOVERY_MAX_LEN ||
+                                                                        rawInput.any { !it.isLetterOrDigit() }
+                                                                    if (hasDelimiterOrMulti && rawInput.length > 1) {
+                                                                        val (nextSlots, nextFocus) = RecoveryCodeUtils.applyRecoveryCodesPaste(
+                                                                            currentSlots = slots,
+                                                                            targetIndex = slotIdx,
+                                                                            rawText = rawInput,
+                                                                        )
+                                                                        customFields[idx] = field.copy(
+                                                                            value = RecoveryCodeUtils.serializeRecoveryCodesSlots(nextSlots),
+                                                                            isTemplateSeed = false,
+                                                                        )
+                                                                        if (nextFocus != slotIdx) {
+                                                                            runCatching { focusRequesters[nextFocus].requestFocus() }
+                                                                        }
+                                                                    } else {
+                                                                        val clean = rawInput.filter { it.isLetterOrDigit() }
+                                                                            .take(RecoveryCodeUtils.RECOVERY_MAX_LEN)
+                                                                        val updated = slots.toMutableList()
+                                                                        updated[slotIdx] = clean
+                                                                        customFields[idx] = field.copy(
+                                                                            value = RecoveryCodeUtils.serializeRecoveryCodesSlots(updated),
+                                                                            isTemplateSeed = false,
+                                                                        )
+                                                                        if (clean.length == RecoveryCodeUtils.RECOVERY_MAX_LEN &&
+                                                                            slotIdx < RecoveryCodeUtils.RECOVERY_SLOT_COUNT - 1
+                                                                        ) {
+                                                                            runCatching { focusRequesters[slotIdx + 1].requestFocus() }
+                                                                        }
+                                                                    }
+                                                                },
+                                                                singleLine = true,
+                                                                textStyle = TextStyle(
+                                                                    color = c.textPrimary,
+                                                                    fontFamily = FontFamily.Monospace,
+                                                                    fontSize = 15.sp,
+                                                                    fontWeight = FontWeight.SemiBold,
+                                                                ),
+                                                                cursorBrush = SolidColor(c.accent),
+                                                                decorationBox = { inner ->
+                                                                    if (slotVal.isEmpty()) {
+                                                                        Text(
+                                                                            text = "••••",
+                                                                            color = c.textMuted.copy(alpha = 0.4f),
+                                                                            fontFamily = FontFamily.Monospace,
+                                                                            fontSize = 15.sp,
+                                                                        )
+                                                                    }
+                                                                    inner()
+                                                                },
+                                                                modifier = Modifier
+                                                                    .weight(1f)
+                                                                    .focusRequester(focusRequesters[slotIdx])
+                                                                    .onFocusChanged { slotFocused = it.isFocused },
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
-
-                                    if (customFields.size > 1) {
+                                } else {
+                                    var isFocused by remember(field.id) { mutableStateOf(false) }
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .let {
+                                                if (isFocused) it.border(1.5.dp, c.accentButtonBg, RoundedCornerShape(8.dp)) else it
+                                            }
+                                            .padding(start = 8.dp, end = 10.dp, top = 10.dp, bottom = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
                                         IconButton(
-                                            onClick = {
-                                                val target = if (idx > 0) idx - 1 else customFields.lastIndex
-                                                val moved = customFields.removeAt(idx)
-                                                customFields.add(target, moved)
-                                            },
-                                            modifier = Modifier.size(30.dp),
+                                            onClick = { customFields.removeAt(idx) },
+                                            modifier = Modifier.size(34.dp),
                                         ) {
-                                            Icon(Icons.Rounded.DragHandle, contentDescription = "Reorder", tint = c.textMuted, modifier = Modifier.size(18.dp))
+                                            Icon(
+                                                Icons.Rounded.RemoveCircleOutline,
+                                                contentDescription = s.remove,
+                                                tint = c.danger.copy(alpha = 0.85f),
+                                                modifier = Modifier.size(21.dp),
+                                            )
+                                        }
+
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                                        ) {
+                                            BasicTextField(
+                                                value = field.label,
+                                                onValueChange = { updatedLabel ->
+                                                    customFields[idx] = field.copy(label = updatedLabel, isTemplateSeed = false)
+                                                },
+                                                singleLine = true,
+                                                textStyle = TextStyle(
+                                                    color = c.fieldLabel,
+                                                    fontSize = 14.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                ),
+                                                cursorBrush = SolidColor(c.accent),
+                                                decorationBox = { inner ->
+                                                    if (field.label.isEmpty()) {
+                                                        Text(s.fieldTitlePlaceholder, color = c.textMuted, fontSize = 14.sp)
+                                                    }
+                                                    inner()
+                                                },
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .onFocusChanged { if (it.isFocused) isFocused = true },
+                                            )
+
+                                            HorizontalDivider(color = c.divider.copy(alpha = 0.65f), thickness = 0.7.dp)
+
+                                            BasicTextField(
+                                                value = field.value,
+                                                onValueChange = { updatedVal ->
+                                                    customFields[idx] = field.copy(value = updatedVal, isTemplateSeed = false)
+                                                },
+                                                singleLine = true,
+                                                keyboardOptions = KeyboardOptions(keyboardType = field.keyboardType),
+                                                textStyle = TextStyle(color = c.textPrimary, fontSize = 16.sp),
+                                                cursorBrush = SolidColor(c.accent),
+                                                decorationBox = { inner ->
+                                                    if (field.value.isEmpty()) {
+                                                        Text(s.fieldValuePlaceholder, color = c.textMuted, fontSize = 16.sp)
+                                                    }
+                                                    inner()
+                                                },
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .onFocusChanged { isFocused = it.isFocused },
+                                            )
+                                        }
+
+                                        if (field.bitwardenType == 1 || field.isSecurityQuestion) {
+                                            IconButton(
+                                                onClick = {
+                                                    val generated = if (field.isSecurityQuestion) {
+                                                        PasswordGenerator.generatePassphrase(
+                                                            PassphraseOptions(wordCount = 3, separator = "-", capitalize = true, includeNumber = true),
+                                                        )
+                                                    } else {
+                                                        PasswordGenerator.generatePassword(PasswordOptions(length = 18, symbols = true))
+                                                    }
+                                                    customFields[idx] = field.copy(value = generated, isTemplateSeed = false)
+                                                },
+                                                modifier = Modifier.size(34.dp),
+                                            ) {
+                                                Icon(Icons.Rounded.AutoAwesome, contentDescription = "Generate", tint = c.accent, modifier = Modifier.size(20.dp))
+                                            }
+                                        }
+
+                                        if (customFields.size > 1) {
+                                            IconButton(
+                                                onClick = {
+                                                    val target = if (idx > 0) idx - 1 else customFields.lastIndex
+                                                    val moved = customFields.removeAt(idx)
+                                                    customFields.add(target, moved)
+                                                },
+                                                modifier = Modifier.size(32.dp),
+                                            ) {
+                                                Icon(Icons.Rounded.DragHandle, contentDescription = "Reorder", tint = c.textMuted, modifier = Modifier.size(20.dp))
+                                            }
                                         }
                                     }
                                 }
@@ -884,7 +1162,7 @@ fun ItemEditorScreen(
                     }
                 }
 
-                // "+ add more ⌄" Card & Dropdown Menu (Requirement #4 — Exact Image 5 minus excluded items!)
+                // "+ Add More" Card & Dropdown Menu (now includes Recovery Codes)
                 Box(modifier = Modifier.fillMaxWidth()) {
                     OnePassCard(
                         modifier = Modifier.fillMaxWidth(),
@@ -902,11 +1180,11 @@ fun ItemEditorScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                             ) {
-                                Icon(Icons.Rounded.Add, contentDescription = null, tint = c.navActiveContent, modifier = Modifier.size(20.dp))
+                                Icon(Icons.Rounded.Add, contentDescription = null, tint = c.navActiveContent, modifier = Modifier.size(22.dp))
                                 Text(
                                     text = s.addMore,
                                     color = c.navActiveContent,
-                                    fontSize = 15.sp,
+                                    fontSize = 16.sp,
                                     fontWeight = FontWeight.Medium,
                                 )
                             }
@@ -914,7 +1192,7 @@ fun ItemEditorScreen(
                                 imageVector = Icons.Rounded.KeyboardArrowDown,
                                 contentDescription = null,
                                 tint = c.textSecondary,
-                                modifier = Modifier.size(20.dp),
+                                modifier = Modifier.size(22.dp),
                             )
                         }
                     }
@@ -925,13 +1203,26 @@ fun ItemEditorScreen(
                         shape = RoundedCornerShape(14.dp),
                         containerColor = c.surfaceElevated,
                         border = BorderStroke(1.dp, c.cardBorder),
-                        modifier = Modifier.widthIn(min = 260.dp, max = 340.dp),
+                        modifier = Modifier.widthIn(min = 270.dp, max = 350.dp),
                     ) {
                         DropdownMenuItem(
                             text = {
                                 Column(modifier = Modifier.padding(vertical = 2.dp)) {
-                                    Text(s.addSecQuestion, color = c.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                                    Text(s.addSecQuestionSub, color = c.textSecondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(s.addRecoveryCodes, color = c.textPrimary, fontSize = 15.5.sp, fontWeight = FontWeight.Medium)
+                                    Text(s.addRecoveryCodesSub, color = c.textSecondary, fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            },
+                            leadingIcon = { Icon(Icons.Rounded.GridView, contentDescription = null, tint = c.accent, modifier = Modifier.size(20.dp)) },
+                            onClick = {
+                                addMoreExpanded = false
+                                addCustomField(label = s.recoveryCodesTitle, bitwardenType = 1)
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = {
+                                Column(modifier = Modifier.padding(vertical = 2.dp)) {
+                                    Text(s.addSecQuestion, color = c.textPrimary, fontSize = 15.5.sp, fontWeight = FontWeight.Medium)
+                                    Text(s.addSecQuestionSub, color = c.textSecondary, fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
                             },
                             onClick = {
@@ -941,35 +1232,35 @@ fun ItemEditorScreen(
                         )
                         HorizontalDivider(color = c.divider, thickness = 0.8.dp)
                         DropdownMenuItem(
-                            text = { Text(s.addText, color = c.textPrimary, fontSize = 15.sp) },
+                            text = { Text(s.addText, color = c.textPrimary, fontSize = 15.5.sp) },
                             onClick = {
                                 addMoreExpanded = false
                                 addCustomField(label = s.addText, bitwardenType = 0)
                             },
                         )
                         DropdownMenuItem(
-                            text = { Text(s.addUrl, color = c.textPrimary, fontSize = 15.sp) },
+                            text = { Text(s.addUrl, color = c.textPrimary, fontSize = 15.5.sp) },
                             onClick = {
                                 addMoreExpanded = false
                                 addCustomField(label = s.addUrl, bitwardenType = 0, keyboardType = KeyboardType.Uri)
                             },
                         )
                         DropdownMenuItem(
-                            text = { Text(s.addEmail, color = c.textPrimary, fontSize = 15.sp) },
+                            text = { Text(s.addEmail, color = c.textPrimary, fontSize = 15.5.sp) },
                             onClick = {
                                 addMoreExpanded = false
                                 addCustomField(label = s.addEmail, bitwardenType = 0, keyboardType = KeyboardType.Email)
                             },
                         )
                         DropdownMenuItem(
-                            text = { Text(s.addAddress, color = c.textPrimary, fontSize = 15.sp) },
+                            text = { Text(s.addAddress, color = c.textPrimary, fontSize = 15.5.sp) },
                             onClick = {
                                 addMoreExpanded = false
                                 addCustomField(label = s.addAddress, bitwardenType = 0)
                             },
                         )
                         DropdownMenuItem(
-                            text = { Text(s.addDate, color = c.textPrimary, fontSize = 15.sp) },
+                            text = { Text(s.addDate, color = c.textPrimary, fontSize = 15.5.sp) },
                             onClick = {
                                 addMoreExpanded = false
                                 addCustomField(label = s.addDate, bitwardenType = 0)
@@ -977,7 +1268,7 @@ fun ItemEditorScreen(
                         )
                         if (type == CipherType.LOGIN) {
                             DropdownMenuItem(
-                                text = { Text(s.addOtp, color = c.textPrimary, fontSize = 15.sp) },
+                                text = { Text(s.addOtp, color = c.textPrimary, fontSize = 15.5.sp) },
                                 onClick = {
                                     addMoreExpanded = false
                                     showTotpField = true
@@ -985,14 +1276,14 @@ fun ItemEditorScreen(
                             )
                         }
                         DropdownMenuItem(
-                            text = { Text(s.addPassword, color = c.textPrimary, fontSize = 15.sp) },
+                            text = { Text(s.addPassword, color = c.textPrimary, fontSize = 15.5.sp) },
                             onClick = {
                                 addMoreExpanded = false
                                 addCustomField(label = s.addPassword, bitwardenType = 1)
                             },
                         )
                         DropdownMenuItem(
-                            text = { Text(s.addPhone, color = c.textPrimary, fontSize = 15.sp) },
+                            text = { Text(s.addPhone, color = c.textPrimary, fontSize = 15.5.sp) },
                             onClick = {
                                 addMoreExpanded = false
                                 addCustomField(label = s.addPhone, bitwardenType = 0, keyboardType = KeyboardType.Phone)
@@ -1030,7 +1321,7 @@ fun ItemEditorScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(s.pinToFavorites, color = c.textPrimary, fontSize = 15.sp)
+                        Text(s.pinToFavorites, color = c.textPrimary, fontSize = 16.sp)
                         Switch(checked = favorite, onCheckedChange = { favorite = it })
                     }
                 }
@@ -1040,7 +1331,6 @@ fun ItemEditorScreen(
         }
     }
 
-    // Passkey delete confirmation dialog
     pendingDeletePasskey?.let { pk ->
         AlertDialog(
             onDismissRequest = { pendingDeletePasskey = null },
@@ -1087,22 +1377,22 @@ private fun EditorFieldRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(text = label, color = c.fieldLabel, fontSize = 12.5.sp, fontWeight = FontWeight.Medium)
+            Text(text = label, color = c.fieldLabel, fontSize = 13.5.sp, fontWeight = FontWeight.Medium)
             BasicTextField(
                 value = value,
                 onValueChange = onValueChange,
                 singleLine = singleLine,
                 minLines = minLines,
                 keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
-                textStyle = TextStyle(color = c.textPrimary, fontSize = 15.5.sp),
+                textStyle = TextStyle(color = c.textPrimary, fontSize = 16.5.sp),
                 cursorBrush = SolidColor(c.accent),
                 decorationBox = { inner ->
                     if (value.isEmpty()) {
-                        Text(text = placeholder, color = c.textMuted, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(text = placeholder, color = c.textMuted, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     inner()
                 },

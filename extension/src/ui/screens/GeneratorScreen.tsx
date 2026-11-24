@@ -86,7 +86,8 @@ export function GeneratorScreen({
         ) : null}
       </div>
 
-      <div className="flex-1 overflow-y-auto ov-scroll px-4 pb-4 flex flex-col gap-3">
+      <div className="flex-1 overflow-y-auto ov-scroll px-4 pb-4">
+        <div className="flex flex-col gap-3 pb-4">
         {/* Image 2 3-action top row: Copy | Refresh | Use */}
         <div className="flex items-center justify-between gap-2">
           <button
@@ -277,6 +278,7 @@ export function GeneratorScreen({
               </div>
             ) : null}
           </div>
+        </div>
         </div>
       </div>
     </div>

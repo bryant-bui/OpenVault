@@ -63,10 +63,15 @@ function sdRoundedBox(px, py, bx, by, r) {
   return Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - r;
 }
 
-function renderIcon(size) {
+function renderIcon(size, locked = false) {
   const rgba = Buffer.alloc(size * size * 4);
   const samples = 4; // 4x4 supersampling for razor-sharp anti-aliasing
   const invSamples = 1 / (samples * samples);
+
+  // Bottom-right padlock badge coordinates (normalized [-1, 1])
+  const badgeCx = 0.56;
+  const badgeCy = 0.56;
+  const badgeR = 0.42;
 
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
@@ -80,6 +85,59 @@ function renderIcon(size) {
           const u = ((x + (sx + 0.5) / samples) / size) * 2 - 1;
           const v = ((y + (sy + 0.5) / samples) / size) * 2 - 1;
 
+          // Locked overlay badge takes top z-order over the base squircle
+          if (locked) {
+            const dx = u - badgeCx;
+            const dy = v - badgeCy;
+            const distBadge = Math.hypot(dx, dy);
+
+            if (distBadge <= badgeR + 0.06) {
+              // Crisp dark slate outline ring separating the lock badge from the cobalt shield
+              if (distBadge > badgeR) {
+                accR += 15;
+                accG += 23;
+                accB += 42;
+                accA += 255;
+                continue;
+              }
+
+              // Vivid high-contrast amber-orange lock badge background (#F59E0B)
+              let br = 245;
+              let bg = 158;
+              let bb = 11;
+
+              // Padlock body (rounded rectangle inside badge)
+              const bodyDist = sdRoundedBox(dx, dy - 0.085, 0.19, 0.145, 0.05);
+              // Padlock shackle arch (ring in upper half)
+              const shackleDist = Math.hypot(dx, dy + 0.055);
+              const inShackleArch =
+                dy <= -0.02 && shackleDist <= 0.145 && shackleDist >= 0.085;
+              const inShackleLegs =
+                dy >= -0.055 &&
+                dy <= -0.01 &&
+                Math.abs(dx) <= 0.145 &&
+                Math.abs(dx) >= 0.085;
+
+              if (bodyDist <= 0 || inShackleArch || inShackleLegs) {
+                br = 255;
+                bg = 255;
+                bb = 255;
+                // Tiny inner keyhole dot inside white lock body for extra sharpness at >= 32px
+                if (bodyDist <= 0 && Math.hypot(dx, dy - 0.085) < 0.042) {
+                  br = 180;
+                  bg = 83;
+                  bb = 9;
+                }
+              }
+
+              accR += br;
+              accG += bg;
+              accB += bb;
+              accA += 255;
+              continue;
+            }
+          }
+
           // Rounded square squircle backdrop
           const dBg = sdRoundedBox(u, v, 0.9, 0.9, 0.42);
           if (dBg > 0) continue;
@@ -89,6 +147,13 @@ function renderIcon(size) {
           let r = 14 * (1 - t) + 4 * t;
           let g = 132 * (1 - t) + 85 * t;
           let b = 255 * (1 - t) + 195 * t;
+
+          // Slightly dim the shield when locked so the amber lock badge pops immediately
+          if (locked) {
+            r *= 0.82;
+            g *= 0.82;
+            b *= 0.86;
+          }
 
           // Outer subtle translucent ring
           const distCenter = Math.hypot(u, v);
@@ -139,8 +204,7 @@ function renderIcon(size) {
 
 fs.mkdirSync(OUT_DIR, { recursive: true });
 for (const size of SIZES) {
-  const png = renderIcon(size);
-  const outPath = path.join(OUT_DIR, `icon-${size}.png`);
-  fs.writeFileSync(outPath, png);
+  fs.writeFileSync(path.join(OUT_DIR, `icon-${size}.png`), renderIcon(size, false));
+  fs.writeFileSync(path.join(OUT_DIR, `icon-locked-${size}.png`), renderIcon(size, true));
 }
-console.log(`Generated OpenVault icons (${SIZES.join(", ")}px) in ${OUT_DIR}`);
+console.log(`Generated OpenVault unlocked & locked icons (${SIZES.join(", ")}px) in ${OUT_DIR}`);

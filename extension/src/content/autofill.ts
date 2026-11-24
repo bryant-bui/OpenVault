@@ -57,6 +57,7 @@ let activeInput: HTMLInputElement | null = null;
 let dropdownOpen = false;
 let interactingWithOverlay = false;
 let scanQueued = false;
+let lastFilledCredential: { origin: string; username: string; cipherId?: string } | null = null;
 
 function isVisibleElement(el: HTMLElement): boolean {
   if ((el as HTMLInputElement).disabled || (el as HTMLInputElement).readOnly) return false;
@@ -727,6 +728,7 @@ function ensureOverlay(): ShadowOverlay {
       height: 16px;
       border-radius: 999px;
       background: #0572EC;
+      animation: ovCaretBlink 1s steps(1) infinite;
     }
     .ov-unlock-shake {
       animation: ovShake 320ms cubic-bezier(0.36, 0.07, 0.19, 0.97);
@@ -1004,6 +1006,22 @@ function ensureOverlay(): ShadowOverlay {
       padding: 7px 10px;
       line-height: 1.4;
     }
+    .ov-pk-target-select {
+      width: 100%;
+      height: 34px;
+      padding: 0 10px;
+      border-radius: 8px;
+      border: 1px solid #cbd5e1;
+      background: #f8fafc;
+      color: #0f172a;
+      font-size: 12px;
+      font-weight: 500;
+      outline: none;
+    }
+    .ov-pk-target-select:focus {
+      border-color: #7253ED;
+      background: #ffffff;
+    }
     .ov-pk-err {
       font-size: 11.5px;
       color: #e11d48;
@@ -1089,6 +1107,13 @@ function ensureOverlay(): ShadowOverlay {
       .ov-unlock-input:focus { border-color: #60a5fa; background: #161b24; }
       .ov-unlock-link { color: #60a5fa; }
       .ov-unlock-err { color: #fb7185; }
+      .ov-pk-target-select { border-color: #334155; background: #1e2534; color: #f1f5f9; }
+      .ov-pk-target-select:focus { border-color: #8b5cf6; background: #161b24; }
+    }
+
+    @keyframes ovCaretBlink {
+      0%, 49% { opacity: 1; }
+      50%, 100% { opacity: 0; }
     }
 
     @keyframes ovPop {
@@ -1252,9 +1277,12 @@ function createUnlockWidget(opts: UnlockWidgetOptions): HTMLDivElement {
       wrap.className = "ov-unlock-pin-wrap";
 
       const nativeInput = document.createElement("input");
-      nativeInput.type = "password";
+      nativeInput.type = "text";
       nativeInput.inputMode = "numeric";
       nativeInput.autocomplete = "one-time-code";
+      nativeInput.setAttribute("autocorrect", "off");
+      nativeInput.setAttribute("autocapitalize", "none");
+      nativeInput.spellcheck = false;
       nativeInput.maxLength = pinLen;
       nativeInput.className = "ov-unlock-pin-native";
       nativeInput.setAttribute("aria-label", `Nhập mã PIN ${pinLen} số`);
@@ -1370,7 +1398,24 @@ function createUnlockWidget(opts: UnlockWidgetOptions): HTMLDivElement {
         }
       });
 
-      wrap.addEventListener("click", () => nativeInput.focus());
+      const focusPinNow = () => {
+        isFocused = true;
+        interactingWithOverlay = true;
+        nativeInput.focus({ preventScroll: true });
+        syncSlots();
+        window.requestAnimationFrame(() => {
+          if (overlayRef?.shadow.activeElement !== nativeInput) {
+            nativeInput.focus({ preventScroll: true });
+          }
+          isFocused = true;
+          syncSlots();
+        });
+      };
+
+      wrap.addEventListener("pointerdown", () => {
+        interactingWithOverlay = true;
+      });
+      wrap.addEventListener("click", () => focusPinNow());
       wrap.appendChild(nativeInput);
       wrap.appendChild(slotsRow);
       bodySlot.appendChild(wrap);
@@ -1390,9 +1435,12 @@ function createUnlockWidget(opts: UnlockWidgetOptions): HTMLDivElement {
       footer.appendChild(switchBtn);
       bodySlot.appendChild(footer);
 
+      if (shouldFocus) {
+        isFocused = true;
+      }
       syncSlots();
       if (shouldFocus) {
-        window.requestAnimationFrame(() => nativeInput.focus());
+        focusPinNow();
       }
     } else {
       const form = document.createElement("form");
@@ -1490,7 +1538,12 @@ function createUnlockWidget(opts: UnlockWidgetOptions): HTMLDivElement {
       }
 
       if (shouldFocus) {
-        window.requestAnimationFrame(() => pwInput.focus());
+        pwInput.focus({ preventScroll: true });
+        window.requestAnimationFrame(() => {
+          if (overlayRef?.shadow.activeElement !== pwInput) {
+            pwInput.focus({ preventScroll: true });
+          }
+        });
       }
     }
   }
@@ -1627,6 +1680,11 @@ function appendLoginItems(
 
     btn.addEventListener("mousedown", (e) => {
       e.preventDefault();
+      lastFilledCredential = {
+        origin: window.location.origin,
+        username: item.username,
+        cipherId: item.id,
+      };
       fillLoginFields(item.username, item.password, input);
       hideDropdown();
 
@@ -1905,8 +1963,12 @@ function showInlineTriggerForContext(
   trigger.appendChild(tip);
   positionTriggerForInput(trigger, input);
 
-  trigger.addEventListener("mousedown", (e) => {
-    e.preventDefault();
+  trigger.addEventListener("pointerdown", () => {
+    interactingWithOverlay = true;
+  });
+
+  trigger.addEventListener("click", (e) => {
+    e.stopPropagation();
     interactingWithOverlay = true;
     if (dropdownOpen) {
       hideDropdown();
@@ -1930,7 +1992,9 @@ function showSaveBanner(pending: PendingSaveCredential): void {
   const dot = document.createElement("span");
   dot.className = "ov-dot";
   const text = document.createElement("span");
-  text.textContent = "Lưu mật khẩu vào OpenVault?";
+  text.textContent = pending.existingCipherId
+    ? `Cập nhật mật khẩu cho "${pending.existingCipherName || pending.title}"?`
+    : "Lưu mật khẩu vào OpenVault?";
   title.appendChild(dot);
   title.appendChild(text);
 
@@ -1953,7 +2017,7 @@ function showSaveBanner(pending: PendingSaveCredential): void {
   const saveBtn = document.createElement("button");
   saveBtn.type = "button";
   saveBtn.className = "ov-btn ov-btn-primary";
-  saveBtn.textContent = "Lưu vào Vault";
+  saveBtn.textContent = pending.existingCipherId ? "Cập nhật" : "Lưu vào Vault";
   saveBtn.addEventListener("click", async () => {
     saveBtn.disabled = true;
     saveBtn.textContent = "Đang mã hóa...";
@@ -1962,7 +2026,13 @@ function showSaveBanner(pending: PendingSaveCredential): void {
         type: "SAVE_PENDING_CREDENTIAL",
       })) as BgResponse;
       banner.remove();
-      showToast(res?.ok ? "Đã mã hóa và lưu vào OpenVault" : "Không thể lưu tài khoản");
+      showToast(
+        res?.ok
+          ? pending.existingCipherId
+            ? "Đã cập nhật mật khẩu trong OpenVault"
+            : "Đã mã hóa và lưu vào OpenVault"
+          : "Không thể lưu tài khoản",
+      );
     } catch {
       banner.remove();
     }
@@ -1983,6 +2053,7 @@ async function handleInputFocus(input: HTMLInputElement): Promise<void> {
   if (!fieldKind) return;
 
   activeInput = input;
+  interactingWithOverlay = false;
   try {
     const res = (await chrome.runtime.sendMessage({
       type: "GET_AUTOFILL_CONTEXT",
@@ -1993,19 +2064,11 @@ async function handleInputFocus(input: HTMLInputElement): Promise<void> {
     if (!res?.ok || res.data.disabled) return;
     const ctx = res.data;
 
-    // For tiny split OTP inputs (maxLength === 1), open dropdown directly without covering the single digit box with a trigger circle
+    // By default show ONLY the subtle corner icon trigger; clicking the icon opens the unlock PIN or autofill list.
+    // Exception: tiny split 1-char OTP boxes (<input maxLength=1>) open directly ONLY when already unlocked with TOTP matches.
     if (input.maxLength !== 1) {
       showInlineTriggerForContext(input, ctx);
-    }
-
-    const hasSuggestions =
-      ctx.matches.length > 0 ||
-      ctx.totpMatches.length > 0 ||
-      ctx.cards.length > 0 ||
-      ctx.identities.length > 0 ||
-      Boolean(ctx.suggestedPassword);
-
-    if (hasSuggestions || (!ctx.unlocked && ctx.hasAccount)) {
+    } else if (ctx.unlocked && ctx.totpMatches.length > 0) {
       showDropdownForContext(input, ctx, false);
     }
   } catch {
@@ -2030,7 +2093,11 @@ function bindCandidateInputs(): void {
       input.addEventListener("blur", () => {
         window.setTimeout(() => {
           const active = document.activeElement;
-          const insideOverlay = interactingWithOverlay || (overlayRef !== null && active === overlayRef.host);
+          const hasShadowFocus = overlayRef?.shadow.activeElement !== null && overlayRef?.shadow.activeElement !== undefined;
+          const insideOverlay =
+            interactingWithOverlay ||
+            hasShadowFocus ||
+            (overlayRef !== null && active === overlayRef.host);
           if (active !== input && !insideOverlay) {
             hideDropdown();
             hideTrigger();
@@ -2054,12 +2121,24 @@ function captureFormSubmission(form: HTMLFormElement): void {
   const inputs = Array.from(form.querySelectorAll<HTMLInputElement>("input")).filter(
     isVisibleInput,
   );
-  const passwordInput = inputs.find((i) => i.type === "password" && i.value.length >= 4);
-  if (!passwordInput) return;
+  const passwordInputs = inputs.filter((i) => i.type === "password" && i.value.length >= 4);
+  if (passwordInputs.length === 0) return;
 
-  const { usernameInput } = findCompanionLoginFields(passwordInput);
-  const username = usernameInput?.value.trim() ?? "";
-  const password = passwordInput.value;
+  // On password-change forms (Current + New + Confirm), capture the NEW password, not the old one
+  const newPasswordInput =
+    passwordInputs.find((i) => (i.autocomplete || "").toLowerCase().includes("new-password")) ??
+    passwordInputs.find((i) =>
+      /(new.?pass|new_pass|new-pass|mật khẩu mới)/.test(fieldHintText(i)),
+    ) ??
+    (passwordInputs.length >= 2 ? passwordInputs[1]! : passwordInputs[0]!);
+
+  const { usernameInput } = findCompanionLoginFields(newPasswordInput);
+  const sameOriginFill =
+    lastFilledCredential && lastFilledCredential.origin === window.location.origin
+      ? lastFilledCredential
+      : null;
+  const username = usernameInput?.value.trim() || sameOriginFill?.username || "";
+  const password = newPasswordInput.value;
 
   void chrome.runtime
     .sendMessage({
@@ -2070,6 +2149,7 @@ function captureFormSubmission(form: HTMLFormElement): void {
         title: document.title || window.location.hostname.replace(/^www\./, ""),
         username,
         password,
+        preferredCipherId: sameOriginFill?.cipherId ?? null,
       },
     })
     .catch(() => undefined);
@@ -2242,6 +2322,8 @@ async function handleWebAuthnCreate(req: SerializedCreateRequest): Promise<void>
       type: "PASSKEY_PREPARE_CREATE",
       origin: req.origin,
       rpId: req.rpId,
+      userName: req.userName,
+      userDisplayName: req.userDisplayName,
       excludeCredentialIds: req.excludeCredentialIds,
     })
     .catch(() => null)) as BgResponse<PasskeyPrepareCreateResponse> | null;
@@ -2287,6 +2369,8 @@ async function handleWebAuthnCreate(req: SerializedCreateRequest): Promise<void>
               type: "PASSKEY_PREPARE_CREATE",
               origin: req.origin,
               rpId: req.rpId,
+              userName: req.userName,
+              userDisplayName: req.userDisplayName,
               excludeCredentialIds: req.excludeCredentialIds,
             })
             .catch(() => null)) as BgResponse<PasskeyPrepareCreateResponse> | null;
@@ -2307,6 +2391,32 @@ async function handleWebAuthnCreate(req: SerializedCreateRequest): Promise<void>
       warn.textContent =
         "Trang web báo đã có mã khóa tương tự trong OpenVault. Bạn vẫn có thể lưu mã khóa mới hoặc chuyển sang thiết bị khác.";
       body.appendChild(warn);
+    }
+
+    let selectedTargetId: string | null =
+      prep.recommendedCipherId ?? prep.existingCiphers[0]?.id ?? "__new__";
+
+    if (prep.existingCiphers.length > 0) {
+      const select = document.createElement("select");
+      select.className = "ov-pk-target-select";
+      select.setAttribute("aria-label", "Chọn tài khoản để cập nhật Passkey");
+
+      for (const cand of prep.existingCiphers) {
+        const opt = document.createElement("option");
+        opt.value = cand.id;
+        opt.textContent = `Cập nhật: ${cand.name}${cand.username ? ` (${cand.username})` : ""}`;
+        select.appendChild(opt);
+      }
+      const newOpt = document.createElement("option");
+      newOpt.value = "__new__";
+      newOpt.textContent = `+ Tạo mục mới cho ${req.rpName || req.rpId}`;
+      select.appendChild(newOpt);
+
+      select.value = selectedTargetId ?? "__new__";
+      select.addEventListener("change", () => {
+        selectedTargetId = select.value;
+      });
+      body.appendChild(select);
     }
 
     const row = document.createElement("div");
@@ -2352,6 +2462,7 @@ async function handleWebAuthnCreate(req: SerializedCreateRequest): Promise<void>
             userName: req.userName,
             userDisplayName: req.userDisplayName,
             discoverable: req.discoverable,
+            targetCipherId: selectedTargetId === "__new__" ? null : selectedTargetId,
           })
           .catch(() => null)) as BgResponse<SerializedCreateResponseData> | null;
 
@@ -2621,6 +2732,12 @@ document.addEventListener("keydown", (event) => {
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   void (async () => {
     if (message?.type === "OV_FILL_CREDENTIALS") {
+      if (message.username) {
+        lastFilledCredential = {
+          origin: window.location.origin,
+          username: String(message.username),
+        };
+      }
       const ok = fillLoginFields(message.username ?? "", message.password ?? "", activeInput);
       if (ok && message.itemName) {
         if (typeof message.copiedTotpCode === "string" && message.copiedTotpCode) {

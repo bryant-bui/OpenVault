@@ -115,12 +115,12 @@ fun ProfileScreen(
     ) { uri ->
         if (uri != null) {
             scope.launch {
-                val b64 = IconLoader.compressPickedImageToBase64(context, uri, targetPx = 160, quality = 82)
+                val b64 = IconLoader.compressPickedImageToBase64(context, uri, targetPx = 144, quality = 80)
                 if (b64 != null) {
                     onUpdateAccountAvatar(b64)
-                    onShowMessage(if (s.isVi) "Đã cập nhật ảnh đại diện!" else "Profile avatar updated!")
+                    onShowMessage(if (s.isVi) "Đã Cập Nhật Ảnh Đại Diện!" else "Profile Avatar Updated!")
                 } else {
-                    onShowMessage(if (s.isVi) "Không thể đọc ảnh đã chọn." else "Could not process selected photo.")
+                    onShowMessage(if (s.isVi) "Không Thể Đọc Ảnh Đã Chọn." else "Could Not Process Selected Photo.")
                 }
             }
         }

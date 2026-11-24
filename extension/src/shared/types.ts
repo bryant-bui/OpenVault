@@ -160,6 +160,9 @@ export interface PendingSaveCredential {
   username: string;
   password: string;
   detectedAt: number;
+  existingCipherId?: string | null;
+  existingCipherName?: string | null;
+  preferredCipherId?: string | null;
 }
 
 export interface R2BackupItem {
@@ -231,6 +234,7 @@ export type BgRequest =
   | { type: "TRIGGER_R2_BACKUP" }
   | { type: "LIST_R2_BACKUPS" }
   | { type: "UPDATE_SETTINGS"; settings: Partial<ExtensionSettings> }
+  | { type: "SET_ACCOUNT_AVATAR"; avatarBase64: string | null }
   | { type: "GET_MATCHES_FOR_URL"; url: string }
   | { type: "GET_AUTOFILL_CONTEXT"; url: string; fieldKind: InlineFieldKind }
   | { type: "GENERATE_INLINE_PASSWORD" }
@@ -244,6 +248,8 @@ export type BgRequest =
       type: "PASSKEY_PREPARE_CREATE";
       origin: string;
       rpId: string;
+      userName?: string;
+      userDisplayName?: string;
       excludeCredentialIds: string[];
     }
   | {
@@ -256,6 +262,7 @@ export type BgRequest =
       userName: string;
       userDisplayName: string;
       discoverable: boolean;
+      targetCipherId?: string | null;
     }
   | {
       type: "PASSKEY_PREPARE_GET";

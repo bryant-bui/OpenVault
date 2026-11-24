@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -5,6 +7,20 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
 }
+
+val localProps = Properties().apply {
+    val propsFile = rootProject.file("local.properties")
+    if (propsFile.exists()) {
+        propsFile.inputStream().use { load(it) }
+    }
+}
+val rawDefaultServerUrl = localProps.getProperty("OPENVAULT_SERVER_URL")
+    ?.trim()
+    ?.takeIf { it.isNotEmpty() }
+    ?: "https://your-openvault-api.workers.dev"
+val escapedDefaultServerUrl = rawDefaultServerUrl
+    .replace("\\", "\\\\")
+    .replace("\"", "\\\"")
 
 android {
     namespace = "io.openvault.app"
@@ -16,6 +32,8 @@ android {
         targetSdk = 36
         versionCode = 8
         versionName = "0.8.0"
+
+        buildConfigField("String", "DEFAULT_SERVER_URL", "\"$escapedDefaultServerUrl\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

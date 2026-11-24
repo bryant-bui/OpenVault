@@ -101,19 +101,25 @@ object IconLoader {
                 square
             }
 
-            val baos = ByteArrayOutputStream()
             val format = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 Bitmap.CompressFormat.WEBP_LOSSY
             } else {
                 @Suppress("DEPRECATION")
                 Bitmap.CompressFormat.WEBP
             }
-            scaled.compress(format, quality, baos)
+            var encodedB64: String? = null
+            for (q in listOf(quality, min(quality, 70), 56, 42)) {
+                val baos = ByteArrayOutputStream()
+                scaled.compress(format, q, baos)
+                val compressed = baos.toByteArray()
+                if (compressed.isEmpty()) continue
+                val b64 = Base64.encodeToString(compressed, Base64.NO_WRAP)
+                encodedB64 = b64
+                if (b64.length <= 36_000) break
+            }
             scaled.recycle()
 
-            val compressed = baos.toByteArray()
-            if (compressed.isEmpty() || compressed.size > 32_000) return@runCatching null
-            Base64.encodeToString(compressed, Base64.NO_WRAP)
+            encodedB64?.takeIf { it.length <= 36_000 }
         }.getOrNull()
     }
 

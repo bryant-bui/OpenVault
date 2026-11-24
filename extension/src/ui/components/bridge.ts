@@ -15,10 +15,3 @@ export async function getActiveTab(): Promise<chrome.tabs.Tab | null> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   return tab ?? null;
 }
-
-export async function openSidePanelFromCurrentWindow(): Promise<void> {
-  const currentWindow = await chrome.windows.getCurrent();
-  if (currentWindow.id !== undefined) {
-    await chrome.sidePanel.open({ windowId: currentWindow.id });
-  }
-}

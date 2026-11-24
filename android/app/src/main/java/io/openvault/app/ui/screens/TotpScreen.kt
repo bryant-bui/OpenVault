@@ -125,7 +125,7 @@ fun TotpScreen(
                 OnePassSearchBar(
                     query = query,
                     onQueryChange = { query = it },
-                    placeholder = "Tìm mã 2FA",
+                    placeholder = if (s.isVi) "Tìm Mã 2FA" else "Search 2FA Codes",
                     modifier = Modifier.padding(horizontal = fold.horizontalPadding, vertical = 10.dp),
                 )
 
@@ -142,12 +142,21 @@ fun TotpScreen(
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Icon(Icons.Rounded.QrCode2, contentDescription = null, tint = c.accent, modifier = Modifier.size(40.dp))
-                            Text("Chưa có mã 2FA nào", color = c.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                            Icon(Icons.Rounded.QrCode2, contentDescription = null, tint = c.accent, modifier = Modifier.size(44.dp))
                             Text(
-                                "Bấm biểu tượng Quét QR ở góc trên phải để thêm mã xác thực 2 bước mới.",
+                                text = if (s.isVi) "Chưa Có Mã 2FA Nào" else "No 2FA Codes Yet",
+                                color = c.textPrimary,
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                text = if (s.isVi) {
+                                    "Bấm Biểu Tượng Quét QR Ở Góc Trên Phải Để Thêm Mã Xác Thực 2 Bước Mới."
+                                } else {
+                                    "Tap The Scan QR Icon At Top Right To Add A Two-Factor Code."
+                                },
                                 color = c.textSecondary,
-                                fontSize = 13.5.sp,
+                                fontSize = 14.5.sp,
                             )
                         }
                     }
@@ -188,7 +197,8 @@ fun TotpScreen(
                                             ItemIconTile(
                                                 title = item.name,
                                                 type = item.type,
-                                                size = 36.dp,
+                                                size = 40.dp,
+                                                secureNoteType = item.secureNoteType,
                                                 customIconBase64 = item.customIconBase64,
                                                 websiteUrl = item.primaryWebsiteUrl,
                                             )
@@ -200,7 +210,7 @@ fun TotpScreen(
                                                 Text(
                                                     text = item.name,
                                                     color = c.textPrimary,
-                                                    fontSize = 15.5.sp,
+                                                    fontSize = 16.5.sp,
                                                     fontWeight = FontWeight.SemiBold,
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis,
@@ -208,7 +218,7 @@ fun TotpScreen(
                                                 Text(
                                                     text = item.primarySubtitle,
                                                     color = c.textSecondary,
-                                                    fontSize = 13.sp,
+                                                    fontSize = 14.sp,
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis,
                                                 )

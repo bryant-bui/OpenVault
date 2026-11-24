@@ -7,7 +7,7 @@ interface ColorPasswordProps {
 export function ColorPassword({ value, revealed, large = false }: ColorPasswordProps) {
   if (!revealed) {
     return (
-      <span className="font-mono-code tracking-[0.18em] text-[13px] select-none text-[var(--text-secondary)]">
+      <span className="font-mono-code tracking-[0.18em] text-[15px] select-none text-[var(--text-secondary)]">
         ••••••••••••
       </span>
     );
@@ -16,7 +16,7 @@ export function ColorPassword({ value, revealed, large = false }: ColorPasswordP
   return (
     <span
       className={`font-mono-code break-all ${
-        large ? "text-[19px] leading-relaxed tracking-[0.06em]" : "text-[13.5px] leading-snug"
+        large ? "text-[21px] leading-relaxed tracking-[0.06em]" : "text-[15px] leading-snug"
       }`}
     >
       {Array.from(value).map((ch, idx) => {

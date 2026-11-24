@@ -513,17 +513,17 @@ private fun WatchtowerAlertCard(
                     fontSize = 28.sp,
                     fontWeight = FontWeight.Bold,
                 )
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(
                         text = title,
                         color = c.textPrimary,
-                        fontSize = 15.5.sp,
+                        fontSize = 16.5.sp,
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
                         text = if (count == 0) emptyText else subtitle,
                         color = c.textSecondary,
-                        fontSize = 12.5.sp,
+                        fontSize = 13.5.sp,
                     )
                 }
                 if (items.isNotEmpty()) {

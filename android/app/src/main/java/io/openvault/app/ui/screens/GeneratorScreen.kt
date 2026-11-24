@@ -287,8 +287,8 @@ fun GeneratorScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                             ) {
-                                Text("Độ dài", color = c.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                                Text("$length ký tự", color = c.accent, fontWeight = FontWeight.Bold)
+                                Text(if (s.isVi) "Độ Dài" else "Length", color = c.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                                Text("$length ${if (s.isVi) "Ký Tự" else "Chars"}", color = c.accent, fontSize = 15.5.sp, fontWeight = FontWeight.Bold)
                             }
                             Slider(
                                 value = length.toFloat(),
@@ -300,15 +300,15 @@ fun GeneratorScreen(
                                 colors = SliderDefaults.colors(thumbColor = c.accent, activeTrackColor = c.accent),
                             )
                             HorizontalDivider(color = c.divider, thickness = 0.7.dp)
-                            GenToggleRow("Chữ thường (a-z)", useLower) { useLower = it; currentPassword = nextPassword() }
+                            GenToggleRow(if (s.isVi) "Chữ Thường (a-z)" else "Lowercase (a-z)", useLower) { useLower = it; currentPassword = nextPassword() }
                             HorizontalDivider(color = c.divider, thickness = 0.7.dp)
-                            GenToggleRow("Chữ hoa (A-Z)", useUpper) { useUpper = it; currentPassword = nextPassword() }
+                            GenToggleRow(if (s.isVi) "Chữ Hoa (A-Z)" else "Uppercase (A-Z)", useUpper) { useUpper = it; currentPassword = nextPassword() }
                             HorizontalDivider(color = c.divider, thickness = 0.7.dp)
-                            GenToggleRow("Chữ số (0-9)", useDigits) { useDigits = it; currentPassword = nextPassword() }
+                            GenToggleRow(if (s.isVi) "Chữ Số (0-9)" else "Digits (0-9)", useDigits) { useDigits = it; currentPassword = nextPassword() }
                             HorizontalDivider(color = c.divider, thickness = 0.7.dp)
-                            GenToggleRow("Ký tự đặc biệt (!@#…)", useSymbols) { useSymbols = it; currentPassword = nextPassword() }
+                            GenToggleRow(if (s.isVi) "Ký Tự Đặc Biệt (!@#…)" else "Symbols (!@#…)", useSymbols) { useSymbols = it; currentPassword = nextPassword() }
                             HorizontalDivider(color = c.divider, thickness = 0.7.dp)
-                            GenToggleRow("Tránh ký tự dễ nhầm (0/O, l/1)", avoidAmbiguous) {
+                            GenToggleRow(if (s.isVi) "Tránh Ký Tự Dễ Nhầm (0/O, l/1)" else "Avoid Ambiguous (0/O, l/1)", avoidAmbiguous) {
                                 avoidAmbiguous = it; currentPassword = nextPassword()
                             }
                         } else {
@@ -316,8 +316,8 @@ fun GeneratorScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                             ) {
-                                Text("Số lượng từ", color = c.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                                Text("$wordCount từ", color = c.accent, fontWeight = FontWeight.Bold)
+                                Text(if (s.isVi) "Số Lượng Từ" else "Word Count", color = c.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                                Text("$wordCount ${if (s.isVi) "Từ" else "Words"}", color = c.accent, fontSize = 15.5.sp, fontWeight = FontWeight.Bold)
                             }
                             Slider(
                                 value = wordCount.toFloat(),
@@ -334,8 +334,8 @@ fun GeneratorScreen(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Text("Phân tách:", color = c.textSecondary, fontSize = 13.5.sp)
-                                listOf("-" to "-", "." to ".", "_" to "_", " " to "Trống").forEach { (sep, lbl) ->
+                                Text(if (s.isVi) "Phân Tách:" else "Separator:", color = c.textSecondary, fontSize = 14.5.sp)
+                                listOf("-" to "-", "." to ".", "_" to "_", " " to (if (s.isVi) "Trống" else "Space")).forEach { (sep, lbl) ->
                                     OnePassChip(label = lbl, selected = separator == sep) {
                                         separator = sep
                                         currentPassword = nextPassword()
@@ -343,9 +343,9 @@ fun GeneratorScreen(
                                 }
                             }
                             HorizontalDivider(color = c.divider, thickness = 0.7.dp)
-                            GenToggleRow("Viết hoa chữ cái đầu", capitalize) { capitalize = it; currentPassword = nextPassword() }
+                            GenToggleRow(if (s.isVi) "Viết Hoa Chữ Cái Đầu" else "Capitalize Words", capitalize) { capitalize = it; currentPassword = nextPassword() }
                             HorizontalDivider(color = c.divider, thickness = 0.7.dp)
-                            GenToggleRow("Thêm số ngẫu nhiên", includeNumber) { includeNumber = it; currentPassword = nextPassword() }
+                            GenToggleRow(if (s.isVi) "Thêm Số Ngẫu Nhiên" else "Include Number", includeNumber) { includeNumber = it; currentPassword = nextPassword() }
                         }
                     }
                 }

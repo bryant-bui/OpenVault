@@ -1,5 +1,5 @@
-import { CipherType, type CipherField } from "@openvault/crypto-core";
-import { CreditCard, FileText, UserSquare2 } from "lucide-react";
+import { CipherType, SecureNoteType, type CipherField } from "@openvault/crypto-core";
+import { BookOpen, CreditCard, FileText, IdCard, Package, UserSquare2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { parseHostname } from "../../shared/domain-match.js";
 import { getCustomIconDataUrl } from "../../shared/media.js";
@@ -26,6 +26,7 @@ function hashIndex(text: string): number {
 interface BrandAvatarProps {
   name: string;
   type: CipherType;
+  secureNoteType?: number | null;
   uri?: string | null;
   fields?: CipherField[] | null;
   customIconDataUrl?: string | null;
@@ -43,6 +44,7 @@ interface BrandAvatarProps {
 export function BrandAvatar({
   name,
   type,
+  secureNoteType = 0,
   uri,
   fields,
   customIconDataUrl,
@@ -65,12 +67,12 @@ export function BrandAvatar({
 
   const dims =
     size === "sm"
-      ? "w-7 h-7 rounded-[7px] text-[12px]"
+      ? "w-8 h-8 rounded-[8px] text-[13px]"
       : size === "lg"
-        ? "w-11 h-11 rounded-[12px] text-[18px]"
-        : "w-8 h-8 rounded-[8px] text-[13px]";
+        ? "w-12 h-12 rounded-[13px] text-[20px]"
+        : "w-9 h-9 rounded-[9px] text-[14.5px]";
 
-  const iconSize = size === "lg" ? 20 : size === "sm" ? 14 : 16;
+  const iconSize = size === "lg" ? 22 : size === "sm" ? 15 : 18;
 
   if (resolvedCustomIcon) {
     return (
@@ -134,11 +136,19 @@ export function BrandAvatar({
       aria-hidden="true"
     >
       {type === CipherType.SecureNote ? (
-        <FileText size={iconSize} strokeWidth={2.2} />
+        secureNoteType === SecureNoteType.Software ? (
+          <Package size={iconSize} strokeWidth={2.1} />
+        ) : secureNoteType === SecureNoteType.Passport ? (
+          <BookOpen size={iconSize} strokeWidth={2.1} />
+        ) : secureNoteType === SecureNoteType.IdCard ? (
+          <IdCard size={iconSize} strokeWidth={2.1} />
+        ) : (
+          <FileText size={iconSize} strokeWidth={2.1} />
+        )
       ) : type === CipherType.Card ? (
-        <CreditCard size={iconSize} strokeWidth={2.2} />
+        <CreditCard size={iconSize} strokeWidth={2.1} />
       ) : type === CipherType.Identity ? (
-        <UserSquare2 size={iconSize} strokeWidth={2.2} />
+        <UserSquare2 size={iconSize} strokeWidth={2.1} />
       ) : (
         (name.trim()[0] ?? "O").toUpperCase()
       )}

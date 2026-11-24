@@ -139,7 +139,8 @@ export function WatchtowerPanel({
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto ov-scroll p-4 flex flex-col gap-3">
+      <div className="flex-1 overflow-y-auto ov-scroll p-4">
+        <div className="flex flex-col gap-3.5 pb-4">
         <div className="ov-card p-4 flex items-center justify-between gap-4">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5 text-[14.5px] font-bold text-[var(--text-primary)]">
@@ -240,6 +241,7 @@ export function WatchtowerPanel({
               </p>
             </div>
           </button>
+        </div>
         </div>
       </div>
     </div>

@@ -2,6 +2,7 @@ package io.openvault.app.core.security
 
 import android.content.Context
 import android.content.SharedPreferences
+import io.openvault.app.BuildConfig
 import io.openvault.app.core.crypto.KdfConfig
 import io.openvault.app.core.crypto.PinCrypto
 import io.openvault.app.core.crypto.PinProtectedRecord
@@ -86,7 +87,7 @@ data class AccountMeta(
 class AppPreferences(context: Context) {
 
     companion object {
-        const val DEFAULT_SERVER_URL = "https://your-openvault-api.workers.dev"
+        val DEFAULT_SERVER_URL: String = BuildConfig.DEFAULT_SERVER_URL
 
         private const val PREF_NAME = "openvault_prefs_v1"
         private const val KEY_SERVER_URL = "server_url"

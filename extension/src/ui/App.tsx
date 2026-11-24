@@ -1,10 +1,12 @@
 import {
   CipherType,
+  SecureNoteType,
   estimatePasswordStrength,
   type CipherPayload,
   type FolderPayload,
 } from "@openvault/crypto-core";
 import {
+  BookOpen,
   ChevronDown,
   ChevronRight,
   ChevronsUpDown,
@@ -13,10 +15,11 @@ import {
   FileText,
   Fingerprint,
   Folder,
+  IdCard,
   KeyRound,
   LayoutGrid,
   Lock,
-  PanelRightOpen,
+  Package,
   Plus,
   RefreshCw,
   Search,
@@ -44,11 +47,7 @@ import type {
   VaultStatusResponse,
 } from "../shared/types.js";
 import { BrandAvatar } from "./components/BrandAvatar.js";
-import {
-  getActiveTab,
-  openSidePanelFromCurrentWindow,
-  sendBg,
-} from "./components/bridge.js";
+import { getActiveTab, sendBg } from "./components/bridge.js";
 import { Toast, type ToastMessage } from "./components/Toast.js";
 import { AuthScreen } from "./screens/AuthScreen.js";
 import { DetailPane } from "./screens/DetailPane.js";
@@ -67,13 +66,14 @@ type FilterKind =
   | "weak"
   | "card"
   | "identity"
+  | "software"
   | "note"
+  | "passport"
+  | "idcard"
   | "trash";
 type RightPanelMode = "detail" | "editor" | "watchtower" | "settings";
 
 export function App() {
-  const isPopup = document.body.dataset.surface !== "sidepanel";
-
   const [booting, setBooting] = useState(true);
   const [status, setStatus] = useState<VaultStatusResponse>({
     hasAccount: false,
@@ -104,7 +104,10 @@ export function App() {
         { id: "passkey" as const, label: s.passkeys, icon: Fingerprint },
         { id: "card" as const, label: s.creditCards, icon: CreditCard },
         { id: "identity" as const, label: s.identities, icon: UserSquare2 },
-        { id: "note" as const, label: s.secureNotes, icon: FileText },
+        { id: "software" as const, label: s.categorySoftware, icon: Package },
+        { id: "note" as const, label: s.categoryNotes, icon: FileText },
+        { id: "passport" as const, label: s.categoryPassport, icon: BookOpen },
+        { id: "idcard" as const, label: s.categoryIdCard, icon: IdCard },
         { id: "trash" as const, label: s.trash, icon: Trash2 },
       ],
     [s],
@@ -282,7 +285,29 @@ export function App() {
         if (filterKind === "weak" && !(c.id && weakOrReusedIds.has(c.id))) return false;
         if (filterKind === "card" && c.type !== CipherType.Card) return false;
         if (filterKind === "identity" && c.type !== CipherType.Identity) return false;
-        if (filterKind === "note" && c.type !== CipherType.SecureNote) return false;
+        if (filterKind === "software") {
+          if (c.type !== CipherType.SecureNote || c.secureNote?.type !== SecureNoteType.Software)
+            return false;
+        }
+        if (filterKind === "passport") {
+          if (c.type !== CipherType.SecureNote || c.secureNote?.type !== SecureNoteType.Passport)
+            return false;
+        }
+        if (filterKind === "idcard") {
+          if (c.type !== CipherType.SecureNote || c.secureNote?.type !== SecureNoteType.IdCard)
+            return false;
+        }
+        if (filterKind === "note") {
+          const noteSub = c.secureNote?.type ?? SecureNoteType.Generic;
+          if (
+            c.type !== CipherType.SecureNote ||
+            noteSub === SecureNoteType.Software ||
+            noteSub === SecureNoteType.Passport ||
+            noteSub === SecureNoteType.IdCard
+          ) {
+            return false;
+          }
+        }
 
         if (!q) return true;
         const haystack = [
@@ -342,7 +367,7 @@ export function App() {
         });
         if (res.filled) {
           showToast(s.isVi ? "Đã tự động điền vào trang web" : "Autofilled on current page", "success");
-          if (isPopup) window.close();
+          window.close();
         } else {
           showToast(
             s.isVi ? "Không tìm thấy ô nhập mật khẩu trên trang này" : "No fillable login inputs found on this page",
@@ -353,7 +378,7 @@ export function App() {
         showToast(err instanceof Error ? err.message : "Autofill failed", "error");
       }
     },
-    [currentTabId, isPopup, showToast, s.isVi],
+    [currentTabId, showToast, s.isVi],
   );
 
   const handleSaveCipher = useCallback(
@@ -424,15 +449,6 @@ export function App() {
     },
     [loadStatus, showToast, s.isVi],
   );
-
-  const handleOpenSidePanel = useCallback(async () => {
-    try {
-      await openSidePanelFromCurrentWindow();
-      if (isPopup) window.close();
-    } catch {
-      showToast(s.isVi ? "Không thể mở Side Panel trên cửa sổ này" : "Could not open Side Panel", "error");
-    }
-  }, [isPopup, showToast, s.isVi]);
 
   const handleUpdateSettings = useCallback(
     async (partial: Partial<ExtensionSettings>) => {
@@ -549,7 +565,13 @@ export function App() {
             ? `•••• ${item.card.number.slice(-4)}`
             : item.card?.brand || s.creditCards
           : item.type === CipherType.SecureNote
-            ? s.secureNotes
+            ? item.secureNote?.type === SecureNoteType.Software
+              ? s.categorySoftware
+              : item.secureNote?.type === SecureNoteType.Passport
+                ? s.categoryPassport
+                : item.secureNote?.type === SecureNoteType.IdCard
+                  ? s.categoryIdCard
+                  : s.categoryNotes
             : item.identity?.email ||
               item.identity?.phone ||
               [item.identity?.firstName, item.identity?.lastName].filter(Boolean).join(" ") ||
@@ -567,6 +589,7 @@ export function App() {
           <BrandAvatar
             name={item.name}
             type={item.type}
+            secureNoteType={item.secureNote?.type}
             uri={item.login?.uris?.[0]?.uri}
             fields={item.fields}
             showFavicon={status.settings.showFavicons}
@@ -575,19 +598,19 @@ export function App() {
           />
           {item.favorite ? (
             <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-[var(--surface)] flex items-center justify-center">
-              <Star size={9} className="fill-[var(--warning)] text-[var(--warning)]" />
+              <Star size={10} className="fill-[var(--warning)] text-[var(--warning)]" />
             </span>
           ) : null}
         </div>
         <div className="min-w-0 flex-1">
-          <div className="text-[13px] font-semibold truncate leading-tight">{item.name}</div>
-          <div className="ov-row-sub text-[11.5px] text-[var(--text-secondary)] truncate mt-0.5 leading-tight">
+          <div className="text-[14px] font-semibold truncate leading-tight">{item.name}</div>
+          <div className="ov-row-sub text-[12px] text-[var(--text-secondary)] truncate mt-0.5 leading-tight">
             {subtitle}
           </div>
         </div>
         {item.login?.totp ? (
           <span
-            className="text-[9.5px] font-bold px-1.5 py-0.5 rounded-md shrink-0"
+            className="text-[10.5px] font-bold px-1.5 py-0.5 rounded-md shrink-0"
             style={{
               background: isSelected ? "rgba(255,255,255,0.22)" : "var(--accent-soft)",
               color: isSelected ? "#ffffff" : "var(--accent)",
@@ -609,32 +632,32 @@ export function App() {
 
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-[var(--surface)] relative">
-      {/* Clean 1Password 8 Top Bar */}
-      <header className="h-[46px] shrink-0 border-b border-[var(--border)] bg-[var(--surface)] flex items-center">
+      {/* Clean Top Bar */}
+      <header className="h-[50px] shrink-0 border-b border-[var(--border)] bg-[var(--surface)] flex items-center">
         <div
           className={`${
-            narrowWidth ? "px-2.5" : "w-[228px] shrink-0 px-3 border-r border-[var(--border)]"
+            narrowWidth ? "px-2.5" : "w-[260px] shrink-0 px-3 border-r border-[var(--border)]"
           } h-full flex items-center`}
         >
           <button
             type="button"
             popoverTarget={accountPopoverId}
-            className="h-8 px-1.5 rounded-[8px] border-0 bg-transparent hover:bg-[var(--surface-subtle)] text-[var(--text-primary)] inline-flex items-center gap-2 cursor-pointer transition-colors max-w-full"
+            className="h-9 px-2 rounded-[9px] border-0 bg-transparent hover:bg-[var(--surface-subtle)] text-[var(--text-primary)] inline-flex items-center gap-2 cursor-pointer transition-colors max-w-full"
             title={s.settingsAndImport}
           >
             {accountAvatarUrl ? (
               <img
                 src={accountAvatarUrl}
                 alt="Account"
-                className="w-5 h-5 rounded-full object-cover shrink-0"
+                className="w-6 h-6 rounded-full object-cover shrink-0"
               />
             ) : (
-              <img src="/icons/icon-32.png" alt="OpenVault" className="w-5 h-5 rounded-full shrink-0" />
+              <img src="/icons/icon-32.png" alt="OpenVault" className="w-6 h-6 rounded-full shrink-0" />
             )}
             {!narrowWidth ? (
-              <span className="text-[12.5px] font-semibold truncate">{accountLabel}</span>
+              <span className="text-[13.5px] font-semibold truncate">{accountLabel}</span>
             ) : null}
-            <ChevronDown size={13} className="text-[var(--text-muted)] shrink-0" />
+            <ChevronDown size={15} className="text-[var(--text-muted)] shrink-0" />
           </button>
 
           <div
@@ -644,10 +667,10 @@ export function App() {
             className="ov-popover"
           >
             <div className="px-2.5 py-1.5 border-b border-[var(--border)] mb-1">
-              <div className="text-[12px] font-semibold text-[var(--text-primary)] truncate">
+              <div className="text-[13px] font-semibold text-[var(--text-primary)] truncate">
                 {status.email}
               </div>
-              <div className="text-[10.5px] text-[var(--text-muted)] truncate">
+              <div className="text-[11.5px] text-[var(--text-muted)] truncate">
                 {s.autoSyncActive}
               </div>
             </div>
@@ -660,7 +683,7 @@ export function App() {
                 void loadVault(true);
               }}
             >
-              <RefreshCw size={13} className={syncing ? "animate-spin text-[var(--accent)]" : ""} />
+              <RefreshCw size={15} className={syncing ? "animate-spin text-[var(--accent)]" : ""} />
               <span>{s.syncNow}</span>
             </button>
             <button
@@ -671,7 +694,7 @@ export function App() {
                 setGeneratorDrawerOpen(true);
               }}
             >
-              <Dices size={13} />
+              <Dices size={15} />
               <span>{s.passwordGenerator}</span>
             </button>
             <button
@@ -682,22 +705,9 @@ export function App() {
                 setRightMode("watchtower");
               }}
             >
-              <ShieldCheck size={13} />
+              <ShieldCheck size={15} />
               <span>{s.watchtowerAlerts(weakOrReusedIds.size)}</span>
             </button>
-            {isPopup ? (
-              <button
-                type="button"
-                className="ov-popover-item"
-                onClick={() => {
-                  accountPopoverRef.current?.hidePopover?.();
-                  void handleOpenSidePanel();
-                }}
-              >
-                <PanelRightOpen size={13} />
-                <span>{s.openSidePanel}</span>
-              </button>
-            ) : null}
             <button
               type="button"
               className="ov-popover-item"
@@ -706,7 +716,7 @@ export function App() {
                 setRightMode("settings");
               }}
             >
-              <Settings size={13} />
+              <Settings size={15} />
               <span>{s.settingsAndImport}</span>
             </button>
 
@@ -719,7 +729,7 @@ export function App() {
                 void handleLock();
               }}
             >
-              <Lock size={13} />
+              <Lock size={15} />
               <span>{s.lockVault}</span>
             </button>
           </div>
@@ -729,8 +739,8 @@ export function App() {
         <div className="flex-1 min-w-0 px-3 flex items-center gap-2">
           <div className="relative flex-1 min-w-0">
             <Search
-              size={13}
-              className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)] pointer-events-none"
+              size={15}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)] pointer-events-none"
             />
             <input
               ref={searchRef}
@@ -748,10 +758,10 @@ export function App() {
               <button
                 type="button"
                 onClick={() => setQuery("")}
-                className="ov-icon-btn w-5 h-5 absolute right-1.5 top-1/2 -translate-y-1/2"
+                className="ov-icon-btn w-6 h-6 absolute right-1.5 top-1/2 -translate-y-1/2"
                 aria-label={s.clearSearch}
               >
-                <X size={12} />
+                <X size={14} />
               </button>
             ) : null}
           </div>
@@ -760,14 +770,14 @@ export function App() {
             type="button"
             data-active={rightMode === "watchtower"}
             onClick={() => setRightMode((m) => (m === "watchtower" ? "detail" : "watchtower"))}
-            className="ov-icon-btn w-7 h-7 relative shrink-0"
+            className="ov-icon-btn w-8 h-8 relative shrink-0"
             title={s.watchtowerTitle}
             aria-label={s.watchtower}
           >
-            <ShieldCheck size={16} />
+            <ShieldCheck size={18} />
             {weakOrReusedIds.size > 0 ? (
               <span
-                className="w-2 h-2 rounded-full absolute top-1 right-1"
+                className="w-2 h-2 rounded-full absolute top-1.5 right-1.5"
                 style={{ background: "var(--danger)" }}
               />
             ) : null}
@@ -777,11 +787,11 @@ export function App() {
             type="button"
             data-active={generatorDrawerOpen}
             onClick={() => setGeneratorDrawerOpen((v) => !v)}
-            className="ov-icon-btn w-7 h-7 shrink-0"
+            className="ov-icon-btn w-8 h-8 shrink-0"
             title={s.passwordGenerator}
             aria-label={s.passwordGenerator}
           >
-            <Dices size={15} />
+            <Dices size={17} />
           </button>
 
           <button
@@ -790,9 +800,9 @@ export function App() {
               setEditingCipher(null);
               setRightMode("editor");
             }}
-            className="ov-btn-primary h-[30px] px-3 inline-flex items-center gap-1 shrink-0"
+            className="ov-btn-primary h-[34px] px-3.5 inline-flex items-center gap-1.5 shrink-0"
           >
-            <Plus size={14} strokeWidth={2.6} />
+            <Plus size={16} strokeWidth={2.4} />
             <span>{s.newItem}</span>
           </button>
         </div>
@@ -803,20 +813,20 @@ export function App() {
         {showLeftPane ? (
           <div
             className={`${
-              narrowWidth ? "flex-1" : "w-[228px] shrink-0 border-r border-[var(--border)]"
+              narrowWidth ? "flex-1" : "w-[260px] shrink-0 border-r border-[var(--border)]"
             } flex flex-col min-h-0 bg-[var(--surface)]`}
           >
-            <div className="h-[38px] shrink-0 px-2.5 border-b border-[var(--border)] flex items-center justify-between gap-1">
+            <div className="h-[42px] shrink-0 px-2.5 border-b border-[var(--border)] flex items-center justify-between gap-1">
               <button
                 type="button"
                 popoverTarget={filterPopoverId}
-                className="flex-1 min-w-0 h-7 px-2 rounded-[7px] border-0 bg-transparent hover:bg-[var(--surface-subtle)] text-[var(--text-primary)] flex items-center justify-between gap-1.5 cursor-pointer transition-colors"
+                className="flex-1 min-w-0 h-8 px-2.5 rounded-[8px] border-0 bg-transparent hover:bg-[var(--surface-subtle)] text-[var(--text-primary)] flex items-center justify-between gap-1.5 cursor-pointer transition-colors"
               >
                 <span className="inline-flex items-center gap-2 min-w-0">
-                  <LayoutGrid size={13} className="text-[var(--text-secondary)] shrink-0" />
-                  <span className="text-[12.5px] font-semibold truncate">{currentFilterLabel}</span>
+                  <LayoutGrid size={15} className="text-[var(--text-secondary)] shrink-0" />
+                  <span className="text-[13.5px] font-semibold truncate">{currentFilterLabel}</span>
                 </span>
-                <ChevronsUpDown size={13} className="text-[var(--text-muted)] shrink-0" />
+                <ChevronsUpDown size={15} className="text-[var(--text-muted)] shrink-0" />
               </button>
 
               <div
@@ -841,7 +851,7 @@ export function App() {
                         filterPopoverRef.current?.hidePopover?.();
                       }}
                     >
-                      <Icon size={13} />
+                      <Icon size={15} />
                       <span className="truncate">{cat.label}</span>
                     </button>
                   );
@@ -850,7 +860,7 @@ export function App() {
                 {folders.length > 0 ? (
                   <>
                     <hr className="my-1 border-0 border-t border-[var(--border)]" />
-                    <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                    <div className="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
                       {s.folders}
                     </div>
                     {folders.map((folder) => {
@@ -868,7 +878,7 @@ export function App() {
                             filterPopoverRef.current?.hidePopover?.();
                           }}
                         >
-                          <Folder size={13} />
+                          <Folder size={15} />
                           <span className="truncate">{folder.name}</span>
                         </button>
                       );
@@ -878,15 +888,20 @@ export function App() {
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto ov-scroll p-1.5 flex flex-col gap-1.5">
+            <div className="flex-1 overflow-y-auto ov-scroll p-2">
+              <div className="flex flex-col gap-1.5">
               {status.pendingSave ? (
-                <div className="p-2.5 rounded-[9px] border border-[var(--accent-border)] bg-[var(--accent-soft)]">
-                  <div className="flex items-center gap-1.5 text-[11.5px] font-bold text-[var(--accent)]">
-                    <Sparkles size={13} />
-                    <span>{s.pendingSaveTitle}</span>
+                <div className="p-2.5 rounded-[10px] border border-[var(--accent-border)] bg-[var(--accent-soft)]">
+                  <div className="flex items-center gap-1.5 text-[12.5px] font-bold text-[var(--accent)]">
+                    <Sparkles size={14} />
+                    <span>
+                      {status.pendingSave.existingCipherId ? s.pendingUpdateTitle : s.pendingSaveTitle}
+                    </span>
                   </div>
-                  <div className="text-[11px] text-[var(--text-secondary)] truncate mt-0.5 mb-2">
-                    {status.pendingSave.username || extractDisplayDomain(status.pendingSave.url)}
+                  <div className="text-[12px] text-[var(--text-secondary)] truncate mt-0.5 mb-2">
+                    {status.pendingSave.existingCipherName
+                      ? `${status.pendingSave.existingCipherName} (${status.pendingSave.username || extractDisplayDomain(status.pendingSave.url)})`
+                      : status.pendingSave.username || extractDisplayDomain(status.pendingSave.url)}
                   </div>
                   <div className="flex gap-1.5 justify-end">
                     <button
@@ -894,7 +909,7 @@ export function App() {
                       onClick={() => {
                         void handleDismissPendingSave();
                       }}
-                      className="ov-btn-ghost px-2 py-1 text-[11px]"
+                      className="ov-btn-ghost px-2.5 py-1 text-[12px]"
                     >
                       {s.dismiss}
                     </button>
@@ -903,7 +918,7 @@ export function App() {
                       onClick={() => {
                         void handleAcceptPendingSave();
                       }}
-                      className="ov-btn-primary px-2.5 py-1 text-[11px]"
+                      className="ov-btn-primary px-3 py-1 text-[12px]"
                     >
                       {s.save}
                     </button>
@@ -983,6 +998,7 @@ export function App() {
                   ) : null}
                 </div>
               ) : null}
+              </div>
             </div>
           </div>
         ) : null}
@@ -1031,8 +1047,10 @@ export function App() {
                 pinEnabled={status.pinEnabled}
                 pinRequireMasterOnRestart={status.pinRequireMasterOnRestart}
                 pinMaxAttempts={status.pinMaxAttempts}
-                isPopup={isPopup}
                 onUpdateSettings={handleUpdateSettings}
+                onAvatarUpdated={(nextSettings) =>
+                  setStatus((prev) => ({ ...prev, settings: nextSettings }))
+                }
                 onPinUpdated={loadStatus}
                 onImported={async () => {
                   await loadVault(true);
@@ -1040,7 +1058,6 @@ export function App() {
                 }}
                 onLock={handleLock}
                 onLogout={handleLogout}
-                onOpenSidePanel={handleOpenSidePanel}
                 onClose={() => setRightMode("detail")}
                 onToast={showToast}
               />

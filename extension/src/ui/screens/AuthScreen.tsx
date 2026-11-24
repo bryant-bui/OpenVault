@@ -130,7 +130,7 @@ export function AuthScreen({ initialServerUrl, onAuthenticated, onToast }: AuthS
             <input
               type="text"
               className="ov-input"
-              placeholder="Hoàng Phi"
+              placeholder="Alex Morgan"
               value={name}
               onChange={(e) => setName(e.target.value)}
               autoComplete="name"

@@ -227,8 +227,8 @@ describe("@openvault/crypto-core — Vault, RSA, Generator, Passkey", () => {
       rpId: "github.com",
       rpName: "GitHub",
       userHandle: utf8ToBytes("user-handle-123"),
-      userName: "bryant@example.com",
-      userDisplayName: "Bryant",
+      userName: "alex@example.com",
+      userDisplayName: "Alex",
     });
 
     const plainCipher = {
@@ -238,9 +238,9 @@ describe("@openvault/crypto-core — Vault, RSA, Generator, Passkey", () => {
       favorite: true,
       login: {
         uris: [{ uri: "https://github.com/login", match: null }],
-        username: "bryant@example.com",
+        username: "alex@example.com",
         password: "Tr0ub4dor&3!Complex",
-        totp: "otpauth://totp/GitHub:bryant?secret=JBSWY3DPEHPK3PXP&issuer=GitHub",
+        totp: "otpauth://totp/GitHub:alex?secret=JBSWY3DPEHPK3PXP&issuer=GitHub",
         fido2Credentials: [passkey.credential],
       },
       fields: [{ name: "PIN", value: "9182", type: FieldType.Hidden }],
@@ -374,16 +374,16 @@ describe("@openvault/crypto-core — Vault, RSA, Generator, Passkey", () => {
                 metadata: { name: "GitHub", note: "Main dev account" },
                 content: {
                   itemEmail: "me@example.com",
-                  itemUsername: "bryant-bui",
+                  itemUsername: "testuser",
                   password: "ProtonSecret!99",
                   urls: ["https://github.com/login"],
-                  totpUri: "otpauth://totp/GitHub:bryant?secret=JBSWY3DPEHPK3PXP&issuer=GitHub",
+                  totpUri: "otpauth://totp/GitHub:alex?secret=JBSWY3DPEHPK3PXP&issuer=GitHub",
                   passkeys: [
                     {
                       credentialId: "cred-123",
                       domain: "github.com",
                       rpName: "GitHub",
-                      userName: "bryant-bui",
+                      userName: "testuser",
                       content: "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg",
                       createTime: 1719000000,
                     },
@@ -399,7 +399,7 @@ describe("@openvault/crypto-core — Vault, RSA, Generator, Passkey", () => {
                 type: "creditCard",
                 metadata: { name: "Visa Personal" },
                 content: {
-                  cardholderName: "HOANG PHI",
+                  cardholderName: "ALEX MORGAN",
                   number: "4111222233334444",
                   verificationNumber: "321",
                   expirationDate: "12/28",
@@ -430,7 +430,7 @@ describe("@openvault/crypto-core — Vault, RSA, Generator, Passkey", () => {
     const decLogin = await decryptCipher(prepared.payload.ciphers[0]!, userKey);
     expect(decLogin.name).toBe("GitHub");
     expect(decLogin.favorite).toBe(true);
-    expect(decLogin.login?.username).toBe("bryant-bui");
+    expect(decLogin.login?.username).toBe("testuser");
     expect(decLogin.login?.password).toBe("ProtonSecret!99");
     expect(decLogin.login?.totp).toContain("JBSWY3DPEHPK3PXP");
     expect(decLogin.login?.fido2Credentials?.[0]?.rpId).toBe("github.com");

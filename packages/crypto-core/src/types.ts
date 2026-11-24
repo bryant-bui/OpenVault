@@ -44,6 +44,13 @@ export enum CipherType {
   Identity = 4,
 }
 
+export enum SecureNoteType {
+  Generic = 0,
+  Software = 1,
+  Passport = 2,
+  IdCard = 3,
+}
+
 export enum FieldType {
   Text = 0,
   Hidden = 1,

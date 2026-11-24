@@ -50,7 +50,7 @@ export function TotpRing({ secretOrUri, onCopy, compact = false }: TotpRingProps
   const period = result?.period ?? 30;
   const progress = Math.max(0, Math.min(1, remaining / period));
 
-  const radius = compact ? 11 : 14;
+  const radius = compact ? 12 : 16;
   const stroke = compact ? 2.5 : 3;
   const size = (radius + stroke) * 2;
   const circumference = 2 * Math.PI * radius;
@@ -74,8 +74,8 @@ export function TotpRing({ secretOrUri, onCopy, compact = false }: TotpRingProps
     <button
       type="button"
       onClick={handleCopy}
-      className={`group flex items-center justify-between w-full text-left rounded-[10px] transition-colors cursor-pointer ${
-        compact ? "gap-2.5 py-1" : "gap-3 px-2.5 py-2 hover:bg-[var(--surface-subtle)]"
+      className={`group flex items-center justify-between w-full text-left rounded-[10px] transition-colors cursor-pointer bg-transparent border-0 ${
+        compact ? "gap-2.5 py-1.5" : "gap-3 px-2.5 py-2 hover:bg-[var(--surface-subtle)]"
       }`}
       title="Bấm để sao chép mã 2FA"
     >
@@ -104,7 +104,7 @@ export function TotpRing({ secretOrUri, onCopy, compact = false }: TotpRingProps
             />
           </svg>
           <span
-            className="absolute text-[9.5px] font-bold tabular-nums"
+            className="absolute text-[10.5px] font-bold tabular-nums"
             style={{ color: ringColor }}
           >
             {remaining}
@@ -113,7 +113,7 @@ export function TotpRing({ secretOrUri, onCopy, compact = false }: TotpRingProps
 
         <span
           className={`font-mono-code font-bold tracking-[0.12em] tabular-nums ${
-            compact ? "text-[16px]" : "text-[21px]"
+            compact ? "text-[18px]" : "text-[22px]"
           }`}
           style={{ color: remaining <= 5 ? "var(--danger)" : "var(--text-primary)" }}
         >
@@ -121,11 +121,11 @@ export function TotpRing({ secretOrUri, onCopy, compact = false }: TotpRingProps
         </span>
       </div>
 
-      <span className="ov-icon-btn w-7 h-7 shrink-0">
+      <span className="ov-icon-btn w-8 h-8 shrink-0">
         {copied ? (
-          <Check size={15} className="text-[var(--success)]" />
+          <Check size={16} className="text-[var(--success)]" />
         ) : (
-          <Copy size={14} className="opacity-70 group-hover:opacity-100" />
+          <Copy size={16} className="opacity-75 group-hover:opacity-100" />
         )}
       </span>
     </button>

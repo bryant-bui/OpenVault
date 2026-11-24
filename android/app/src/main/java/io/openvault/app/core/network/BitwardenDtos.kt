@@ -241,6 +241,27 @@ data class LogoutRequest(
 )
 
 @Serializable
+data class ImportFolderRelationshipDto(
+    val key: Int,
+    val value: Int,
+)
+
+@Serializable
+data class ImportVaultRequest(
+    val folders: List<FolderRequest> = emptyList(),
+    val ciphers: List<CipherRequest> = emptyList(),
+    val folderRelationships: List<ImportFolderRelationshipDto> = emptyList(),
+)
+
+@Serializable
+data class ImportVaultResponse(
+    val ok: Boolean = true,
+    val importedFolders: Int = 0,
+    val importedCiphers: Int = 0,
+    val revisionDate: String? = null,
+)
+
+@Serializable
 data class ApiErrorResponse(
     val error: String? = null,
     val message: String? = null,

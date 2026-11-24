@@ -194,6 +194,15 @@ class BitwardenApiClient(
         }
     }
 
+    suspend fun importVault(payload: ImportVaultRequest): ImportVaultResponse = authedRequest { token ->
+        val req = Request.Builder()
+            .url("${baseUrl()}/api/ciphers/import")
+            .header("Authorization", "Bearer $token")
+            .post(json.encodeToString(payload).toRequestBody(jsonMediaType))
+            .build()
+        executeJson(req)
+    }
+
     suspend fun triggerR2Backup(): R2BackupResultDto = authedRequest { token ->
         val req = Request.Builder()
             .url("${baseUrl()}/api/openvault/backup")

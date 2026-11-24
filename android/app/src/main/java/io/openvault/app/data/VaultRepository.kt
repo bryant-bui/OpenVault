@@ -4,13 +4,17 @@ import android.os.Build
 import io.openvault.app.core.crypto.BitwardenCryptoEngine
 import io.openvault.app.core.crypto.CipherType
 import io.openvault.app.core.crypto.DomainMatcher
+import io.openvault.app.core.crypto.ImportVaultSummary
 import io.openvault.app.core.crypto.KdfConfig
 import io.openvault.app.core.crypto.MacVerificationException
 import io.openvault.app.core.crypto.PinCrypto
+import io.openvault.app.core.crypto.SecureNoteCategory
 import io.openvault.app.core.crypto.SymmetricKey
 import io.openvault.app.core.crypto.VaultCipherCodec
 import io.openvault.app.core.crypto.VaultFido2Credential
+import io.openvault.app.core.crypto.VaultField
 import io.openvault.app.core.crypto.VaultFolder
+import io.openvault.app.core.crypto.VaultImportExport
 import io.openvault.app.core.crypto.VaultItem
 import io.openvault.app.core.crypto.VaultLogin
 import io.openvault.app.core.crypto.VaultUri
@@ -22,6 +26,7 @@ import io.openvault.app.core.database.VaultDao
 import io.openvault.app.core.network.BitwardenApiClient
 import io.openvault.app.core.network.CipherDto
 import io.openvault.app.core.network.FolderDto
+import io.openvault.app.core.network.ImportVaultRequest
 import io.openvault.app.core.network.R2BackupItemDto
 import io.openvault.app.core.network.R2BackupResultDto
 import io.openvault.app.core.network.RegisterKeysDto
@@ -89,15 +94,25 @@ class VaultRepository(
         if (state != VaultLockState.UNLOCKED || key == null) {
             emptyList()
         } else {
-            entities.mapNotNull { entity ->
+            val allDecrypted = entities.mapNotNull { entity ->
                 runCatching {
                     val dto = json.decodeFromString<CipherDto>(entity.encryptedJson)
                     VaultCipherCodec.decryptCipher(dto, key)
                 }.getOrNull()
-            }.sortedWith(
-                compareByDescending<VaultItem> { it.favorite }
-                    .thenBy { it.name.lowercase() },
-            )
+            }
+            val profileItem = allDecrypted.firstOrNull { !it.isDeleted && it.isInternalProfileItem }
+            if (profileItem != null) {
+                val syncedAvatar = profileItem.syncedAccountAvatarBase64
+                if (preferences.settings.value.accountAvatarBase64 != syncedAvatar) {
+                    preferences.setAccountAvatarBase64(syncedAvatar)
+                }
+            }
+            allDecrypted
+                .filter { !it.isInternalProfileItem }
+                .sortedWith(
+                    compareByDescending<VaultItem> { it.favorite }
+                        .thenBy { it.name.lowercase() },
+                )
         }
     }.stateIn(scope, SharingStarted.Eagerly, emptyList())
 
@@ -394,6 +409,111 @@ class VaultRepository(
 
     suspend fun listR2Backups(): List<R2BackupItemDto> = api.listR2Backups()
 
+    suspend fun saveAccountAvatar(avatarBase64: String?) = withContext(Dispatchers.IO) {
+        val cleaned = avatarBase64?.trim()?.takeIf { it.isNotEmpty() }
+        preferences.setAccountAvatarBase64(cleaned)
+        val key = session.getActiveKey() ?: return@withContext
+
+        val existingProfile = dao.getAllCiphersOnce().firstNotNullOfOrNull { entity ->
+            runCatching {
+                val dto = json.decodeFromString<CipherDto>(entity.encryptedJson)
+                VaultCipherCodec.decryptCipher(dto, key)
+            }.getOrNull()?.takeIf { !it.isDeleted && it.isInternalProfileItem }
+        }
+
+        val otherFields = existingProfile?.fields?.filter {
+            it.name != VaultItem.ACCOUNT_AVATAR_FIELD_NAME
+        }.orEmpty()
+        val profileItem = (existingProfile ?: VaultItem(
+            type = CipherType.SECURE_NOTE,
+            secureNoteType = SecureNoteCategory.NOTE.typeCode,
+            name = VaultItem.PROFILE_SYNC_CIPHER_NAME,
+        )).copy(
+            name = VaultItem.PROFILE_SYNC_CIPHER_NAME,
+            fields = otherFields + VaultField(
+                name = VaultItem.ACCOUNT_AVATAR_FIELD_NAME,
+                value = cleaned.orEmpty(),
+                type = 1,
+            ),
+        )
+        runCatching { saveItem(profileItem) }
+    }
+
+    suspend fun exportVaultJson(encrypted: Boolean): String = withContext(Dispatchers.IO) {
+        val key = session.getActiveKey() ?: error("Kho đang bị khóa.")
+        val meta = preferences.account.value
+        val encFolders = dao.getAllFoldersOnce().map { f ->
+            FolderDto(id = f.id, name = f.encryptedName, revisionDate = f.revisionDate)
+        }
+        val encCiphers = dao.getAllCiphersOnce().mapNotNull { entity ->
+            runCatching { json.decodeFromString<CipherDto>(entity.encryptedJson) }.getOrNull()
+        }
+        if (encrypted) {
+            VaultImportExport.exportEncryptedBackupJson(
+                email = meta.email,
+                kdfConfig = meta.kdfConfig,
+                protectedKey = meta.protectedSymmetricKey,
+                encryptedFolders = encFolders,
+                encryptedCiphers = encCiphers,
+            )
+        } else {
+            val decFolders = encFolders.map { VaultCipherCodec.decryptFolder(it, key) }
+            val decItems = encCiphers.map { VaultCipherCodec.decryptCipher(it, key) }
+            VaultImportExport.exportBitwardenPlaintextJson(decItems, decFolders)
+        }
+    }
+
+    suspend fun importVaultBytes(bytes: ByteArray, fileName: String): ImportVaultSummary =
+        withContext(Dispatchers.IO) {
+            val key = session.getActiveKey() ?: error("Kho đang bị khóa.")
+            val parsed = VaultImportExport.parseUniversalImport(bytes, fileName)
+            if (parsed.items.isEmpty()) {
+                return@withContext ImportVaultSummary(
+                    format = parsed.format,
+                    importedFolders = 0,
+                    importedCiphers = 0,
+                    skippedCount = parsed.skippedCount,
+                )
+            }
+
+            // Reuse existing folder with identical name (case-insensitive) or create it E2EE
+            val existingFolders = dao.getAllFoldersOnce().map {
+                VaultCipherCodec.decryptFolder(FolderDto(it.id, it.encryptedName, it.revisionDate), key)
+            }
+            val nameToId = existingFolders.associateBy({ it.name.trim().lowercase() }, { it.id }).toMutableMap()
+            val sourceToServerFolder = mutableMapOf<String, String>()
+            var createdFolders = 0
+            for (folder in parsed.folders) {
+                val norm = folder.name.trim().lowercase()
+                val resolvedId = nameToId[norm] ?: run {
+                    val created = api.createFolder(VaultCipherCodec.encryptFolderName(folder.name, key))
+                    createdFolders++
+                    nameToId[norm] = created.id
+                    created.id
+                }
+                sourceToServerFolder[folder.sourceId] = resolvedId
+            }
+
+            val encryptedRequests = parsed.items.map { item ->
+                val mappedFolderId = item.folderId?.let { sourceToServerFolder[it] }
+                VaultCipherCodec.encryptCipher(item.copy(folderId = mappedFolderId), key)
+            }
+
+            var importedCount = 0
+            for (chunk in encryptedRequests.chunked(40)) {
+                val resp = api.importVault(ImportVaultRequest(ciphers = chunk))
+                importedCount += resp.importedCiphers
+            }
+
+            syncNow(force = true)
+            ImportVaultSummary(
+                format = parsed.format,
+                importedFolders = createdFolders,
+                importedCiphers = importedCount,
+                skippedCount = parsed.skippedCount,
+            )
+        }
+
     suspend fun logout(allDevices: Boolean = false) = withContext(Dispatchers.IO) {
         api.logout(preferences.getRefreshToken(), allDevices)
         dao.clearAll()
@@ -412,7 +532,7 @@ class VaultRepository(
                     val dto = json.decodeFromString<CipherDto>(entity.encryptedJson)
                     VaultCipherCodec.decryptCipher(dto, key)
                 }.getOrNull()
-            }.filter { !it.isDeleted && it.login != null }
+            }.filter { !it.isDeleted && !it.isInternalProfileItem && it.login != null }
 
             all.mapNotNull { item ->
                 val best = item.login?.uris.orEmpty().maxOfOrNull { u ->
@@ -441,7 +561,7 @@ class VaultRepository(
                 val dto = json.decodeFromString<CipherDto>(entity.encryptedJson)
                 VaultCipherCodec.decryptCipher(dto, key)
             }.getOrNull() ?: continue
-            if (item.isDeleted || item.type != CipherType.LOGIN) continue
+            if (item.isDeleted || item.isInternalProfileItem || item.type != CipherType.LOGIN) continue
             val creds = item.login?.fido2Credentials.orEmpty()
             for (cred in creds) {
                 if (cred.rpId.trim().lowercase().trimEnd('.') != cleanRp) continue
@@ -466,7 +586,7 @@ class VaultRepository(
                 val dto = json.decodeFromString<CipherDto>(entity.encryptedJson)
                 VaultCipherCodec.decryptCipher(dto, key)
             }.getOrNull() ?: return@withContext null
-            if (item.isDeleted) return@withContext null
+            if (item.isDeleted || item.isInternalProfileItem) return@withContext null
             val cred = item.login?.fido2Credentials?.firstOrNull { it.credentialId == credentialId }
                 ?: return@withContext null
             return@withContext (item to cred)
@@ -480,7 +600,7 @@ class VaultRepository(
         runCatching {
             val dto = json.decodeFromString<CipherDto>(entity.encryptedJson)
             VaultCipherCodec.decryptCipher(dto, key)
-        }.getOrNull()?.takeIf { !it.isDeleted }
+        }.getOrNull()?.takeIf { !it.isDeleted && !it.isInternalProfileItem }
     }
 
     /**
@@ -504,18 +624,41 @@ class VaultRepository(
                 val dto = json.decodeFromString<CipherDto>(entity.encryptedJson)
                 VaultCipherCodec.decryptCipher(dto, key)
             }.getOrNull()
-        }.filter { !it.isDeleted && it.type == CipherType.LOGIN && it.login != null }
+        }.filter { !it.isDeleted && !it.isInternalProfileItem && it.type == CipherType.LOGIN && it.login != null }
 
         val webDomain = if (origin.startsWith("http", ignoreCase = true)) origin else "https://$cleanRp"
-        val existing = allItems.firstOrNull { item ->
-            val login = item.login ?: return@firstOrNull false
-            val matchesSite = login.uris.any { DomainMatcher.scoreMatch(it.uri, webDomain, packageName) > 0 } ||
+        val siteMatches = allItems.filter { item ->
+            val login = item.login ?: return@filter false
+            login.uris.any { DomainMatcher.scoreMatch(it.uri, webDomain, packageName) > 0 } ||
                 login.fido2Credentials.any { it.rpId.lowercase() == cleanRp }
-            val userMatches = normalizedUser.isNotEmpty() &&
-                (login.username.trim().lowercase() == normalizedUser ||
-                    login.fido2Credentials.any { it.userName?.trim()?.lowercase() == normalizedUser })
-            matchesSite && userMatches
         }
+
+        fun identifiersOf(item: VaultItem): List<String> = buildList {
+            item.login?.username?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }?.let(::add)
+            for (f in item.fields) {
+                if (f.name.trim().lowercase() in setOf("email", "e-mail", "username", "user") &&
+                    f.value.isNotBlank()
+                ) {
+                    add(f.value.trim().lowercase())
+                }
+            }
+            item.login?.fido2Credentials?.forEach {
+                it.userName?.trim()?.lowercase()?.takeIf { u -> u.isNotEmpty() }?.let(::add)
+            }
+        }
+
+        val inputLocal = normalizedUser.substringBefore('@')
+        val displayLower = credential.userDisplayName?.trim()?.lowercase().orEmpty()
+        val existing = siteMatches.firstOrNull { item ->
+            normalizedUser.isNotEmpty() && normalizedUser in identifiersOf(item)
+        } ?: siteMatches.firstOrNull { item ->
+            (inputLocal.isNotEmpty() || displayLower.isNotEmpty()) &&
+                identifiersOf(item).any { id ->
+                    val idLocal = id.substringBefore('@')
+                    (inputLocal.isNotEmpty() && idLocal == inputLocal) ||
+                        (displayLower.isNotEmpty() && (id == displayLower || idLocal == displayLower))
+                }
+        } ?: if (siteMatches.size == 1) siteMatches.first() else null
 
         val targetItem = if (existing != null && existing.login != null) {
             val filtered = existing.login.fido2Credentials.filterNot {

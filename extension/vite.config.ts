@@ -13,7 +13,6 @@ export default defineConfig({
     rollupOptions: {
       input: {
         popup: path.resolve(import.meta.dirname, "popup.html"),
-        sidepanel: path.resolve(import.meta.dirname, "sidepanel.html"),
       },
     },
   },

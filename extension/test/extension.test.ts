@@ -4,13 +4,22 @@ import { CipherType, type CipherPayload } from "@openvault/crypto-core";
 import { describe, expect, it } from "vitest";
 import {
   extractDisplayDomain,
+  findMatchingLoginCipher,
   findMatchingLogins,
+  findPasskeyTargetLoginCiphers,
   getBaseDomain,
   parseHostname,
   scoreUriMatch,
 } from "../src/shared/domain-match.js";
 import { classifyField, formatTotpCode, maskCardNumber } from "../src/shared/field-classifier.js";
 import { isValidRpIdForOrigin } from "../src/shared/passkey-bridge.js";
+import {
+  RECOVERY_CODES_SLOT_COUNT,
+  applyRecoveryCodesPaste,
+  parseRecoveryCodesPaste,
+  parseRecoveryCodesToSlots,
+  serializeRecoveryCodesSlots,
+} from "../src/shared/recovery-codes.js";
 
 const EXT_ROOT = path.resolve(import.meta.dirname, "..");
 
@@ -78,13 +87,13 @@ describe("OpenVault Extension — Domain & URI Matching", () => {
 });
 
 describe("OpenVault Extension — Manifest V3 & Asset Integrity", () => {
-  it("declares valid Manifest V3 with real PNG icons of exact pixel dimensions and no inline scripts", () => {
+  it("declares valid Manifest V3 with real PNG icons (including locked icons) and no Side Panel", () => {
     const manifestPath = path.join(EXT_ROOT, "public/manifest.json");
     const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as {
       manifest_version: number;
       icons: Record<string, string>;
       action: { default_popup?: string; default_icon?: Record<string, string> };
-      side_panel: { default_path: string };
+      side_panel?: unknown;
       background: { service_worker: string };
       permissions: string[];
       content_scripts: Array<{
@@ -99,14 +108,15 @@ describe("OpenVault Extension — Manifest V3 & Asset Integrity", () => {
     expect(manifest.manifest_version).toBe(3);
     expect(manifest.background.service_worker).toBe("background.js");
     expect(manifest.action.default_popup).toBe("popup.html");
-    expect(manifest.side_panel.default_path).toBe("sidepanel.html");
+    expect(manifest.side_panel).toBeUndefined();
+    expect(manifest.permissions).not.toContain("sidePanel");
     expect(manifest.permissions).toContain("tabs");
-    expect(manifest.permissions).toContain("sidePanel");
     expect(manifest.permissions).toContain("offscreen");
     expect(manifest.permissions).toContain("privacy");
     expect(manifest.permissions).toContain("webRequest");
     expect(manifest.permissions).toContain("webRequestAuthProvider");
     expect(manifest.content_security_policy.extension_pages).toContain("wasm-unsafe-eval");
+    expect(fs.existsSync(path.join(EXT_ROOT, "sidepanel.html"))).toBe(false);
 
     // Verify MAIN-world WebAuthn Passkey interceptor + ISOLATED document_start bridge
     const mainScript = manifest.content_scripts.find(
@@ -128,26 +138,24 @@ describe("OpenVault Extension — Manifest V3 & Asset Integrity", () => {
     expect(offscreenHtml).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>/i);
     expect(fs.existsSync(path.join(EXT_ROOT, "public/offscreen.js"))).toBe(true);
 
-    // Verify every icon exists and has valid PNG header + exact declared dimensions
-    for (const [sizeStr, relPath] of Object.entries(manifest.icons)) {
-      const expected = Number(sizeStr);
-      const absPath = path.join(EXT_ROOT, "public", relPath);
-      expect(fs.existsSync(absPath)).toBe(true);
-      const buf = fs.readFileSync(absPath);
-      // PNG signature: 89 50 4E 47 0D 0A 1A 0A
-      expect(buf.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
-      const width = buf.readUInt32BE(16);
-      const height = buf.readUInt32BE(20);
-      expect(width).toBe(expected);
-      expect(height).toBe(expected);
+    // Verify every unlocked & locked icon exists and has valid PNG header + exact declared dimensions
+    const allIconSets = [manifest.icons, manifest.action.default_icon ?? {}];
+    for (const iconSet of allIconSets) {
+      for (const [sizeStr, relPath] of Object.entries(iconSet)) {
+        const expected = Number(sizeStr);
+        const absPath = path.join(EXT_ROOT, "public", relPath);
+        expect(fs.existsSync(absPath)).toBe(true);
+        const buf = fs.readFileSync(absPath);
+        expect(buf.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
+        expect(buf.readUInt32BE(16)).toBe(expected);
+        expect(buf.readUInt32BE(20)).toBe(expected);
+      }
     }
 
-    // Verify HTML entrypoints have zero inline scripts or inline event handlers
-    for (const htmlFile of ["popup.html", "sidepanel.html"]) {
-      const html = fs.readFileSync(path.join(EXT_ROOT, htmlFile), "utf8");
-      expect(html).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>/i);
-      expect(html).not.toMatch(/\son(click|load|submit|change)=/i);
-    }
+    // Verify popup.html has zero inline scripts or inline event handlers
+    const html = fs.readFileSync(path.join(EXT_ROOT, "popup.html"), "utf8");
+    expect(html).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>/i);
+    expect(html).not.toMatch(/\son(click|load|submit|change)=/i);
   });
 });
 
@@ -224,5 +232,84 @@ describe("OpenVault Extension — WebAuthn Passkey RP ID Security Validation", (
     expect(isValidRpIdForOrigin("google.com", "https://github.com")).toBe(false);
     expect(isValidRpIdForOrigin("sub.github.com", "https://github.com")).toBe(false);
     expect(isValidRpIdForOrigin("", "https://github.com")).toBe(false);
+  });
+});
+
+describe("OpenVault Extension — Recovery Codes 20-Slot Auto-Paste & Existing Account Update Matching", () => {
+  it("parses numbered lists, 8-digit Google codes, and leading zeros into up to 20 x 4-char slots", () => {
+    const pasted = [
+      "1. 0421 8899",
+      "2) 1234-5678",
+      "3. 00078910",
+      "4. ABCD EFGH",
+    ].join("\n");
+
+    const chunks = parseRecoveryCodesPaste(pasted);
+    expect(chunks).toEqual(["0421", "8899", "1234", "5678", "0007", "8910", "ABCD", "EFGH"]);
+
+    const applied = applyRecoveryCodesPaste(Array(RECOVERY_CODES_SLOT_COUNT).fill(""), 0, pasted, false);
+    expect(applied.slots[0]).toBe("0421");
+    expect(applied.slots[7]).toBe("EFGH");
+    expect(applied.slots[8]).toBe("");
+    expect(applied.nextFocusIndex).toBe(8);
+
+    const serialized = serializeRecoveryCodesSlots(applied.slots);
+    const roundTripped = parseRecoveryCodesToSlots(serialized);
+    expect(roundTripped.slice(0, 8)).toEqual(chunks);
+    expect(roundTripped).toHaveLength(RECOVERY_CODES_SLOT_COUNT);
+  });
+
+  it("matches existing logins for password updates and passkey registration via local-part and single-account fallback", () => {
+    const ciphers: CipherPayload[] = [
+      {
+        id: "gh-1",
+        type: CipherType.Login,
+        name: "GitHub Main",
+        login: {
+          username: "octocat@example.com",
+          password: "old-password",
+          uris: [{ uri: "https://github.com/login" }],
+        },
+      },
+      {
+        id: "work-1",
+        type: CipherType.Login,
+        name: "Work Portal",
+        login: {
+          username: "staff-user",
+          password: "pw",
+          uris: [{ uri: "https://portal.company.dev" }],
+        },
+      },
+    ];
+
+    // Local-part match ("octocat" <-> "octocat@example.com")
+    expect(
+      findMatchingLoginCipher(ciphers, "https://github.com/settings/security", "octocat")?.id,
+    ).toBe("gh-1");
+
+    // Password-only change form without username on a single-login domain
+    expect(
+      findMatchingLoginCipher(ciphers, "https://github.com/settings/password", "")?.id,
+    ).toBe("gh-1");
+
+    // Passkey registration where site passes handle/local-part or completely different label for single login
+    const pkMatchLocal = findPasskeyTargetLoginCiphers(
+      ciphers,
+      "https://github.com",
+      "github.com",
+      "octocat",
+      "The Octocat",
+    );
+    expect(pkMatchLocal.recommendedId).toBe("gh-1");
+
+    const pkSingleFallback = findPasskeyTargetLoginCiphers(
+      ciphers,
+      "https://portal.company.dev",
+      "company.dev",
+      "new-handle-id",
+      null,
+    );
+    expect(pkSingleFallback.recommendedId).toBe("work-1");
   });
 });

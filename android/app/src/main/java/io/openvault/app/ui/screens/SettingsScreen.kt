@@ -3,6 +3,7 @@ package io.openvault.app.ui.screens
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.provider.OpenableColumns
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -36,6 +37,7 @@ import androidx.compose.material.icons.rounded.AutoFixHigh
 import androidx.compose.material.icons.rounded.CameraAlt
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudUpload
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.Lock
@@ -44,6 +46,7 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.UploadFile
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -99,7 +102,9 @@ import io.openvault.app.ui.components.OpenVaultBrandCrest
 import io.openvault.app.ui.theme.LocalFoldableLayout
 import io.openvault.app.ui.theme.LocalOpenVaultColors
 import io.openvault.app.ui.theme.LocalStrings
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -117,10 +122,10 @@ private enum class SettingsPage {
 }
 
 /**
- * Clean Hierarchical 1Password 8 Android Settings (matching Images 10–15):
- * - Root Menu with colorful circular pastel icons & short titles
- * - Focused sub-pages: Accounts (with avatar photo picker), General, Security, Privacy,
- *   Autofill (visual setup guide + Passkey provider), Backup & R2, Advanced (Language + Allow screenshots), About
+ * Clean Hierarchical 1Password 8 Android Settings:
+ * - Root Menu with colorful circular pastel icons & clear titles
+ * - Focused sub-pages: Accounts (E2EE synced avatar), General, Security, Privacy,
+ *   Autofill (visual setup guide + Passkey provider), Backup & Import/Export, Advanced, About
  */
 @Composable
 fun SettingsScreen(
@@ -161,18 +166,92 @@ fun SettingsScreen(
 
     var backupBusy by remember { mutableStateOf(false) }
     var backups by remember { mutableStateOf<List<R2BackupItemDto>>(emptyList()) }
+    var importExportBusy by remember { mutableStateOf(false) }
+    var exportEncryptedMode by remember { mutableStateOf(true) }
+    var showPlaintextExportWarning by remember { mutableStateOf(false) }
 
     val avatarPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
     ) { uri ->
         if (uri != null) {
             scope.launch {
-                val b64 = IconLoader.compressPickedImageToBase64(context, uri, targetPx = 160, quality = 82)
+                val b64 = IconLoader.compressPickedImageToBase64(context, uri, targetPx = 144, quality = 80)
                 if (b64 != null) {
-                    repository.preferences.setAccountAvatarBase64(b64)
-                    onShowMessage(if (s.isVi) "Đã cập nhật ảnh đại diện!" else "Account avatar updated!")
+                    repository.saveAccountAvatar(b64)
+                    onShowMessage(if (s.isVi) "Đã Cập Nhật Ảnh Đại Diện!" else "Account Avatar Updated!")
                 } else {
-                    onShowMessage(if (s.isVi) "Không thể đọc ảnh." else "Could not process image.")
+                    onShowMessage(if (s.isVi) "Không Thể Đọc Ảnh." else "Could Not Process Image.")
+                }
+            }
+        }
+    }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            importExportBusy = true
+            scope.launch {
+                runCatching {
+                    val (fileName, bytes) = withContext(Dispatchers.IO) {
+                        var displayName = "import.json"
+                        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+                            ?.use { cursor ->
+                                if (cursor.moveToFirst()) {
+                                    val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                                    if (idx >= 0) {
+                                        cursor.getString(idx)?.takeIf { it.isNotBlank() }?.let { displayName = it }
+                                    }
+                                }
+                            }
+                        val data = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                            ?: error(if (s.isVi) "Không Thể Đọc Tệp Đã Chọn." else "Could Not Read Selected File.")
+                        displayName to data
+                    }
+                    repository.importVaultBytes(bytes, fileName)
+                }.onSuccess { summary ->
+                    importExportBusy = false
+                    if (summary.importedCiphers == 0 && summary.importedFolders == 0) {
+                        onShowMessage(
+                            if (s.isVi) "Không Tìm Thấy Mục Hợp Lệ Để Nhập." else "No Valid Items Found To Import.",
+                        )
+                    } else {
+                        onShowMessage(
+                            if (s.isVi) {
+                                "Đã Nhập ${summary.importedCiphers} Mục & ${summary.importedFolders} Thư Mục (${summary.format})"
+                            } else {
+                                "Imported ${summary.importedCiphers} Items & ${summary.importedFolders} Folders (${summary.format})"
+                            },
+                        )
+                    }
+                }.onFailure { err ->
+                    importExportBusy = false
+                    onShowMessage(err.message ?: if (s.isVi) "Nhập Dữ Liệu Thất Bại." else "Import Failed.")
+                }
+            }
+        }
+    }
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri ->
+        if (uri != null) {
+            importExportBusy = true
+            scope.launch {
+                runCatching {
+                    val payload = repository.exportVaultJson(encrypted = exportEncryptedMode)
+                    withContext(Dispatchers.IO) {
+                        context.contentResolver.openOutputStream(uri)?.use { out ->
+                            out.write(payload.toByteArray(Charsets.UTF_8))
+                            out.flush()
+                        } ?: error(if (s.isVi) "Không Thể Ghi Tệp Xuất." else "Could Not Write Export File.")
+                    }
+                }.onSuccess {
+                    importExportBusy = false
+                    onShowMessage(if (s.isVi) "Đã Xuất Dữ Liệu Kho Thành Công!" else "Vault Exported Successfully!")
+                }.onFailure { err ->
+                    importExportBusy = false
+                    onShowMessage(err.message ?: if (s.isVi) "Xuất Dữ Liệu Thất Bại." else "Export Failed.")
                 }
             }
         }
@@ -371,16 +450,21 @@ fun SettingsScreen(
                                     shape = RoundedCornerShape(10.dp),
                                     modifier = Modifier.weight(1f),
                                 ) {
-                                    Icon(Icons.Rounded.CameraAlt, contentDescription = null, tint = c.accent, modifier = Modifier.size(17.dp))
+                                    Icon(Icons.Rounded.CameraAlt, contentDescription = null, tint = c.accent, modifier = Modifier.size(19.dp))
                                     Spacer(Modifier.size(6.dp))
-                                    Text(s.changeAvatar, color = c.textPrimary, fontSize = 13.5.sp)
+                                    Text(s.changeAvatar, color = c.textPrimary, fontSize = 14.5.sp)
                                 }
                                 if (!settings.accountAvatarBase64.isNullOrBlank()) {
                                     OutlinedButton(
-                                        onClick = { repository.preferences.setAccountAvatarBase64(null) },
+                                        onClick = {
+                                            scope.launch {
+                                                repository.saveAccountAvatar(null)
+                                                onShowMessage(if (s.isVi) "Đã Xóa Ảnh Đại Diện." else "Account Avatar Removed.")
+                                            }
+                                        },
                                         shape = RoundedCornerShape(10.dp),
                                     ) {
-                                        Text(s.removeAvatar, color = c.danger, fontSize = 13.5.sp)
+                                        Text(s.removeAvatar, color = c.danger, fontSize = 14.5.sp)
                                     }
                                 }
                             }
@@ -686,14 +770,79 @@ fun SettingsScreen(
                     }
 
                     SettingsPage.BACKUP -> {
+                        val exportDay = remember { SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()) }
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = hPad, vertical = 18.dp),
                             verticalArrangement = Arrangement.spacedBy(14.dp),
                         ) {
-                            Text(s.r2BackupTitle, color = c.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                            Text(s.r2BackupSub, color = c.textSecondary, fontSize = 13.5.sp)
+                            Text(s.importExportTitle, color = c.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+
+                            Button(
+                                onClick = {
+                                    importLauncher.launch(
+                                        arrayOf(
+                                            "application/json",
+                                            "application/zip",
+                                            "text/csv",
+                                            "text/comma-separated-values",
+                                            "*/*",
+                                        ),
+                                    )
+                                },
+                                enabled = !importExportBusy,
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = c.accentButtonBg, contentColor = Color.White),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(46.dp),
+                            ) {
+                                if (importExportBusy) {
+                                    CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                                } else {
+                                    Icon(Icons.Rounded.UploadFile, contentDescription = null, modifier = Modifier.size(20.dp))
+                                    Spacer(Modifier.size(8.dp))
+                                    Text(s.importVaultBtn, fontSize = 15.5.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                            Text(s.importVaultSub, color = c.textSecondary, fontSize = 13.5.sp)
+
+                            OutlinedButton(
+                                onClick = {
+                                    exportEncryptedMode = true
+                                    exportLauncher.launch("openvault-encrypted-backup-$exportDay.json")
+                                },
+                                enabled = !importExportBusy,
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(46.dp),
+                            ) {
+                                Icon(Icons.Rounded.Download, contentDescription = null, tint = c.accent, modifier = Modifier.size(20.dp))
+                                Spacer(Modifier.size(8.dp))
+                                Text(s.exportEncryptedBtn, color = c.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                            }
+                            Text(s.exportEncryptedSub, color = c.textSecondary, fontSize = 13.sp)
+
+                            OutlinedButton(
+                                onClick = { showPlaintextExportWarning = true },
+                                enabled = !importExportBusy,
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(46.dp),
+                            ) {
+                                Icon(Icons.Rounded.Download, contentDescription = null, tint = c.danger, modifier = Modifier.size(20.dp))
+                                Spacer(Modifier.size(8.dp))
+                                Text(s.exportPlaintextBtn, color = c.danger, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                            }
+                            Text(s.exportPlaintextSub, color = c.textSecondary, fontSize = 13.sp)
+
+                            HorizontalDivider(color = c.divider, thickness = 0.8.dp, modifier = Modifier.padding(vertical = 4.dp))
+
+                            Text(s.r2BackupTitle, color = c.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                            Text(s.r2BackupSub, color = c.textSecondary, fontSize = 14.sp)
 
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 Button(
@@ -702,7 +851,7 @@ fun SettingsScreen(
                                         scope.launch {
                                             runCatching { repository.triggerR2Backup() }
                                                 .onSuccess { res ->
-                                                    onShowMessage("R2 snapshot created (${res.ciphersCount} items)!")
+                                                    onShowMessage("R2 Snapshot Created (${res.ciphersCount} Items)!")
                                                     runCatching { backups = repository.listR2Backups() }
                                                 }
                                                 .onFailure { onShowMessage("${it.message}") }
@@ -737,7 +886,7 @@ fun SettingsScreen(
                                     Text(
                                         text = "• ${b.key.substringAfterLast('/')} (${b.size / 1024} KB)",
                                         color = c.textSecondary,
-                                        fontSize = 13.sp,
+                                        fontSize = 13.5.sp,
                                     )
                                 }
                             }
@@ -1060,6 +1209,32 @@ fun SettingsScreen(
             },
         )
     }
+
+    if (showPlaintextExportWarning) {
+        val exportDay = remember { SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()) }
+        AlertDialog(
+            onDismissRequest = { showPlaintextExportWarning = false },
+            containerColor = c.surfaceElevated,
+            title = { Text(s.exportPlaintextWarnTitle, color = c.textPrimary, fontWeight = FontWeight.Bold) },
+            text = { Text(s.exportPlaintextWarnMsg, color = c.textSecondary, fontSize = 14.5.sp, lineHeight = 20.sp) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showPlaintextExportWarning = false
+                        exportEncryptedMode = false
+                        exportLauncher.launch("openvault-bitwarden-export-$exportDay.json")
+                    },
+                ) {
+                    Text(s.exportPlaintextBtn, color = c.danger, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPlaintextExportWarning = false }) {
+                    Text(s.cancel, color = c.textSecondary)
+                }
+            },
+        )
+    }
 }
 
 @Composable
@@ -1190,12 +1365,12 @@ private fun SettingsRootRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = hPad, vertical = 14.dp),
+            .padding(horizontal = hPad, vertical = 15.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        CategoryIconBadge(icon = icon, tint = iconTint, background = iconBg, size = 38.dp, circular = true)
-        Text(text = title, color = c.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Normal)
+        CategoryIconBadge(icon = icon, tint = iconTint, background = iconBg, size = 40.dp, circular = true)
+        Text(text = title, color = c.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.Normal)
     }
 }
 
@@ -1205,7 +1380,7 @@ private fun SettingsSectionCaption(text: String, hPad: Dp) {
     Text(
         text = text,
         color = c.textSecondary,
-        fontSize = 12.5.sp,
+        fontSize = 13.sp,
         fontWeight = FontWeight.SemiBold,
         letterSpacing = 0.8.sp,
         modifier = Modifier.padding(start = hPad, end = hPad, top = 16.dp, bottom = 6.dp),
@@ -1227,8 +1402,8 @@ private fun SettingsValueRow(
             .padding(horizontal = hPad, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        Text(text = title, color = c.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Normal)
-        Text(text = value, color = c.textSecondary, fontSize = 13.5.sp)
+        Text(text = title, color = c.textPrimary, fontSize = 16.5.sp, fontWeight = FontWeight.Normal)
+        Text(text = value, color = c.textSecondary, fontSize = 14.sp)
     }
 }
 
@@ -1257,7 +1432,7 @@ private fun SettingsToggleItem(
             Text(
                 text = title,
                 color = if (enabled) c.textPrimary else c.textMuted,
-                fontSize = 16.sp,
+                fontSize = 16.5.sp,
                 modifier = Modifier.weight(1f),
             )
             Switch(checked = checked, enabled = enabled, onCheckedChange = onCheckedChange)
@@ -1266,8 +1441,8 @@ private fun SettingsToggleItem(
             Text(
                 text = subtitle,
                 color = c.textSecondary,
-                fontSize = 13.sp,
-                lineHeight = 18.sp,
+                fontSize = 13.5.sp,
+                lineHeight = 19.sp,
             )
         }
     }

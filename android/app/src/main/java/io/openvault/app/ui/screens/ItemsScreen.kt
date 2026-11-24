@@ -1,5 +1,6 @@
 package io.openvault.app.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -15,10 +16,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Badge
 import androidx.compose.material.icons.rounded.CreditCard
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Description
@@ -28,9 +31,11 @@ import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Inventory2
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.QrCode2
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -38,6 +43,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,6 +57,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.openvault.app.core.crypto.CipherType
+import io.openvault.app.core.crypto.SecureNoteCategory
 import io.openvault.app.core.crypto.VaultFolder
 import io.openvault.app.core.crypto.VaultItem
 import io.openvault.app.ui.components.CategoryIconBadge
@@ -58,6 +65,7 @@ import io.openvault.app.ui.components.OnePassCard
 import io.openvault.app.ui.components.OnePassItemRow
 import io.openvault.app.ui.components.OnePassSearchModeView
 import io.openvault.app.ui.components.OnePassTopSearchBar
+import io.openvault.app.ui.components.TrackFabScrollEffect
 import io.openvault.app.ui.theme.LocalFoldableLayout
 import io.openvault.app.ui.theme.LocalOpenVaultColors
 import io.openvault.app.ui.theme.LocalStrings
@@ -68,6 +76,7 @@ sealed interface ItemsScope {
     data object Favorites : ItemsScope
     data object Trash : ItemsScope
     data class Category(val type: CipherType) : ItemsScope
+    data class NoteSubCategory(val category: SecureNoteCategory) : ItemsScope
     data class Folder(val folder: VaultFolder) : ItemsScope
 }
 
@@ -77,7 +86,9 @@ fun ItemsScreen(
     items: List<VaultItem>,
     folders: List<VaultFolder>,
     isSyncing: Boolean,
+    isForeground: Boolean = true,
     selectedItemId: String? = null,
+    onFabExpandedChange: (Boolean) -> Unit = {},
     onOpenSettings: () -> Unit,
     onOpenGenerator: () -> Unit,
     onOpenQrScanner: () -> Unit,
@@ -98,6 +109,25 @@ fun ItemsScreen(
     var showNewFolderDialog by remember { mutableStateOf(false) }
     var newFolderName by remember { mutableStateOf("") }
 
+    val rootListState = rememberLazyListState()
+    val scopedListState = rememberLazyListState()
+
+    // Ensure system edge-back from any sub-category, folder, All Items, Favorites or Trash returns to Items Root cleanly
+    BackHandler(enabled = isForeground && !searchActive && scope != ItemsScope.Root) {
+        scope = ItemsScope.Root
+        query = ""
+    }
+
+    LaunchedEffect(scope) {
+        onFabExpandedChange(true)
+    }
+
+    if (scope == ItemsScope.Root && query.isBlank()) {
+        TrackFabScrollEffect(listState = rootListState, onExpandedChange = onFabExpandedChange)
+    } else {
+        TrackFabScrollEffect(listState = scopedListState, onExpandedChange = onFabExpandedChange)
+    }
+
     val activeItems = remember(items) { items.filter { !it.isDeleted } }
     val trashItems = remember(items) { items.filter { it.isDeleted } }
 
@@ -107,6 +137,7 @@ fun ItemsScreen(
         ItemsScope.Favorites -> s.favorites
         ItemsScope.Trash -> s.recentlyDeleted
         is ItemsScope.Category -> sc.type.label(s.isVi)
+        is ItemsScope.NoteSubCategory -> sc.category.label(s.isVi)
         is ItemsScope.Folder -> sc.folder.name
     }
 
@@ -117,6 +148,9 @@ fun ItemsScreen(
             ItemsScope.Favorites -> activeItems.filter { it.favorite }
             ItemsScope.Trash -> trashItems
             is ItemsScope.Category -> activeItems.filter { it.type == sc.type }
+            is ItemsScope.NoteSubCategory -> activeItems.filter {
+                it.type == CipherType.SECURE_NOTE && it.secureNoteCategory == sc.category
+            }
             is ItemsScope.Folder -> activeItems.filter { it.folderId == sc.folder.id }
         }
         if (q.isEmpty()) base
@@ -186,12 +220,13 @@ fun ItemsScreen(
                             scope = ItemsScope.Root
                             query = ""
                         },
-                        modifier = Modifier.size(36.dp),
+                        modifier = Modifier.size(40.dp),
                     ) {
                         Icon(
                             Icons.AutoMirrored.Rounded.ArrowBack,
                             contentDescription = s.back,
                             tint = c.textPrimary,
+                            modifier = Modifier.size(24.dp),
                         )
                     }
                 }
@@ -202,219 +237,253 @@ fun ItemsScreen(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.TopCenter,
         ) {
-        if (scope == ItemsScope.Root && query.isBlank()) {
-            LazyColumn(
-                modifier = Modifier
-                    .widthIn(max = 680.dp)
-                    .fillMaxSize(),
-                contentPadding = PaddingValues(
-                    start = fold.horizontalPadding,
-                    end = fold.horizontalPadding,
-                    top = 4.dp,
-                    bottom = bottomInset,
-                ),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                item {
-                    OnePassCard(
-                        modifier = Modifier.fillMaxWidth(),
-                        padding = PaddingValues(vertical = 4.dp),
-                    ) {
-                        DirectoryRow(
-                            icon = Icons.Rounded.Inventory2,
-                            iconTint = Color(0xFF1A1C20),
-                            iconBg = Color(0xFFA7B1C2),
-                            title = s.allItems,
-                            count = activeItems.size,
-                            onClick = { scope = ItemsScope.AllItems },
-                        )
-                    }
-                }
-
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        CollapsibleSectionHeader(
-                            title = s.categories,
-                            expanded = categoriesExpanded,
-                            onToggle = { categoriesExpanded = !categoriesExpanded },
-                        )
-                        AnimatedVisibility(visible = categoriesExpanded) {
-                            OnePassCard(modifier = Modifier.fillMaxWidth(), padding = PaddingValues(vertical = 6.dp)) {
-                                Column {
-                                    DirectoryRow(
-                                        icon = Icons.Rounded.Key,
-                                        iconTint = Color(0xFF042F2E),
-                                        iconBg = Color(0xFF5EEAD4),
-                                        title = s.logins,
-                                        count = activeItems.count { it.type == CipherType.LOGIN },
-                                        onClick = { scope = ItemsScope.Category(CipherType.LOGIN) },
-                                    )
-                                    DirectoryRow(
-                                        icon = Icons.Rounded.QrCode2,
-                                        iconTint = Color.White,
-                                        iconBg = Color(0xFF6366F1),
-                                        title = s.twoFactorCodes,
-                                        count = activeItems.count { it.hasTotp },
-                                        onClick = onOpenTotpHub,
-                                    )
-                                    DirectoryRow(
-                                        icon = Icons.Rounded.CreditCard,
-                                        iconTint = Color.White,
-                                        iconBg = Color(0xFF0284C7),
-                                        title = s.creditCards,
-                                        count = activeItems.count { it.type == CipherType.CARD },
-                                        onClick = { scope = ItemsScope.Category(CipherType.CARD) },
-                                    )
-                                    DirectoryRow(
-                                        icon = Icons.Rounded.Description,
-                                        iconTint = Color(0xFF2E1E04),
-                                        iconBg = Color(0xFFFBBF24),
-                                        title = s.secureNotes,
-                                        count = activeItems.count { it.type == CipherType.SECURE_NOTE },
-                                        onClick = { scope = ItemsScope.Category(CipherType.SECURE_NOTE) },
-                                    )
-                                    DirectoryRow(
-                                        icon = Icons.Rounded.Person,
-                                        iconTint = Color(0xFF042F1A),
-                                        iconBg = Color(0xFF4ADE80),
-                                        title = s.identities,
-                                        count = activeItems.count { it.type == CipherType.IDENTITY },
-                                        onClick = { scope = ItemsScope.Category(CipherType.IDENTITY) },
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        CollapsibleSectionHeader(
-                            title = s.vaultsAndFolders,
-                            expanded = vaultsExpanded,
-                            onToggle = { vaultsExpanded = !vaultsExpanded },
-                        )
-                        AnimatedVisibility(visible = vaultsExpanded) {
-                            OnePassCard(modifier = Modifier.fillMaxWidth(), padding = PaddingValues(vertical = 6.dp)) {
-                                Column {
-                                    DirectoryRow(
-                                        icon = Icons.Rounded.Shield,
-                                        iconTint = Color(0xFF0D1E36),
-                                        iconBg = Color(0xFF93C5FD),
-                                        title = s.personalVault,
-                                        count = activeItems.size,
-                                        circular = true,
-                                        onClick = { scope = ItemsScope.AllItems },
-                                    )
-                                    folders.forEach { folder ->
-                                        DirectoryRow(
-                                            icon = Icons.Rounded.Folder,
-                                            iconTint = Color.White,
-                                            iconBg = Color(0xFF475569),
-                                            title = folder.name,
-                                            count = activeItems.count { it.folderId == folder.id },
-                                            onClick = { scope = ItemsScope.Folder(folder) },
-                                        )
-                                    }
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clickable { showNewFolderDialog = true }
-                                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                                    ) {
-                                        Box(modifier = Modifier.size(34.dp), contentAlignment = Alignment.Center) {
-                                            Icon(Icons.Rounded.Add, contentDescription = null, tint = c.navActiveContent, modifier = Modifier.size(22.dp))
-                                        }
-                                        Text(
-                                            text = s.newFolder,
-                                            color = c.navActiveContent,
-                                            fontSize = 15.5.sp,
-                                            fontWeight = FontWeight.Medium,
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                item {
-                    OnePassCard(modifier = Modifier.fillMaxWidth(), padding = PaddingValues(vertical = 6.dp)) {
-                        Column {
-                            DirectoryRow(
-                                icon = Icons.Rounded.Star,
-                                iconTint = Color(0xFF1F1604),
-                                iconBg = Color(0xFFFBBF24),
-                                title = s.favorites,
-                                count = activeItems.count { it.favorite },
-                                circular = true,
-                                onClick = { scope = ItemsScope.Favorites },
-                            )
-                            DirectoryRow(
-                                icon = Icons.Rounded.DeleteOutline,
-                                iconTint = Color(0xFF1A1C20),
-                                iconBg = Color(0xFF9CA3AF),
-                                title = s.recentlyDeleted,
-                                count = trashItems.size,
-                                onClick = { scope = ItemsScope.Trash },
-                            )
-                        }
-                    }
-                }
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .widthIn(max = 680.dp)
-                    .fillMaxSize(),
-                contentPadding = PaddingValues(
-                    start = fold.horizontalPadding,
-                    end = fold.horizontalPadding,
-                    top = 4.dp,
-                    bottom = bottomInset,
-                ),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                if (scope != ItemsScope.Root) {
+            if (scope == ItemsScope.Root && query.isBlank()) {
+                LazyColumn(
+                    state = rootListState,
+                    modifier = Modifier
+                        .widthIn(max = 680.dp)
+                        .fillMaxSize(),
+                    contentPadding = PaddingValues(
+                        start = fold.horizontalPadding,
+                        end = fold.horizontalPadding,
+                        top = 4.dp,
+                        bottom = bottomInset,
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
                     item {
-                        Text(
-                            text = "$listTitle (${filteredList.size})",
-                            color = c.textPrimary,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-                        )
-                    }
-                }
-
-                item {
-                    if (filteredList.isEmpty()) {
-                        OnePassCard(modifier = Modifier.fillMaxWidth()) {
-                            Text(
-                                text = "${s.emptyFolderPrefix} \"$listTitle\".",
-                                color = c.textSecondary,
-                                fontSize = 14.5.sp,
+                        OnePassCard(
+                            modifier = Modifier.fillMaxWidth(),
+                            padding = PaddingValues(vertical = 4.dp),
+                        ) {
+                            DirectoryRow(
+                                icon = Icons.Rounded.Inventory2,
+                                iconTint = Color(0xFF1A1C20),
+                                iconBg = Color(0xFFA7B1C2),
+                                title = s.allItems,
+                                count = activeItems.size,
+                                onClick = { scope = ItemsScope.AllItems },
                             )
                         }
-                    } else {
+                    }
+
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            CollapsibleSectionHeader(
+                                title = s.categories,
+                                expanded = categoriesExpanded,
+                                onToggle = { categoriesExpanded = !categoriesExpanded },
+                            )
+                            AnimatedVisibility(visible = categoriesExpanded) {
+                                OnePassCard(modifier = Modifier.fillMaxWidth(), padding = PaddingValues(vertical = 6.dp)) {
+                                    Column {
+                                        DirectoryRow(
+                                            icon = Icons.Rounded.Key,
+                                            iconTint = Color(0xFF042F2E),
+                                            iconBg = Color(0xFF5EEAD4),
+                                            title = s.logins,
+                                            count = activeItems.count { it.type == CipherType.LOGIN },
+                                            onClick = { scope = ItemsScope.Category(CipherType.LOGIN) },
+                                        )
+                                        DirectoryRow(
+                                            icon = Icons.Rounded.QrCode2,
+                                            iconTint = Color.White,
+                                            iconBg = Color(0xFF6366F1),
+                                            title = s.twoFactorCodes,
+                                            count = activeItems.count { it.hasTotp },
+                                            onClick = onOpenTotpHub,
+                                        )
+                                        DirectoryRow(
+                                            icon = Icons.Rounded.CreditCard,
+                                            iconTint = Color.White,
+                                            iconBg = Color(0xFF0284C7),
+                                            title = s.creditCards,
+                                            count = activeItems.count { it.type == CipherType.CARD },
+                                            onClick = { scope = ItemsScope.Category(CipherType.CARD) },
+                                        )
+                                        DirectoryRow(
+                                            icon = Icons.Rounded.Terminal,
+                                            iconTint = Color(0xFF075985),
+                                            iconBg = Color(0xFFBAE6FD),
+                                            title = s.categorySoftware,
+                                            count = activeItems.count {
+                                                it.type == CipherType.SECURE_NOTE && it.secureNoteCategory == SecureNoteCategory.SOFTWARE
+                                            },
+                                            onClick = { scope = ItemsScope.NoteSubCategory(SecureNoteCategory.SOFTWARE) },
+                                        )
+                                        DirectoryRow(
+                                            icon = Icons.Rounded.Description,
+                                            iconTint = Color(0xFF2E1E04),
+                                            iconBg = Color(0xFFFBBF24),
+                                            title = s.categoryNotes,
+                                            count = activeItems.count {
+                                                it.type == CipherType.SECURE_NOTE && it.secureNoteCategory == SecureNoteCategory.NOTE
+                                            },
+                                            onClick = { scope = ItemsScope.NoteSubCategory(SecureNoteCategory.NOTE) },
+                                        )
+                                        DirectoryRow(
+                                            icon = Icons.Rounded.Public,
+                                            iconTint = Color(0xFF4C1D95),
+                                            iconBg = Color(0xFFDDD6FE),
+                                            title = s.categoryPassport,
+                                            count = activeItems.count {
+                                                it.type == CipherType.SECURE_NOTE && it.secureNoteCategory == SecureNoteCategory.PASSPORT
+                                            },
+                                            onClick = { scope = ItemsScope.NoteSubCategory(SecureNoteCategory.PASSPORT) },
+                                        )
+                                        DirectoryRow(
+                                            icon = Icons.Rounded.Badge,
+                                            iconTint = Color(0xFF064E3B),
+                                            iconBg = Color(0xFFA7F3D0),
+                                            title = s.categoryIdCard,
+                                            count = activeItems.count {
+                                                it.type == CipherType.SECURE_NOTE && it.secureNoteCategory == SecureNoteCategory.ID_CARD
+                                            },
+                                            onClick = { scope = ItemsScope.NoteSubCategory(SecureNoteCategory.ID_CARD) },
+                                        )
+                                        DirectoryRow(
+                                            icon = Icons.Rounded.Person,
+                                            iconTint = Color(0xFF042F1A),
+                                            iconBg = Color(0xFF4ADE80),
+                                            title = s.identities,
+                                            count = activeItems.count { it.type == CipherType.IDENTITY },
+                                            onClick = { scope = ItemsScope.Category(CipherType.IDENTITY) },
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            CollapsibleSectionHeader(
+                                title = s.vaultsAndFolders,
+                                expanded = vaultsExpanded,
+                                onToggle = { vaultsExpanded = !vaultsExpanded },
+                            )
+                            AnimatedVisibility(visible = vaultsExpanded) {
+                                OnePassCard(modifier = Modifier.fillMaxWidth(), padding = PaddingValues(vertical = 6.dp)) {
+                                    Column {
+                                        DirectoryRow(
+                                            icon = Icons.Rounded.Shield,
+                                            iconTint = Color(0xFF0D1E36),
+                                            iconBg = Color(0xFF93C5FD),
+                                            title = s.personalVault,
+                                            count = activeItems.size,
+                                            circular = true,
+                                            onClick = { scope = ItemsScope.AllItems },
+                                        )
+                                        folders.forEach { folder ->
+                                            DirectoryRow(
+                                                icon = Icons.Rounded.Folder,
+                                                iconTint = Color.White,
+                                                iconBg = Color(0xFF475569),
+                                                title = folder.name,
+                                                count = activeItems.count { it.folderId == folder.id },
+                                                onClick = { scope = ItemsScope.Folder(folder) },
+                                            )
+                                        }
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable { showNewFolderDialog = true }
+                                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                        ) {
+                                            Box(modifier = Modifier.size(38.dp), contentAlignment = Alignment.Center) {
+                                                Icon(Icons.Rounded.Add, contentDescription = null, tint = c.navActiveContent, modifier = Modifier.size(24.dp))
+                                            }
+                                            Text(
+                                                text = s.newFolder,
+                                                color = c.navActiveContent,
+                                                fontSize = 16.5.sp,
+                                                fontWeight = FontWeight.Medium,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    item {
                         OnePassCard(modifier = Modifier.fillMaxWidth(), padding = PaddingValues(vertical = 6.dp)) {
                             Column {
-                                filteredList.forEach { item ->
-                                    OnePassItemRow(
-                                        item = item,
-                                        showFavoriteBadge = true,
-                                        selected = fold.isTwoPane && item.id == selectedItemId,
-                                        onClick = { onSelectItem(item) },
-                                    )
+                                DirectoryRow(
+                                    icon = Icons.Rounded.Star,
+                                    iconTint = Color(0xFF1F1604),
+                                    iconBg = Color(0xFFFBBF24),
+                                    title = s.favorites,
+                                    count = activeItems.count { it.favorite },
+                                    circular = true,
+                                    onClick = { scope = ItemsScope.Favorites },
+                                )
+                                DirectoryRow(
+                                    icon = Icons.Rounded.DeleteOutline,
+                                    iconTint = Color(0xFF1A1C20),
+                                    iconBg = Color(0xFF9CA3AF),
+                                    title = s.recentlyDeleted,
+                                    count = trashItems.size,
+                                    onClick = { scope = ItemsScope.Trash },
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                LazyColumn(
+                    state = scopedListState,
+                    modifier = Modifier
+                        .widthIn(max = 680.dp)
+                        .fillMaxSize(),
+                    contentPadding = PaddingValues(
+                        start = fold.horizontalPadding,
+                        end = fold.horizontalPadding,
+                        top = 4.dp,
+                        bottom = bottomInset,
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    if (scope != ItemsScope.Root) {
+                        item {
+                            Text(
+                                text = "$listTitle (${filteredList.size})",
+                                color = c.textPrimary,
+                                fontSize = 19.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                            )
+                        }
+                    }
+
+                    item {
+                        if (filteredList.isEmpty()) {
+                            OnePassCard(modifier = Modifier.fillMaxWidth()) {
+                                Text(
+                                    text = "${s.emptyFolderPrefix} \"$listTitle\".",
+                                    color = c.textSecondary,
+                                    fontSize = 15.5.sp,
+                                )
+                            }
+                        } else {
+                            OnePassCard(modifier = Modifier.fillMaxWidth(), padding = PaddingValues(vertical = 6.dp)) {
+                                Column {
+                                    filteredList.forEach { item ->
+                                        OnePassItemRow(
+                                            item = item,
+                                            showFavoriteBadge = true,
+                                            selected = fold.isTwoPane && item.id == selectedItemId,
+                                            onClick = { onSelectItem(item) },
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
-        }
         }
     }
 
@@ -473,14 +542,14 @@ private fun CollapsibleSectionHeader(
         Text(
             text = title,
             color = c.textPrimary,
-            fontSize = 16.sp,
+            fontSize = 17.sp,
             fontWeight = FontWeight.Bold,
         )
         Icon(
             imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
             contentDescription = null,
             tint = c.accent,
-            modifier = Modifier.size(22.dp),
+            modifier = Modifier.size(24.dp),
         )
     }
 }
@@ -500,7 +569,7 @@ private fun DirectoryRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 13.dp),
+            .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
@@ -508,13 +577,13 @@ private fun DirectoryRow(
             icon = icon,
             tint = iconTint,
             background = iconBg,
-            size = 34.dp,
+            size = 38.dp,
             circular = circular,
         )
         Text(
             text = title,
             color = c.textPrimary,
-            fontSize = 15.5.sp,
+            fontSize = 16.5.sp,
             fontWeight = FontWeight.Normal,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -524,7 +593,7 @@ private fun DirectoryRow(
             Text(
                 text = count.toString(),
                 color = c.textSecondary,
-                fontSize = 14.sp,
+                fontSize = 15.sp,
                 fontWeight = FontWeight.Medium,
             )
         }

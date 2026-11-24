@@ -1,8 +1,14 @@
 package io.openvault.app.ui.components
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -18,6 +24,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -29,12 +36,14 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Badge
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
@@ -45,12 +54,14 @@ import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material.icons.rounded.ViewAgenda
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -68,6 +79,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -96,6 +108,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import io.openvault.app.core.crypto.CipherType
+import io.openvault.app.core.crypto.SecureNoteCategory
 import io.openvault.app.core.crypto.TotpCode
 import io.openvault.app.core.crypto.VaultItem
 import io.openvault.app.core.media.IconLoader
@@ -172,10 +185,10 @@ fun OnePassSearchBar(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(46.dp)
+            .height(48.dp)
             .clip(CircleShape)
             .background(c.searchBackground)
-            .padding(horizontal = 15.dp),
+            .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -183,14 +196,14 @@ fun OnePassSearchBar(
             imageVector = Icons.Rounded.Search,
             contentDescription = null,
             tint = c.textPrimary.copy(alpha = 0.85f),
-            modifier = Modifier.size(20.dp),
+            modifier = Modifier.size(22.dp),
         )
         Box(modifier = Modifier.weight(1f)) {
             if (query.isEmpty()) {
                 Text(
                     text = hint,
                     color = c.textSecondary,
-                    fontSize = 15.sp,
+                    fontSize = 16.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -201,7 +214,7 @@ fun OnePassSearchBar(
                 singleLine = true,
                 textStyle = TextStyle(
                     color = c.textPrimary,
-                    fontSize = 15.sp,
+                    fontSize = 16.sp,
                     fontWeight = FontWeight.Normal,
                 ),
                 cursorBrush = SolidColor(c.accent),
@@ -214,7 +227,7 @@ fun OnePassSearchBar(
                 contentDescription = s.close,
                 tint = c.textSecondary,
                 modifier = Modifier
-                    .size(18.dp)
+                    .size(20.dp)
                     .clickable { onQueryChange("") },
             )
         }
@@ -270,11 +283,11 @@ fun OnePassTopSearchBar(
             Row(
                 modifier = Modifier
                     .weight(1f)
-                    .height(46.dp)
+                    .height(48.dp)
                     .clip(CircleShape)
                     .background(c.searchBackground)
                     .clickable(onClick = onSearchActivated)
-                    .padding(horizontal = 15.dp),
+                    .padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
@@ -282,12 +295,12 @@ fun OnePassTopSearchBar(
                     imageVector = Icons.Rounded.Search,
                     contentDescription = null,
                     tint = c.textPrimary.copy(alpha = 0.85f),
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(22.dp),
                 )
                 Text(
                     text = placeholder,
                     color = c.textSecondary,
-                    fontSize = 15.sp,
+                    fontSize = 16.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -319,12 +332,12 @@ fun OnePassTopSearchBar(
                     imageVector = Icons.Rounded.KeyboardArrowDown,
                     contentDescription = s.settingsAccounts,
                     tint = c.textSecondary,
-                    modifier = Modifier.size(18.dp),
+                    modifier = Modifier.size(20.dp),
                 )
                 OnePassAccountAvatar(
                     email = email,
                     onClick = { menuExpanded = true },
-                    size = if (fold.isNarrowCover) 34.dp else 36.dp,
+                    size = if (fold.isNarrowCover) 36.dp else 38.dp,
                 )
             }
 
@@ -334,7 +347,7 @@ fun OnePassTopSearchBar(
                 shape = RoundedCornerShape(14.dp),
                 containerColor = c.surfaceElevated,
                 border = BorderStroke(1.dp, c.cardBorder),
-                modifier = Modifier.widthIn(min = 235.dp, max = 280.dp),
+                modifier = Modifier.widthIn(min = 245.dp, max = 290.dp),
             ) {
                 Row(
                     modifier = Modifier
@@ -343,12 +356,12 @@ fun OnePassTopSearchBar(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    OnePassAccountAvatar(email = email, onClick = { }, size = 34.dp)
+                    OnePassAccountAvatar(email = email, onClick = { }, size = 36.dp)
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = displayName,
                             color = c.textPrimary,
-                            fontSize = 15.sp,
+                            fontSize = 16.sp,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -357,7 +370,7 @@ fun OnePassTopSearchBar(
                             Text(
                                 text = email,
                                 color = c.textSecondary,
-                                fontSize = 12.sp,
+                                fontSize = 12.5.sp,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
@@ -367,7 +380,7 @@ fun OnePassTopSearchBar(
                         imageVector = Icons.Rounded.Check,
                         contentDescription = null,
                         tint = c.accent,
-                        modifier = Modifier.size(18.dp),
+                        modifier = Modifier.size(20.dp),
                     )
                 }
 
@@ -379,7 +392,7 @@ fun OnePassTopSearchBar(
                             Text(
                                 text = if (isSyncing) s.syncing else s.syncNow,
                                 color = c.textPrimary,
-                                fontSize = 15.sp,
+                                fontSize = 15.5.sp,
                             )
                         },
                         trailingIcon = {
@@ -387,10 +400,10 @@ fun OnePassTopSearchBar(
                                 CircularProgressIndicator(
                                     color = c.accent,
                                     strokeWidth = 2.dp,
-                                    modifier = Modifier.size(16.dp),
+                                    modifier = Modifier.size(18.dp),
                                 )
                             } else {
-                                Icon(Icons.Rounded.Refresh, contentDescription = null, tint = c.textSecondary, modifier = Modifier.size(19.dp))
+                                Icon(Icons.Rounded.Refresh, contentDescription = null, tint = c.textSecondary, modifier = Modifier.size(21.dp))
                             }
                         },
                         onClick = {
@@ -402,9 +415,9 @@ fun OnePassTopSearchBar(
 
                 if (onOpenGenerator != null) {
                     DropdownMenuItem(
-                        text = { Text(s.passwordGenerator, color = c.textPrimary, fontSize = 15.sp) },
+                        text = { Text(s.passwordGenerator, color = c.textPrimary, fontSize = 15.5.sp) },
                         trailingIcon = {
-                            Icon(Icons.Rounded.Key, contentDescription = null, tint = c.textSecondary, modifier = Modifier.size(19.dp))
+                            Icon(Icons.Rounded.Key, contentDescription = null, tint = c.textSecondary, modifier = Modifier.size(21.dp))
                         },
                         onClick = {
                             menuExpanded = false
@@ -415,9 +428,9 @@ fun OnePassTopSearchBar(
 
                 if (onOpenQrScanner != null) {
                     DropdownMenuItem(
-                        text = { Text(s.scanQr2fa, color = c.textPrimary, fontSize = 15.sp) },
+                        text = { Text(s.scanQr2fa, color = c.textPrimary, fontSize = 15.5.sp) },
                         trailingIcon = {
-                            Icon(Icons.Rounded.QrCodeScanner, contentDescription = null, tint = c.textSecondary, modifier = Modifier.size(19.dp))
+                            Icon(Icons.Rounded.QrCodeScanner, contentDescription = null, tint = c.textSecondary, modifier = Modifier.size(21.dp))
                         },
                         onClick = {
                             menuExpanded = false
@@ -429,9 +442,9 @@ fun OnePassTopSearchBar(
                 HorizontalDivider(color = c.divider, thickness = 0.8.dp)
 
                 DropdownMenuItem(
-                    text = { Text(s.settings, color = c.textPrimary, fontSize = 15.sp) },
+                    text = { Text(s.settings, color = c.textPrimary, fontSize = 15.5.sp) },
                     trailingIcon = {
-                        Icon(Icons.Rounded.Settings, contentDescription = null, tint = c.textSecondary, modifier = Modifier.size(19.dp))
+                        Icon(Icons.Rounded.Settings, contentDescription = null, tint = c.textSecondary, modifier = Modifier.size(21.dp))
                     },
                     onClick = {
                         menuExpanded = false
@@ -440,9 +453,9 @@ fun OnePassTopSearchBar(
                 )
 
                 DropdownMenuItem(
-                    text = { Text(s.lockVault, color = c.textPrimary, fontSize = 15.sp) },
+                    text = { Text(s.lockVault, color = c.textPrimary, fontSize = 15.5.sp) },
                     trailingIcon = {
-                        Icon(Icons.Rounded.Lock, contentDescription = null, tint = c.textSecondary, modifier = Modifier.size(19.dp))
+                        Icon(Icons.Rounded.Lock, contentDescription = null, tint = c.textSecondary, modifier = Modifier.size(21.dp))
                     },
                     onClick = {
                         menuExpanded = false
@@ -455,39 +468,88 @@ fun OnePassTopSearchBar(
 }
 
 /**
- * Signature 1Password 8 Android Cobalt-Blue Extended FAB ("+ New Item").
+ * Tracks LazyListState scroll direction to collapse Extended FAB to '+' on scroll down
+ * and expand it cleanly back to '+ New Item' when at top or scrolling up.
+ */
+@Composable
+fun TrackFabScrollEffect(
+    listState: LazyListState,
+    onExpandedChange: (Boolean) -> Unit,
+) {
+    LaunchedEffect(listState) {
+        var prevIndex = listState.firstVisibleItemIndex
+        var prevOffset = listState.firstVisibleItemScrollOffset
+        snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
+            .collect { (idx, off) ->
+                if (idx == 0 && off <= 24) {
+                    onExpandedChange(true)
+                } else {
+                    val delta = (idx - prevIndex) * 10_000 + (off - prevOffset)
+                    if (delta > 16) {
+                        onExpandedChange(false)
+                    } else if (delta < -16) {
+                        onExpandedChange(true)
+                    }
+                }
+                prevIndex = idx
+                prevOffset = off
+            }
+    }
+}
+
+/**
+ * Signature 1Password 8 Android Cobalt-Blue Extended FAB ("+ New Item") that smoothly
+ * collapses to a compact "+" square button while scrolling down.
  */
 @Composable
 fun OnePassExtendedFab(
     text: String? = null,
+    expanded: Boolean = true,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val c = LocalOpenVaultColors.current
     val s = LocalStrings.current
+    val horizontalPad by animateDpAsState(
+        targetValue = if (expanded) 20.dp else 15.dp,
+        animationSpec = tween(220),
+        label = "fab_pad",
+    )
     Surface(
         onClick = onClick,
-        modifier = modifier.height(54.dp),
+        modifier = modifier
+            .height(54.dp)
+            .defaultMinSize(minWidth = 54.dp),
         shape = RoundedCornerShape(16.dp),
         color = c.accentButtonBg,
         contentColor = c.accentButtonFg,
         shadowElevation = 6.dp,
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 20.dp),
+            modifier = Modifier.padding(horizontal = horizontalPad),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.Center,
         ) {
             Icon(
                 imageVector = Icons.Rounded.Add,
-                contentDescription = null,
-                modifier = Modifier.size(22.dp),
+                contentDescription = text ?: s.newItem,
+                modifier = Modifier.size(24.dp),
             )
-            Text(
-                text = text ?: s.newItem,
-                fontSize = 15.5.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
+            AnimatedVisibility(
+                visible = expanded,
+                enter = expandHorizontally(tween(220)) + fadeIn(tween(180)),
+                exit = shrinkHorizontally(tween(180)) + fadeOut(tween(120)),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = text ?: s.newItem,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                    )
+                }
+            }
         }
     }
 }
@@ -545,8 +607,8 @@ fun OnePassBottomBar(
                 ) {
                     Box(
                         modifier = Modifier
-                            .width(if (fold.isNarrowCover) 54.dp else 62.dp)
-                            .height(32.dp)
+                            .width(if (fold.isNarrowCover) 54.dp else 64.dp)
+                            .height(34.dp)
                             .clip(CircleShape)
                             .background(pillBg),
                         contentAlignment = Alignment.Center,
@@ -555,13 +617,13 @@ fun OnePassBottomBar(
                             imageVector = tab.icon,
                             contentDescription = label,
                             tint = tint,
-                            modifier = Modifier.size(21.dp),
+                            modifier = Modifier.size(23.dp),
                         )
                     }
                     Text(
                         text = label,
                         color = tint,
-                        fontSize = if (fold.isNarrowCover) 11.5.sp else 12.sp,
+                        fontSize = if (fold.isNarrowCover) 12.sp else 12.5.sp,
                         fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -728,16 +790,16 @@ fun OnePassSearchModeView(
                         )
                     }
                     Text(
-                        text = if (s.isVi) "Tìm kiếm" else "Search",
+                        text = if (s.isVi) "Tìm Kiếm" else "Search",
                         color = c.textPrimary.copy(alpha = 0.88f),
-                        fontSize = 23.sp,
+                        fontSize = 24.sp,
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
-                        text = if (s.isVi) "Tìm theo tên tài khoản, email, trang web hoặc thư mục." else "Search for an item, category, or folder.",
+                        text = if (s.isVi) "Tìm Theo Tên Tài Khoản, Email, Trang Web Hoặc Thư Mục." else "Search For An Item, Category, Or Folder.",
                         color = c.textSecondary,
-                        fontSize = 14.5.sp,
-                        lineHeight = 20.sp,
+                        fontSize = 15.5.sp,
+                        lineHeight = 22.sp,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                     )
                 }
@@ -1173,7 +1235,8 @@ private val ITEM_ICON_COLORS = listOf(
 fun ItemIconTile(
     title: String,
     type: CipherType,
-    size: Dp = 38.dp,
+    size: Dp = 42.dp,
+    secureNoteType: Int = 0,
     showFavoriteStar: Boolean = false,
     customIconBase64: String? = null,
     websiteUrl: String? = null,
@@ -1188,10 +1251,16 @@ fun ItemIconTile(
         enabled = showWebsiteIcons,
     )
 
+    val noteCat = if (type == CipherType.SECURE_NOTE) SecureNoteCategory.fromCode(secureNoteType) else null
     val bgColor = when (type) {
         CipherType.LOGIN -> ITEM_ICON_COLORS[abs(title.hashCode()) % ITEM_ICON_COLORS.size]
         CipherType.CARD -> Color(0xFF0284C7)
-        CipherType.SECURE_NOTE -> Color(0xFFD97706)
+        CipherType.SECURE_NOTE -> when (noteCat) {
+            SecureNoteCategory.SOFTWARE -> Color(0xFF0284C7)
+            SecureNoteCategory.PASSPORT -> Color(0xFF7C3AED)
+            SecureNoteCategory.ID_CARD -> Color(0xFF059669)
+            else -> Color(0xFFD97706)
+        }
         CipherType.IDENTITY -> Color(0xFF22C55E)
     }
     val shape = RoundedCornerShape(size * 0.25f)
@@ -1251,26 +1320,31 @@ fun ItemIconTile(
                                 text = initials,
                                 color = Color.White,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = if (initials.length > 1) (size.value * 0.35f).sp else (size.value * 0.44f).sp,
+                                fontSize = if (initials.length > 1) (size.value * 0.36f).sp else (size.value * 0.45f).sp,
                             )
                         }
                         CipherType.CARD -> Icon(
                             Icons.Rounded.CreditCard,
                             contentDescription = null,
                             tint = Color.White,
-                            modifier = Modifier.size(size * 0.54f),
+                            modifier = Modifier.size(size * 0.56f),
                         )
                         CipherType.SECURE_NOTE -> Icon(
-                            Icons.Rounded.Description,
+                            when (noteCat) {
+                                SecureNoteCategory.SOFTWARE -> Icons.Rounded.Terminal
+                                SecureNoteCategory.PASSPORT -> Icons.Rounded.Public
+                                SecureNoteCategory.ID_CARD -> Icons.Rounded.Badge
+                                else -> Icons.Rounded.Description
+                            },
                             contentDescription = null,
                             tint = Color.White,
-                            modifier = Modifier.size(size * 0.54f),
+                            modifier = Modifier.size(size * 0.56f),
                         )
                         CipherType.IDENTITY -> Icon(
                             Icons.Rounded.Person,
                             contentDescription = null,
                             tint = Color.White,
-                            modifier = Modifier.size(size * 0.54f),
+                            modifier = Modifier.size(size * 0.56f),
                         )
                     }
                 }
@@ -1284,7 +1358,7 @@ fun ItemIconTile(
                 tint = Color(0xFFFBBF24),
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .size(14.dp),
+                    .size(15.dp),
             )
         }
 
@@ -1302,7 +1376,7 @@ fun ItemIconTile(
                     imageVector = Icons.Rounded.KeyboardArrowDown,
                     contentDescription = null,
                     tint = Color.White,
-                    modifier = Modifier.size(14.dp),
+                    modifier = Modifier.size(15.dp),
                 )
             }
         }
@@ -1321,7 +1395,7 @@ fun OnePassItemRow(
 ) {
     val c = LocalOpenVaultColors.current
     val fold = LocalFoldableLayout.current
-    val iconSize = if (fold.isNarrowCover) 36.dp else 38.dp
+    val iconSize = if (fold.isNarrowCover) 40.dp else 42.dp
     val hasPasskey = item.login?.fido2Credentials?.isNotEmpty() == true
 
     Row(
@@ -1346,6 +1420,7 @@ fun OnePassItemRow(
             title = item.name,
             type = item.type,
             size = iconSize,
+            secureNoteType = item.secureNoteType,
             showFavoriteStar = showFavoriteBadge && item.favorite,
             customIconBase64 = item.customIconBase64,
             websiteUrl = item.primaryWebsiteUrl,
@@ -1353,7 +1428,7 @@ fun OnePassItemRow(
 
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -1362,8 +1437,8 @@ fun OnePassItemRow(
                 Text(
                     text = item.name,
                     color = c.textPrimary,
-                    fontSize = if (fold.isNarrowCover) 15.sp else 15.5.sp,
-                    fontWeight = FontWeight.Medium,
+                    fontSize = if (fold.isNarrowCover) 16.sp else 16.5.sp,
+                    fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false),
@@ -1372,31 +1447,31 @@ fun OnePassItemRow(
                     Text(
                         text = "Passkey",
                         color = Color(0xFFC4B5FD),
-                        fontSize = 10.sp,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier
                             .clip(RoundedCornerShape(4.dp))
                             .background(Color(0xFF7253ED).copy(alpha = 0.22f))
-                            .padding(horizontal = 5.dp, vertical = 1.dp),
+                            .padding(horizontal = 6.dp, vertical = 1.dp),
                     )
                 }
                 if (item.hasTotp) {
                     Text(
                         text = "2FA",
                         color = c.fieldLabel,
-                        fontSize = 10.sp,
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier
                             .clip(RoundedCornerShape(4.dp))
                             .background(c.fieldLabel.copy(alpha = 0.16f))
-                            .padding(horizontal = 5.dp, vertical = 1.dp),
+                            .padding(horizontal = 6.dp, vertical = 1.dp),
                     )
                 }
             }
             Text(
                 text = item.primarySubtitle,
                 color = c.textSecondary,
-                fontSize = 13.5.sp,
+                fontSize = 14.5.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -1569,8 +1644,8 @@ fun LargeTypePasswordDialog(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(s.largeType, color = c.textPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                        Text("$title · ${password.length} ${if (s.isVi) "ký tự" else "chars"}", color = c.textSecondary, fontSize = 12.5.sp)
+                        Text(s.largeType, color = c.textPrimary, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                        Text("$title · ${password.length} ${if (s.isVi) "Ký Tự" else "Chars"}", color = c.textSecondary, fontSize = 13.5.sp)
                     }
                     IconButton(onClick = onCopy) {
                         Icon(Icons.Rounded.ContentCopy, contentDescription = s.copy, tint = c.accent)

@@ -33,7 +33,7 @@ class VaultCipherCodecTest {
                         rpName = "GitHub",
                         userHandle = "dXNlci0x",
                         userName = "alex",
-                        userDisplayName = "Hoang Phi",
+                        userDisplayName = "Alex Morgan",
                         counter = "0",
                         discoverable = "true",
                         creationDate = "2026-11-23T00:00:00Z",
@@ -108,5 +108,57 @@ class VaultCipherCodecTest {
         assertEquals(2, report.reusedItems.size)
         assertEquals(2, report.missingTotpItems.size)
         assertTrue(report.score in 0..70)
+    }
+
+    @Test
+    fun splitSecureNotesRoundTripAndProfileAvatarHiding() {
+        val key = BitwardenCryptoEngine.generateUserSymmetricKey()
+        val categories = listOf(
+            SecureNoteCategory.NOTE,
+            SecureNoteCategory.SOFTWARE,
+            SecureNoteCategory.PASSPORT,
+            SecureNoteCategory.ID_CARD,
+        )
+        for (cat in categories) {
+            val original = VaultItem(
+                id = "note-${cat.typeCode}",
+                type = CipherType.SECURE_NOTE,
+                secureNoteType = cat.typeCode,
+                name = "Doc ${cat.labelEn}",
+                notes = "Confidential details",
+                fields = listOf(VaultField("License", "XXXX-YYYY", type = 1)),
+            )
+            val req = VaultCipherCodec.encryptCipher(original, key)
+            assertEquals(cat.typeCode, req.secureNote?.type)
+
+            val decrypted = VaultCipherCodec.decryptCipher(
+                CipherDto(
+                    id = original.id,
+                    type = req.type,
+                    secureNote = req.secureNote,
+                    name = req.name,
+                    notes = req.notes,
+                    fields = req.fields,
+                ),
+                key,
+            )
+            assertEquals(cat, decrypted.secureNoteCategory)
+            assertEquals(cat.typeCode, decrypted.secureNoteType)
+            assertEquals(1, decrypted.visibleFields.size)
+        }
+
+        val profileItem = VaultItem(
+            id = "internal-profile",
+            type = CipherType.SECURE_NOTE,
+            name = VaultItem.PROFILE_SYNC_CIPHER_NAME,
+            fields = listOf(
+                VaultField(VaultItem.ACCOUNT_AVATAR_FIELD_NAME, "data:image/webp;base64,AAA", type = 1),
+                VaultField("Public Note", "hello", type = 0),
+            ),
+        )
+        assertTrue(profileItem.isInternalProfileItem)
+        assertEquals("data:image/webp;base64,AAA", profileItem.syncedAccountAvatarBase64)
+        assertEquals(1, profileItem.visibleFields.size)
+        assertEquals("Public Note", profileItem.visibleFields.first().name)
     }
 }

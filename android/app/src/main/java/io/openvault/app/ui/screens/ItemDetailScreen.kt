@@ -31,6 +31,7 @@ import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Fullscreen
+import androidx.compose.material.icons.rounded.GridView
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.RestoreFromTrash
@@ -51,6 +52,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -67,6 +69,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.openvault.app.core.crypto.CipherType
 import io.openvault.app.core.crypto.PasswordGenerator
+import io.openvault.app.core.crypto.RecoveryCodeUtils
 import io.openvault.app.core.crypto.TotpEngine
 import io.openvault.app.core.crypto.VaultFolder
 import io.openvault.app.core.crypto.VaultItem
@@ -107,6 +110,7 @@ fun ItemDetailScreen(
     var showLargeType by remember(item.id) { mutableStateOf(false) }
     var confirmDelete by remember(item.id) { mutableStateOf(false) }
     var overflowOpen by remember(item.id) { mutableStateOf(false) }
+    val recoveryRevealMap = remember(item.id) { mutableStateMapOf<String, Boolean>() }
 
     var nowSec by remember { mutableLongStateOf(System.currentTimeMillis() / 1000L) }
     LaunchedEffect(item.login?.totp) {
@@ -128,6 +132,12 @@ fun ItemDetailScreen(
     }
 
     val visibleCustomFields = remember(item.fields) { item.visibleFields }
+    val recoveryFields = remember(visibleCustomFields) {
+        visibleCustomFields.filter { RecoveryCodeUtils.isRecoveryCodesField(it.name) }
+    }
+    val normalCustomFields = remember(visibleCustomFields) {
+        visibleCustomFields.filterNot { RecoveryCodeUtils.isRecoveryCodesField(it.name) }
+    }
 
     Column(
         modifier = Modifier
@@ -149,6 +159,7 @@ fun ItemDetailScreen(
                         Icons.AutoMirrored.Rounded.ArrowBack,
                         contentDescription = s.back,
                         tint = c.textPrimary,
+                        modifier = Modifier.size(24.dp),
                     )
                 }
             } else {
@@ -161,6 +172,7 @@ fun ItemDetailScreen(
                         imageVector = if (item.favorite) Icons.Rounded.Star else Icons.Rounded.StarBorder,
                         contentDescription = s.favorites,
                         tint = if (item.favorite) c.warning else c.textPrimary,
+                        modifier = Modifier.size(24.dp),
                     )
                 }
                 if (!item.isDeleted) {
@@ -169,6 +181,7 @@ fun ItemDetailScreen(
                             Icons.Rounded.Edit,
                             contentDescription = s.edit,
                             tint = c.textPrimary,
+                            modifier = Modifier.size(23.dp),
                         )
                     }
                 } else {
@@ -177,6 +190,7 @@ fun ItemDetailScreen(
                             Icons.Rounded.RestoreFromTrash,
                             contentDescription = s.restore,
                             tint = c.success,
+                            modifier = Modifier.size(24.dp),
                         )
                     }
                 }
@@ -186,6 +200,7 @@ fun ItemDetailScreen(
                             Icons.Rounded.MoreVert,
                             contentDescription = "More",
                             tint = c.textPrimary,
+                            modifier = Modifier.size(24.dp),
                         )
                     }
                     DropdownMenu(
@@ -197,7 +212,7 @@ fun ItemDetailScreen(
                     ) {
                         if (!item.login?.password.isNullOrBlank()) {
                             DropdownMenuItem(
-                                text = { Text(s.largeType, color = c.textPrimary, fontSize = 14.5.sp) },
+                                text = { Text(s.largeType, color = c.textPrimary, fontSize = 15.5.sp) },
                                 leadingIcon = { Icon(Icons.Rounded.Fullscreen, contentDescription = null, tint = c.textSecondary) },
                                 onClick = {
                                     overflowOpen = false
@@ -207,7 +222,7 @@ fun ItemDetailScreen(
                         }
                         if (item.isDeleted) {
                             DropdownMenuItem(
-                                text = { Text(s.restore, color = c.success, fontSize = 14.5.sp) },
+                                text = { Text(s.restore, color = c.success, fontSize = 15.5.sp) },
                                 leadingIcon = { Icon(Icons.Rounded.RestoreFromTrash, contentDescription = null, tint = c.success) },
                                 onClick = {
                                     overflowOpen = false
@@ -220,7 +235,7 @@ fun ItemDetailScreen(
                                 Text(
                                     text = if (item.isDeleted) s.deletePermanently else s.moveToTrash,
                                     color = c.danger,
-                                    fontSize = 14.5.sp,
+                                    fontSize = 15.5.sp,
                                 )
                             },
                             leadingIcon = { Icon(Icons.Rounded.DeleteOutline, contentDescription = null, tint = c.danger) },
@@ -252,29 +267,29 @@ fun ItemDetailScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    OnePassAccountAvatar(email = email, size = 22.dp)
+                    OnePassAccountAvatar(email = email, size = 24.dp)
                     Text(
                         text = ownerName,
                         color = c.textSecondary,
-                        fontSize = 14.sp,
+                        fontSize = 14.5.sp,
                         fontWeight = FontWeight.Medium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Text("|", color = c.divider, fontSize = 14.sp)
+                    Text("|", color = c.divider, fontSize = 14.5.sp)
                     Box(
                         modifier = Modifier
-                            .size(20.dp)
+                            .size(22.dp)
                             .clip(CircleShape)
                             .background(Color(0xFF475569)),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(Icons.Rounded.Shield, contentDescription = null, tint = Color(0xFFCBD5E1), modifier = Modifier.size(12.dp))
+                        Icon(Icons.Rounded.Shield, contentDescription = null, tint = Color(0xFFCBD5E1), modifier = Modifier.size(13.dp))
                     }
                     Text(
                         text = folder?.name ?: s.personalVault,
                         color = c.textSecondary,
-                        fontSize = 14.sp,
+                        fontSize = 14.5.sp,
                         fontWeight = FontWeight.Medium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -283,7 +298,7 @@ fun ItemDetailScreen(
                         Text(
                             text = s.trashBadge,
                             color = c.danger,
-                            fontSize = 11.sp,
+                            fontSize = 11.5.sp,
                             fontWeight = FontWeight.SemiBold,
                             modifier = Modifier
                                 .clip(CircleShape)
@@ -293,7 +308,7 @@ fun ItemDetailScreen(
                     }
                 }
 
-                // Item Hero Row (shows custom icon OR website favicon OR monogram!)
+                // Item Hero Row (custom icon OR website favicon OR split-category icon)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -301,25 +316,47 @@ fun ItemDetailScreen(
                     ItemIconTile(
                         title = item.name,
                         type = item.type,
-                        size = if (fold.isNarrowCover) 50.dp else 58.dp,
+                        size = if (fold.isNarrowCover) 54.dp else 62.dp,
+                        secureNoteType = item.secureNoteType,
                         showFavoriteStar = item.favorite,
                         customIconBase64 = item.customIconBase64,
                         websiteUrl = item.primaryWebsiteUrl,
                     )
-                    Text(
-                        text = item.name,
-                        color = c.textPrimary,
-                        fontSize = if (fold.isNarrowCover) 21.sp else 24.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = (-0.4).sp,
+                    Column(
                         modifier = Modifier.weight(1f),
-                    )
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(
+                            text = item.name,
+                            color = c.textPrimary,
+                            fontSize = if (fold.isNarrowCover) 22.sp else 25.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = (-0.4).sp,
+                        )
+                        if (item.type == CipherType.SECURE_NOTE) {
+                            Text(
+                                text = item.secureNoteCategory.label(s.isVi),
+                                color = c.accent,
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(c.accentSoft)
+                                    .padding(horizontal = 8.dp, vertical = 3.dp),
+                            )
+                        }
+                    }
                 }
 
-                // LOGIN PRIMARY OUTLINED BOX
+                // LOGIN PRIMARY OUTLINED BOX (Username, Password, TOTP, Passkeys grouped at top!)
                 if (item.type == CipherType.LOGIN && item.login != null) {
                     val login = item.login
-                    if (login.username.isNotBlank() || login.password.isNotBlank() || liveTotp != null) {
+                    if (
+                        login.username.isNotBlank() ||
+                        login.password.isNotBlank() ||
+                        liveTotp != null ||
+                        login.fido2Credentials.isNotEmpty()
+                    ) {
                         OnePassCard(
                             modifier = Modifier.fillMaxWidth(),
                             cornerRadius = 12.dp,
@@ -353,7 +390,7 @@ fun ItemDetailScreen(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .clickable { onCopy(s.password, login.password, true) }
-                                            .padding(horizontal = 16.dp, vertical = 13.dp),
+                                            .padding(horizontal = 16.dp, vertical = 14.dp),
                                         verticalArrangement = Arrangement.spacedBy(6.dp),
                                     ) {
                                         Row(
@@ -364,7 +401,7 @@ fun ItemDetailScreen(
                                             Text(
                                                 text = s.password,
                                                 color = c.fieldLabel,
-                                                fontSize = 13.sp,
+                                                fontSize = 14.sp,
                                                 fontWeight = FontWeight.Medium,
                                             )
                                             Row(
@@ -374,13 +411,13 @@ fun ItemDetailScreen(
                                                 Text(
                                                     text = strength.level.label(s.isVi),
                                                     color = c.textSecondary,
-                                                    fontSize = 12.5.sp,
+                                                    fontSize = 13.5.sp,
                                                     fontWeight = FontWeight.Medium,
                                                 )
                                                 StrengthDonutRing(
                                                     score = strength.level.score,
                                                     color = strengthColor,
-                                                    size = 17.dp,
+                                                    size = 18.dp,
                                                 )
                                             }
                                         }
@@ -391,49 +428,49 @@ fun ItemDetailScreen(
                                             SyntaxColoredPasswordText(
                                                 password = login.password,
                                                 masked = !showPassword,
-                                                fontSize = 15.5.sp,
+                                                fontSize = 16.5.sp,
                                                 modifier = Modifier.weight(1f),
                                             )
                                             Box(
                                                 modifier = Modifier
                                                     .padding(horizontal = 4.dp)
                                                     .width(1.dp)
-                                                    .height(20.dp)
+                                                    .height(22.dp)
                                                     .background(c.divider),
                                             )
                                             IconButton(
                                                 onClick = { showPassword = !showPassword },
-                                                modifier = Modifier.size(34.dp),
+                                                modifier = Modifier.size(36.dp),
                                             ) {
                                                 Icon(
                                                     if (showPassword) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
                                                     contentDescription = "Toggle password",
                                                     tint = c.textSecondary,
-                                                    modifier = Modifier.size(19.dp),
+                                                    modifier = Modifier.size(21.dp),
                                                 )
                                             }
                                             if (!fold.isNarrowCover) {
                                                 IconButton(
                                                     onClick = { showLargeType = true },
-                                                    modifier = Modifier.size(34.dp),
+                                                    modifier = Modifier.size(36.dp),
                                                 ) {
                                                     Icon(
                                                         Icons.Rounded.Fullscreen,
                                                         contentDescription = s.largeType,
                                                         tint = c.textSecondary,
-                                                        modifier = Modifier.size(19.dp),
+                                                        modifier = Modifier.size(21.dp),
                                                     )
                                                 }
                                             }
                                             IconButton(
                                                 onClick = { onCopy(s.password, login.password, true) },
-                                                modifier = Modifier.size(34.dp),
+                                                modifier = Modifier.size(36.dp),
                                             ) {
                                                 Icon(
                                                     Icons.Rounded.ContentCopy,
                                                     contentDescription = s.copy,
                                                     tint = c.accent,
-                                                    modifier = Modifier.size(18.dp),
+                                                    modifier = Modifier.size(20.dp),
                                                 )
                                             }
                                         }
@@ -452,15 +489,15 @@ fun ItemDetailScreen(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .clickable { onCopy("2FA", liveTotp.code, true) }
-                                            .padding(horizontal = 16.dp, vertical = 13.dp),
+                                            .padding(horizontal = 16.dp, vertical = 14.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                     ) {
-                                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                             Text(
                                                 text = s.oneTimePassword,
                                                 color = c.fieldLabel,
-                                                fontSize = 13.sp,
+                                                fontSize = 14.sp,
                                                 fontWeight = FontWeight.Medium,
                                             )
                                             Row(
@@ -471,7 +508,7 @@ fun ItemDetailScreen(
                                                     text = dotFormatted,
                                                     color = c.textPrimary,
                                                     fontFamily = FontFamily.Monospace,
-                                                    fontSize = 22.sp,
+                                                    fontSize = 24.sp,
                                                     fontWeight = FontWeight.SemiBold,
                                                 )
                                                 TotpInlineCountdown(totp = liveTotp)
@@ -481,57 +518,65 @@ fun ItemDetailScreen(
                                             Icons.Rounded.ContentCopy,
                                             contentDescription = s.copy,
                                             tint = c.accent,
-                                            modifier = Modifier.size(18.dp),
+                                            modifier = Modifier.size(20.dp),
                                         )
                                     }
+                                    hasPrev = true
                                 }
-                            }
-                        }
-                    }
 
-                    // Websites: clean SINGLE-LINE truncated URLs with "..." (Requirement #3!)
-                    if (login.uris.isNotEmpty()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            login.uris.forEachIndexed { idx, uri ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .clickable { onCopy(s.website, uri.uri, false) }
-                                        .padding(horizontal = 4.dp, vertical = 5.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                ) {
-                                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                        Text(
-                                            text = if (idx == 0) s.website else "${s.website} #${idx + 1}",
-                                            color = c.fieldLabel,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Medium,
-                                        )
-                                        Text(
-                                            text = uri.uri,
-                                            color = c.accent,
-                                            fontSize = 15.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                        )
-                                    }
-                                    if (uri.uri.startsWith("http://") || uri.uri.startsWith("https://")) {
-                                        IconButton(
-                                            onClick = {
-                                                runCatching {
-                                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(uri.uri)))
-                                                }
-                                            },
-                                            modifier = Modifier.size(34.dp),
+                                if (login.fido2Credentials.isNotEmpty()) {
+                                    if (hasPrev) HorizontalDivider(color = c.divider, thickness = 0.8.dp)
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                                         ) {
                                             Icon(
-                                                Icons.AutoMirrored.Rounded.OpenInNew,
-                                                contentDescription = "Open link",
-                                                tint = c.textSecondary,
-                                                modifier = Modifier.size(19.dp),
+                                                Icons.Rounded.Key,
+                                                contentDescription = null,
+                                                tint = Color(0xFFA78BFA),
+                                                modifier = Modifier.size(18.dp),
                                             )
+                                            Text(
+                                                text = s.passkeys,
+                                                color = c.fieldLabel,
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Medium,
+                                            )
+                                        }
+                                        login.fido2Credentials.forEach { pk ->
+                                            val pkText = "${pk.rpName ?: pk.rpId} · ${pk.userName ?: pk.credentialId.take(12)}"
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(Color(0xFF7253ED).copy(alpha = 0.12f))
+                                                    .clickable { onCopy(s.passkeys, pk.userName ?: pk.rpId, false) }
+                                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                            ) {
+                                                Text(
+                                                    text = pkText,
+                                                    color = c.textPrimary,
+                                                    fontSize = 15.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.weight(1f),
+                                                )
+                                                Icon(
+                                                    Icons.Rounded.ContentCopy,
+                                                    contentDescription = s.copy,
+                                                    tint = c.accent,
+                                                    modifier = Modifier.size(17.dp),
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -539,36 +584,45 @@ fun ItemDetailScreen(
                         }
                     }
 
-                    // Passkeys stored
-                    if (login.fido2Credentials.isNotEmpty()) {
-                        OnePassCard(
-                            modifier = Modifier.fillMaxWidth(),
-                            cornerRadius = 12.dp,
-                            backgroundColor = c.surface,
-                            borderColor = Color(0xFF7253ED).copy(alpha = 0.45f),
-                            padding = PaddingValues(14.dp),
-                        ) {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Websites: Clickable links ONLY (no "website" title label)
+                    if (login.uris.isNotEmpty()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            login.uris.forEach { uri ->
                                 Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .clickable { onCopy(s.website, uri.uri, false) }
+                                        .padding(horizontal = 4.dp, vertical = 6.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 ) {
-                                    Icon(Icons.Rounded.Key, contentDescription = null, tint = Color(0xFFA78BFA), modifier = Modifier.size(16.dp))
                                     Text(
-                                        s.passkeys,
-                                        color = Color(0xFFC4B5FD),
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                    )
-                                }
-                                login.fido2Credentials.forEach { pk ->
-                                    Text(
-                                        text = "${pk.rpName ?: pk.rpId} · ${pk.userName ?: pk.credentialId.take(12)}",
-                                        color = c.textPrimary,
-                                        fontSize = 14.5.sp,
+                                        text = uri.uri,
+                                        color = c.accent,
+                                        fontSize = 15.5.sp,
+                                        fontWeight = FontWeight.Medium,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f),
                                     )
+                                    if (uri.uri.startsWith("http://") || uri.uri.startsWith("https://")) {
+                                        IconButton(
+                                            onClick = {
+                                                runCatching {
+                                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(uri.uri)))
+                                                }
+                                            },
+                                            modifier = Modifier.size(36.dp),
+                                        ) {
+                                            Icon(
+                                                Icons.AutoMirrored.Rounded.OpenInNew,
+                                                contentDescription = "Open link",
+                                                tint = c.textSecondary,
+                                                modifier = Modifier.size(20.dp),
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -603,16 +657,16 @@ fun ItemDetailScreen(
                                 Text(
                                     text = card.brand.ifBlank { "CREDIT CARD" }.uppercase(),
                                     color = Color.White.copy(alpha = 0.85f),
-                                    fontSize = 12.5.sp,
+                                    fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold,
                                     letterSpacing = 1.2.sp,
                                 )
-                                IconButton(onClick = { showCardSecrets = !showCardSecrets }, modifier = Modifier.size(30.dp)) {
+                                IconButton(onClick = { showCardSecrets = !showCardSecrets }, modifier = Modifier.size(32.dp)) {
                                     Icon(
                                         if (showCardSecrets) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
                                         contentDescription = "Toggle card",
                                         tint = Color.White,
-                                        modifier = Modifier.size(18.dp),
+                                        modifier = Modifier.size(20.dp),
                                     )
                                 }
                             }
@@ -620,21 +674,21 @@ fun ItemDetailScreen(
                                 text = displayNum,
                                 color = Color.White,
                                 fontFamily = FontFamily.Monospace,
-                                fontSize = if (fold.isNarrowCover) 17.sp else 19.sp,
+                                fontSize = if (fold.isNarrowCover) 18.sp else 20.sp,
                                 fontWeight = FontWeight.SemiBold,
                             )
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Column {
-                                    Text(if (s.isVi) "CHỦ THẺ" else "CARDHOLDER", color = Color.White.copy(alpha = 0.6f), fontSize = 10.sp)
-                                    Text(card.cardholderName.ifBlank { "—" }, color = Color.White, fontSize = 14.sp)
+                                    Text(if (s.isVi) "CHỦ THẺ" else "CARDHOLDER", color = Color.White.copy(alpha = 0.65f), fontSize = 11.5.sp)
+                                    Text(card.cardholderName.ifBlank { "—" }, color = Color.White, fontSize = 15.sp)
                                 }
                                 Column(horizontalAlignment = Alignment.End) {
-                                    Text(if (s.isVi) "HẾT HẠN" else "EXPIRES", color = Color.White.copy(alpha = 0.6f), fontSize = 10.sp)
+                                    Text(if (s.isVi) "HẾT HẠN" else "EXPIRES", color = Color.White.copy(alpha = 0.65f), fontSize = 11.5.sp)
                                     Text(
                                         "${card.expMonth.ifBlank { "--" }}/${card.expYear.takeLast(2).ifBlank { "--" }}",
                                         color = Color.White,
                                         fontFamily = FontFamily.Monospace,
-                                        fontSize = 14.sp,
+                                        fontSize = 15.sp,
                                     )
                                 }
                             }
@@ -650,15 +704,17 @@ fun ItemDetailScreen(
                     ) {
                         Column {
                             if (card.number.isNotBlank()) {
-                                DetailFieldRow(if (s.isVi) "số thẻ" else "number", displayNum) { onCopy("card number", card.number, true) }
+                                val numLabel = if (s.isVi) "Số Thẻ" else "Card Number"
+                                DetailFieldRow(numLabel, displayNum) { onCopy(numLabel, card.number, true) }
                             }
                             if (card.code.isNotBlank()) {
                                 HorizontalDivider(color = c.divider, thickness = 0.8.dp)
-                                DetailFieldRow("cvv", if (showCardSecrets) card.code else "•••") { onCopy("CVV", card.code, true) }
+                                DetailFieldRow("CVV", if (showCardSecrets) card.code else "•••") { onCopy("CVV", card.code, true) }
                             }
                             if (card.cardholderName.isNotBlank()) {
                                 HorizontalDivider(color = c.divider, thickness = 0.8.dp)
-                                DetailFieldRow(if (s.isVi) "chủ thẻ" else "cardholder", card.cardholderName) { onCopy("cardholder", card.cardholderName, false) }
+                                val holderLabel = if (s.isVi) "Chủ Thẻ" else "Cardholder"
+                                DetailFieldRow(holderLabel, card.cardholderName) { onCopy(holderLabel, card.cardholderName, false) }
                             }
                         }
                     }
@@ -668,25 +724,25 @@ fun ItemDetailScreen(
                 if (item.type == CipherType.IDENTITY && item.identity != null) {
                     val id = item.identity
                     val rows = listOfNotNull(
-                        id.fullName.takeIf { it.isNotBlank() }?.let { (if (s.isVi) "họ và tên" else "full name") to it },
-                        id.email.takeIf { it.isNotBlank() }?.let { "email" to it },
-                        id.phone.takeIf { it.isNotBlank() }?.let { (if (s.isVi) "điện thoại" else "phone") to it },
-                        id.company.takeIf { it.isNotBlank() }?.let { (if (s.isVi) "công ty" else "company") to it },
+                        id.fullName.takeIf { it.isNotBlank() }?.let { (if (s.isVi) "Họ Và Tên" else "Full Name") to it },
+                        id.email.takeIf { it.isNotBlank() }?.let { "Email" to it },
+                        id.phone.takeIf { it.isNotBlank() }?.let { (if (s.isVi) "Điện Thoại" else "Phone") to it },
+                        id.company.takeIf { it.isNotBlank() }?.let { (if (s.isVi) "Công Ty" else "Company") to it },
                         id.username.takeIf { it.isNotBlank() }?.let { s.username to it },
                         listOf(id.address1, id.address2, id.city, id.state, id.postalCode, id.country)
                             .filter { it.isNotBlank() }
                             .joinToString(", ")
                             .takeIf { it.isNotBlank() }
-                            ?.let { (if (s.isVi) "địa chỉ" else "address") to it },
-                        id.passportNumber.takeIf { it.isNotBlank() }?.let { (if (s.isVi) "hộ chiếu / cccd" else "passport / id") to it },
-                        id.licenseNumber.takeIf { it.isNotBlank() }?.let { (if (s.isVi) "giấy phép" else "license") to it },
+                            ?.let { (if (s.isVi) "Địa Chỉ" else "Address") to it },
+                        id.passportNumber.takeIf { it.isNotBlank() }?.let { (if (s.isVi) "Hộ Chiếu / CCCD" else "Passport / ID") to it },
+                        id.licenseNumber.takeIf { it.isNotBlank() }?.let { (if (s.isVi) "Giấy Phép" else "License") to it },
                     )
                     if (rows.isNotEmpty()) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(
                                 text = s.identificationHeader,
                                 color = c.textPrimary,
-                                fontSize = 12.5.sp,
+                                fontSize = 13.5.sp,
                                 fontWeight = FontWeight.Bold,
                                 letterSpacing = 0.8.sp,
                             )
@@ -708,8 +764,15 @@ fun ItemDetailScreen(
                     }
                 }
 
-                // CUSTOM FIELDS (excludes hidden internal `_ov_icon`)
-                if (visibleCustomFields.isNotEmpty()) {
+                // RECOVERY CODES TABLE UI (4x5 bordered grid on standard screens, 2x10 on narrow fold cover)
+                recoveryFields.forEachIndexed { rIdx, rcField ->
+                    val fieldKey = "${rcField.name}_$rIdx"
+                    val showCodes = recoveryRevealMap[fieldKey] ?: (rcField.type != 1)
+                    val slots = remember(rcField.value) { RecoveryCodeUtils.parseRecoveryCodesToSlots(rcField.value) }
+                    val filledCount = remember(slots) { RecoveryCodeUtils.countFilledRecoveryCodes(slots) }
+                    val cols = if (fold.isNarrowCover) 2 else 4
+                    val title = rcField.name.ifBlank { s.recoveryCodesTitle }
+
                     OnePassCard(
                         modifier = Modifier.fillMaxWidth(),
                         cornerRadius = 12.dp,
@@ -718,15 +781,144 @@ fun ItemDetailScreen(
                         padding = PaddingValues(0.dp),
                     ) {
                         Column {
-                            visibleCustomFields.forEachIndexed { idx, f ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.GridView,
+                                    contentDescription = null,
+                                    tint = c.accent,
+                                    modifier = Modifier.size(19.dp),
+                                )
+                                Text(
+                                    text = title,
+                                    color = c.fieldLabel,
+                                    fontSize = 14.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Text(
+                                    text = "$filledCount/20",
+                                    color = c.accent,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(c.accentSoft)
+                                        .padding(horizontal = 7.dp, vertical = 2.dp),
+                                )
+                                IconButton(
+                                    onClick = { recoveryRevealMap[fieldKey] = !showCodes },
+                                    modifier = Modifier.size(34.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = if (showCodes) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                                        contentDescription = if (showCodes) s.hideCodes else s.showCodes,
+                                        tint = c.textSecondary,
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                }
+                                IconButton(
+                                    onClick = {
+                                        val allText = slots.filter { it.isNotBlank() }.joinToString(" ")
+                                        if (allText.isNotBlank()) onCopy(title, allText, true)
+                                    },
+                                    modifier = Modifier.size(34.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.ContentCopy,
+                                        contentDescription = s.copyAll,
+                                        tint = c.accent,
+                                        modifier = Modifier.size(19.dp),
+                                    )
+                                }
+                            }
+                            HorizontalDivider(color = c.divider, thickness = 0.8.dp)
+                            val chunkedRows = slots.chunked(cols)
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                chunkedRows.forEachIndexed { rowIdx, rowCells ->
+                                    if (rowIdx > 0) HorizontalDivider(color = c.divider, thickness = 0.7.dp)
+                                    Row(modifier = Modifier.fillMaxWidth()) {
+                                        rowCells.forEachIndexed { colIdx, code ->
+                                            val slotIdx = rowIdx * cols + colIdx
+                                            if (colIdx > 0) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .width(0.7.dp)
+                                                        .height(44.dp)
+                                                        .background(c.divider),
+                                                )
+                                            }
+                                            Row(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .height(44.dp)
+                                                    .let { baseMod ->
+                                                        if (code.isNotBlank()) {
+                                                            baseMod.clickable {
+                                                                onCopy("$title #${slotIdx + 1}", code, true)
+                                                            }
+                                                        } else {
+                                                            baseMod
+                                                        }
+                                                    }
+                                                    .padding(horizontal = 10.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            ) {
+                                                Text(
+                                                    text = "%02d".format(slotIdx + 1),
+                                                    color = c.textMuted,
+                                                    fontFamily = FontFamily.Monospace,
+                                                    fontSize = 11.5.sp,
+                                                )
+                                                Text(
+                                                    text = when {
+                                                        code.isBlank() -> "----"
+                                                        !showCodes -> "••••"
+                                                        else -> code
+                                                    },
+                                                    color = if (code.isBlank()) c.textMuted.copy(alpha = 0.45f) else c.textPrimary,
+                                                    fontFamily = FontFamily.Monospace,
+                                                    fontSize = 15.sp,
+                                                    fontWeight = if (code.isNotBlank()) FontWeight.SemiBold else FontWeight.Normal,
+                                                    maxLines = 1,
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // STANDARD CUSTOM FIELDS (excludes hidden internal `_ov_icon` & `_ov_account_avatar`)
+                if (normalCustomFields.isNotEmpty()) {
+                    OnePassCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        cornerRadius = 12.dp,
+                        backgroundColor = c.surface,
+                        borderColor = c.cardBorder,
+                        padding = PaddingValues(0.dp),
+                    ) {
+                        Column {
+                            normalCustomFields.forEachIndexed { idx, f ->
                                 if (idx > 0) HorizontalDivider(color = c.divider, thickness = 0.8.dp)
                                 val isHidden = f.type == 1
                                 val displayVal = if (isHidden && !showPassword) "••••••••" else f.value
+                                val label = f.name.ifBlank { if (s.isVi) "Trường Tùy Chỉnh" else "Custom Field" }
                                 DetailFieldRow(
-                                    label = f.name.ifBlank { if (s.isVi) "trường tùy chỉnh" else "custom field" },
+                                    label = label,
                                     value = displayVal,
                                 ) {
-                                    onCopy(f.name.ifBlank { "field" }, f.value, isHidden)
+                                    onCopy(label, f.value, isHidden)
                                 }
                             }
                         }
@@ -743,25 +935,25 @@ fun ItemDetailScreen(
                             .padding(horizontal = 4.dp, vertical = 6.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        Text(s.notes, color = c.fieldLabel, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                        Text(text = item.notes, color = c.textPrimary, fontSize = 15.sp, lineHeight = 22.sp)
+                        Text(s.notes, color = c.fieldLabel, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Text(text = item.notes, color = c.textPrimary, fontSize = 16.sp, lineHeight = 23.sp)
                     }
                 }
 
-                // Device Local Timezone Timestamps (Requirement #5 — exact Image 6!)
+                // Device Local Timezone Timestamps
                 if (!item.revisionDate.isNullOrBlank() || !item.creationDate.isNullOrBlank()) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(top = 12.dp, bottom = 28.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(3.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         if (!item.revisionDate.isNullOrBlank()) {
                             Text(
                                 text = "${s.lastEditedPrefix}${formatLocalTimestamp(item.revisionDate, s.isVi)}",
                                 color = c.textSecondary,
-                                fontSize = 12.sp,
+                                fontSize = 13.sp,
                                 textAlign = TextAlign.Center,
                             )
                         }
@@ -769,7 +961,7 @@ fun ItemDetailScreen(
                             Text(
                                 text = "${s.addedPrefix}${formatLocalTimestamp(item.creationDate, s.isVi)}",
                                 color = c.textMuted,
-                                fontSize = 12.sp,
+                                fontSize = 13.sp,
                                 textAlign = TextAlign.Center,
                             )
                         }
@@ -842,18 +1034,18 @@ private fun DetailFieldRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onCopy)
-            .padding(horizontal = 16.dp, vertical = 13.dp),
+            .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(text = label, color = c.fieldLabel, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-            Text(text = value, color = c.textPrimary, fontSize = 15.5.sp)
+            Text(text = label, color = c.fieldLabel, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            Text(text = value, color = c.textPrimary, fontSize = 16.5.sp)
         }
         Icon(
             Icons.Rounded.ContentCopy,
             contentDescription = s.copy,
             tint = c.accent,
-            modifier = Modifier.size(18.dp),
+            modifier = Modifier.size(20.dp),
         )
     }
 }

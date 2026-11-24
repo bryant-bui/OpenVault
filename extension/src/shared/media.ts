@@ -1,10 +1,28 @@
-import type { CipherField } from "@openvault/crypto-core";
+import type { CipherField, CipherPayload } from "@openvault/crypto-core";
 
 /**
  * Hidden Bitwarden custom field name shared across Android & Chrome Extension
  * for Zero-Knowledge E2EE custom item icons (96x96 WebP, ~3-8 KB raw base64).
  */
 export const OV_CUSTOM_ICON_FIELD = "_ov_icon";
+
+/**
+ * Reserved hidden SecureNote cipher synced E2EE across Chrome Extension & Android
+ * so the user's Account Profile Avatar stays identical across devices with zero DB schema changes.
+ */
+export const PROFILE_SYNC_CIPHER_NAME = "__openvault_profile__";
+export const ACCOUNT_AVATAR_FIELD_NAME = "_ov_account_avatar";
+
+export function isInternalProfileCipher(cipher: Pick<CipherPayload, "name" | "fields">): boolean {
+  if (cipher.name === PROFILE_SYNC_CIPHER_NAME) return true;
+  return Boolean(cipher.fields?.some((f) => f.name === ACCOUNT_AVATAR_FIELD_NAME));
+}
+
+export function getSyncedAvatarFromCiphers(ciphers: CipherPayload[]): string | null {
+  const profile = ciphers.find((c) => !c.deletedDate && isInternalProfileCipher(c));
+  const raw = profile?.fields?.find((f) => f.name === ACCOUNT_AVATAR_FIELD_NAME)?.value?.trim();
+  return raw ? raw : null;
+}
 
 export function getCustomIconDataUrl(fields?: CipherField[] | null): string | null {
   if (!fields || fields.length === 0) return null;
@@ -25,7 +43,9 @@ export function getRawCustomIconBase64(fields?: CipherField[] | null): string | 
 
 export function getVisibleCustomFields(fields?: CipherField[] | null): CipherField[] {
   if (!fields || fields.length === 0) return [];
-  return fields.filter((f) => f.name !== OV_CUSTOM_ICON_FIELD);
+  return fields.filter(
+    (f) => f.name !== OV_CUSTOM_ICON_FIELD && f.name !== ACCOUNT_AVATAR_FIELD_NAME,
+  );
 }
 
 export function normalizeAvatarDataUrl(base64?: string | null): string | null {
@@ -71,13 +91,17 @@ export async function compressImageFileToBase64(
   ctx.imageSmoothingQuality = "high";
   ctx.drawImage(img, sx, sy, side, side, 0, 0, targetPx, targetPx);
 
-  let out = canvas.toDataURL("image/webp", quality);
-  if (!out.startsWith("data:image/webp")) {
-    out = canvas.toDataURL("image/jpeg", quality);
+  let rawBase64 = "";
+  for (const q of [quality, Math.min(quality, 0.7), 0.56, 0.42]) {
+    let out = canvas.toDataURL("image/webp", q);
+    if (!out.startsWith("data:image/webp")) {
+      out = canvas.toDataURL("image/jpeg", q);
+    }
+    const idx = out.indexOf("base64,");
+    rawBase64 = idx >= 0 ? out.slice(idx + 7) : out;
+    if (rawBase64.length <= 36_000) break;
   }
-  const idx = out.indexOf("base64,");
-  const rawBase64 = idx >= 0 ? out.slice(idx + 7) : out;
-  if (rawBase64.length > 44_000) {
+  if (rawBase64.length > 36_000) {
     throw new Error("Image is too large after compression");
   }
   return rawBase64;

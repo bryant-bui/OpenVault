@@ -159,7 +159,11 @@ private sealed interface OverlayRoute {
     data object TotpHub : OverlayRoute
     data object WelcomeTour : OverlayRoute
     data class Detail(val itemId: String) : OverlayRoute
-    data class Editor(val initialItem: VaultItem?, val initialType: CipherType = CipherType.LOGIN) : OverlayRoute
+    data class Editor(
+        val initialItem: VaultItem?,
+        val initialType: CipherType = CipherType.LOGIN,
+        val initialSecureNoteType: Int = 0,
+    ) : OverlayRoute
     data class QrScanner(val returnToEditor: Boolean) : OverlayRoute
 }
 
@@ -194,6 +198,8 @@ private fun OpenVaultRootApp(
     var editingReturnItem by remember { mutableStateOf<VaultItem?>(null) }
     var isSavingItem by remember { mutableStateOf(false) }
     var toastMessage by remember { mutableStateOf<String?>(null) }
+    var homeFabExpanded by remember { mutableStateOf(true) }
+    var itemsFabExpanded by remember { mutableStateOf(true) }
 
     // First-launch 5-slide onboarding state when logged out
     var showingOnboarding by remember { mutableStateOf(!container.preferences.hasSeenOnboarding()) }
@@ -279,7 +285,12 @@ private fun OpenVaultRootApp(
         overlay = OverlayRoute.QrScanner(returnToEditor = returnToEditor)
     }
 
-    // Back handling (#14 fix: Editor for a NEW item returns cleanly to Home / None, NEVER stale Detail!)
+    // Tab-level edge-back: Watchtower or Items root navigates cleanly back to Home instead of exiting app
+    BackHandler(enabled = lockState == VaultLockState.UNLOCKED && overlay == OverlayRoute.None && selectedTab != MainTab.HOME) {
+        selectedTabName = MainTab.HOME.name
+    }
+
+    // Overlay back handling: always returns from Detail/Editor/Settings cleanly
     BackHandler(enabled = overlay != OverlayRoute.None) {
         overlay = when (val current = overlay) {
             is OverlayRoute.QrScanner -> if (current.returnToEditor) OverlayRoute.Editor(editingReturnItem) else OverlayRoute.None
@@ -299,6 +310,7 @@ private fun OpenVaultRootApp(
                     usageCounts = usageCounts,
                     isSyncing = isSyncing,
                     selectedItemId = if (overlay is OverlayRoute.Detail) (overlay as OverlayRoute.Detail).itemId else null,
+                    onFabExpandedChange = { homeFabExpanded = it },
                     onOpenProfile = { overlay = OverlayRoute.Profile },
                     onOpenCustomizeHome = { overlay = OverlayRoute.CustomizeHome },
                     onOpenSettings = { overlay = OverlayRoute.Settings },
@@ -316,7 +328,9 @@ private fun OpenVaultRootApp(
                     items = items,
                     folders = folders,
                     isSyncing = isSyncing,
+                    isForeground = (overlay == OverlayRoute.None),
                     selectedItemId = if (overlay is OverlayRoute.Detail) (overlay as OverlayRoute.Detail).itemId else null,
+                    onFabExpandedChange = { itemsFabExpanded = it },
                     onOpenSettings = { overlay = OverlayRoute.Settings },
                     onOpenGenerator = { overlay = OverlayRoute.Generator },
                     onOpenQrScanner = { openQrScanner(returnToEditor = false) },
@@ -327,7 +341,7 @@ private fun OpenVaultRootApp(
                     onCreateFolder = { name ->
                         scope.launch {
                             runCatching { container.repository.createFolder(name) }
-                                .onSuccess { showToast(if (s.isVi) "Đã tạo thư mục \"$name\"" else "Created folder \"$name\"") }
+                                .onSuccess { showToast(if (s.isVi) "Đã Tạo Thư Mục \"$name\"" else "Created Folder \"$name\"") }
                                 .onFailure { showToast("${it.message}") }
                         }
                     },
@@ -363,7 +377,7 @@ private fun OpenVaultRootApp(
             onBack = { overlay = OverlayRoute.None },
             onEdit = {
                 editingReturnItem = item
-                overlay = OverlayRoute.Editor(item, item.type)
+                overlay = OverlayRoute.Editor(item, item.type, item.secureNoteType)
             },
             onToggleFavorite = {
                 scope.launch {
@@ -377,7 +391,7 @@ private fun OpenVaultRootApp(
                         .onSuccess {
                             if (selectedItemId == item.id) selectedItemId = null
                             overlay = OverlayRoute.None
-                            showToast(if (s.isVi) "Đã chuyển \"${item.name}\" vào thùng rác." else "Moved \"${item.name}\" to Trash.")
+                            showToast(if (s.isVi) "Đã Chuyển \"${item.name}\" Vào Thùng Rác." else "Moved \"${item.name}\" To Trash.")
                         }
                         .onFailure { showToast("${it.message}") }
                 }
@@ -385,7 +399,7 @@ private fun OpenVaultRootApp(
             onRestore = {
                 scope.launch {
                     runCatching { container.repository.restoreItem(item.id) }
-                        .onSuccess { showToast(if (s.isVi) "Đã khôi phục \"${item.name}\"." else "Restored \"${item.name}\".") }
+                        .onSuccess { showToast(if (s.isVi) "Đã Khôi Phục \"${item.name}\"." else "Restored \"${item.name}\".") }
                         .onFailure { showToast("${it.message}") }
                 }
             },
@@ -395,7 +409,7 @@ private fun OpenVaultRootApp(
                         .onSuccess {
                             if (selectedItemId == item.id) selectedItemId = null
                             overlay = OverlayRoute.None
-                            showToast(if (s.isVi) "Đã xóa vĩnh viễn \"${item.name}\"." else "Permanently deleted \"${item.name}\".")
+                            showToast(if (s.isVi) "Đã Xóa Vĩnh Viễn \"${item.name}\"." else "Permanently Deleted \"${item.name}\".")
                         }
                         .onFailure { showToast("${it.message}") }
                 }
@@ -409,6 +423,7 @@ private fun OpenVaultRootApp(
         ItemEditorScreen(
             initialItem = editor.initialItem,
             initialType = editor.initialType,
+            initialSecureNoteType = editor.initialSecureNoteType,
             email = account.email,
             prefillUsername = settings.prefillUsername,
             folders = folders,
@@ -418,7 +433,6 @@ private fun OpenVaultRootApp(
                 editingReturnItem = editor.initialItem
                 overlay = OverlayRoute.QrScanner(returnToEditor = true)
             },
-            // #14 fix: canceling a brand-new item returns directly to Home / None, not a previous item!
             onCancel = {
                 overlay = editor.initialItem?.let { OverlayRoute.Detail(it.id) } ?: OverlayRoute.None
             },
@@ -431,7 +445,7 @@ private fun OpenVaultRootApp(
                             isSavingItem = false
                             selectedItemId = saved.id
                             overlay = OverlayRoute.Detail(saved.id)
-                            showToast(if (s.isVi) "Đã mã hóa & lưu \"${saved.name}\"!" else "Encrypted & saved \"${saved.name}\"!")
+                            showToast(if (s.isVi) "Đã Mã Hóa & Lưu \"${saved.name}\"!" else "Encrypted & Saved \"${saved.name}\"!")
                         }
                         .onFailure { ex ->
                             isSavingItem = false
@@ -448,9 +462,9 @@ private fun OpenVaultRootApp(
             OverlayRoute.None -> Unit
 
             OverlayRoute.NewItemPicker -> NewItemSheet(
-                onCreateType = { type ->
+                onCreateType = { type, noteType ->
                     editingReturnItem = null
-                    overlay = OverlayRoute.Editor(initialItem = null, initialType = type)
+                    overlay = OverlayRoute.Editor(initialItem = null, initialType = type, initialSecureNoteType = noteType)
                 },
                 onOpenGenerator = { overlay = OverlayRoute.Generator },
                 onOpenQrScanner = { openQrScanner(returnToEditor = false) },
@@ -464,7 +478,9 @@ private fun OpenVaultRootApp(
                 defaultCardId = settings.defaultCardId,
                 onSelectDefaultIdentity = { container.preferences.setDefaultIdentityId(it) },
                 onSelectDefaultCard = { container.preferences.setDefaultCardId(it) },
-                onUpdateAccountAvatar = { container.preferences.setAccountAvatarBase64(it) },
+                onUpdateAccountAvatar = { b64 ->
+                    scope.launch { container.repository.saveAccountAvatar(b64) }
+                },
                 onCreateItemOfType = { cipherType ->
                     editingReturnItem = null
                     overlay = OverlayRoute.Editor(initialItem = null, initialType = cipherType)
@@ -657,32 +673,49 @@ private fun OpenVaultRootApp(
                 }
             } else {
                 // ── FOLDED Z FOLD 3 COVER SCREEN (320dp) / STANDARD PHONE ──
-                if (currentOverlay != OverlayRoute.None) {
-                    RenderOverlayContent(currentOverlay)
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(c.background),
-                    ) {
-                        ActiveTabContent(modifier = Modifier.fillMaxSize())
+                // Keep ActiveTabContent mounted beneath overlays so ItemsScreen scope & scroll state survive Detail/Editor/Settings!
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(c.background),
+                ) {
+                    ActiveTabContent(modifier = Modifier.fillMaxSize())
 
-                        if (selectedTab != MainTab.WATCHTOWER) {
-                            OnePassExtendedFab(
-                                text = s.newItem,
-                                onClick = { overlay = OverlayRoute.NewItemPicker },
-                                modifier = Modifier
-                                    .align(Alignment.BottomEnd)
-                                    .navigationBarsPadding()
-                                    .padding(end = fold.horizontalPadding, bottom = 84.dp),
-                            )
+                    if (selectedTab != MainTab.WATCHTOWER) {
+                        val fabExpanded = when (selectedTab) {
+                            MainTab.HOME -> homeFabExpanded
+                            MainTab.ITEMS -> itemsFabExpanded
+                            MainTab.WATCHTOWER -> true
                         }
-
-                        OnePassBottomBar(
-                            selectedTab = selectedTab,
-                            onSelect = { tab -> selectedTabName = tab.name },
-                            modifier = Modifier.align(Alignment.BottomCenter),
+                        OnePassExtendedFab(
+                            text = s.newItem,
+                            expanded = fabExpanded,
+                            onClick = { overlay = OverlayRoute.NewItemPicker },
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .navigationBarsPadding()
+                                .padding(end = fold.horizontalPadding, bottom = 84.dp),
                         )
+                    }
+
+                    OnePassBottomBar(
+                        selectedTab = selectedTab,
+                        onSelect = { tab -> selectedTabName = tab.name },
+                        modifier = Modifier.align(Alignment.BottomCenter),
+                    )
+
+                    if (currentOverlay != OverlayRoute.None) {
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                ) { /* block fallthrough touches under overlay */ },
+                            color = c.sheetBackground,
+                        ) {
+                            RenderOverlayContent(currentOverlay)
+                        }
                     }
                 }
             }

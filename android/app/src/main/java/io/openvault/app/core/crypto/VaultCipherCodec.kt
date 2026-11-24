@@ -13,15 +13,29 @@ import io.openvault.app.core.network.FolderDto
 import io.openvault.app.core.network.PasswordHistoryDto
 
 enum class CipherType(val value: Int, val labelVi: String, val labelEn: String) {
-    LOGIN(1, "Đăng nhập", "Login"),
-    SECURE_NOTE(2, "Ghi chú bảo mật", "Secure Note"),
-    CARD(3, "Thẻ thanh toán", "Credit Card"),
-    IDENTITY(4, "Danh tính", "Identity");
+    LOGIN(1, "Đăng Nhập", "Login"),
+    SECURE_NOTE(2, "Ghi Chú", "Notes"),
+    CARD(3, "Thẻ Thanh Toán", "Credit Card"),
+    IDENTITY(4, "Danh Tính", "Identity");
 
     fun label(isVi: Boolean): String = if (isVi) labelVi else labelEn
 
     companion object {
         fun fromValue(v: Int): CipherType = entries.firstOrNull { it.value == v } ?: LOGIN
+    }
+}
+
+enum class SecureNoteCategory(val typeCode: Int, val labelVi: String, val labelEn: String) {
+    NOTE(0, "Ghi Chú", "Notes"),
+    SOFTWARE(1, "Phần Mềm", "Software"),
+    PASSPORT(2, "Passport", "Passport"),
+    ID_CARD(3, "ID Card", "ID Card");
+
+    fun label(isVi: Boolean): String = if (isVi) labelVi else labelEn
+
+    companion object {
+        fun fromCode(code: Int?): SecureNoteCategory =
+            entries.firstOrNull { it.typeCode == (code ?: 0) } ?: NOTE
     }
 }
 
@@ -112,6 +126,7 @@ data class VaultItem(
     val id: String = "",
     val folderId: String? = null,
     val type: CipherType = CipherType.LOGIN,
+    val secureNoteType: Int = 0,
     val name: String = "",
     val notes: String = "",
     val favorite: Boolean = false,
@@ -128,10 +143,19 @@ data class VaultItem(
     val isDeleted: Boolean get() = !deletedDate.isNullOrBlank()
     val hasTotp: Boolean get() = !login?.totp.isNullOrBlank()
     val hasPasskeys: Boolean get() = !login?.fido2Credentials.isNullOrEmpty()
+    val isInternalProfileItem: Boolean
+        get() = name == PROFILE_SYNC_CIPHER_NAME ||
+            fields.any { it.name == ACCOUNT_AVATAR_FIELD_NAME }
+    val secureNoteCategory: SecureNoteCategory
+        get() = SecureNoteCategory.fromCode(secureNoteType)
+    val syncedAccountAvatarBase64: String?
+        get() = fields.firstOrNull { it.name == ACCOUNT_AVATAR_FIELD_NAME }?.value?.takeIf { it.isNotBlank() }
     val customIconBase64: String?
         get() = fields.firstOrNull { it.name == CUSTOM_ICON_FIELD_NAME }?.value?.takeIf { it.isNotBlank() }
     val visibleFields: List<VaultField>
-        get() = fields.filter { it.name != CUSTOM_ICON_FIELD_NAME }
+        get() = fields.filter {
+            it.name != CUSTOM_ICON_FIELD_NAME && it.name != ACCOUNT_AVATAR_FIELD_NAME
+        }
     val primaryWebsiteUrl: String?
         get() = login?.uris?.firstOrNull { it.uri.isNotBlank() }?.uri
     val primarySubtitle: String
@@ -150,11 +174,15 @@ data class VaultItem(
                 ?: identity?.email?.takeIf { it.isNotBlank() }
                 ?: "Identity"
             CipherType.SECURE_NOTE -> notes.lineSequence().firstOrNull()?.take(48)
-                ?.takeIf { it.isNotBlank() } ?: "Secure Note"
+                ?.takeIf { it.isNotBlank() }
+                ?: visibleFields.firstOrNull { it.type == 0 && it.value.isNotBlank() }?.value?.take(48)
+                ?: secureNoteCategory.labelEn
         }
 
     companion object {
         const val CUSTOM_ICON_FIELD_NAME = "_ov_icon"
+        const val PROFILE_SYNC_CIPHER_NAME = "__openvault_profile__"
+        const val ACCOUNT_AVATAR_FIELD_NAME = "_ov_account_avatar"
     }
 }
 
@@ -324,7 +352,7 @@ object VaultCipherCodec {
             favorite = item.favorite,
             reprompt = item.reprompt,
             login = if (item.type == CipherType.LOGIN) encLogin else null,
-            secureNote = if (item.type == CipherType.SECURE_NOTE) CipherSecureNoteDto(0) else null,
+            secureNote = if (item.type == CipherType.SECURE_NOTE) CipherSecureNoteDto(item.secureNoteType) else null,
             card = if (item.type == CipherType.CARD) encCard else null,
             identity = if (item.type == CipherType.IDENTITY) encIdentity else null,
             fields = encFields,
@@ -422,6 +450,7 @@ object VaultCipherCodec {
             id = dto.id,
             folderId = dto.folderId,
             type = type,
+            secureNoteType = dto.secureNote?.type ?: 0,
             name = runCatching { BitwardenCryptoEngine.decryptString(dto.name, key) }
                 .getOrDefault("Không thể giải mã"),
             notes = decOpt(dto.notes, key),

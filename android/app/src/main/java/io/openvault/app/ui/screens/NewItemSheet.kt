@@ -20,12 +20,15 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Badge
 import androidx.compose.material.icons.rounded.CreditCard
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.QrCodeScanner
+import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -42,6 +45,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.openvault.app.core.crypto.CipherType
+import io.openvault.app.core.crypto.SecureNoteCategory
 import io.openvault.app.ui.components.CategoryIconBadge
 import io.openvault.app.ui.components.OnePassCard
 import io.openvault.app.ui.components.OnePassSearchBar
@@ -58,13 +62,12 @@ private data class NewItemTileSpec(
 )
 
 /**
- * Authentic 1Password 8 Android "Add items" modal sheet:
- * - Elevated #1C1D1F canvas, ✕ Close + bold "Thêm mục mới"
- * - Adaptive 2-column Bento grid on Cover/Phone, 3-column Bento grid on unfolded Galaxy Z Fold 3
+ * Authentic 1Password 8 Android "Add Items" modal sheet with split Secure Note categories
+ * (Software, Notes, Passport, ID Card), adaptive 2/3 column Bento grid, and enlarged readable text.
  */
 @Composable
 fun NewItemSheet(
-    onCreateType: (CipherType) -> Unit,
+    onCreateType: (CipherType, Int) -> Unit,
     onOpenGenerator: () -> Unit,
     onOpenQrScanner: () -> Unit,
     onDismiss: () -> Unit,
@@ -76,10 +79,21 @@ fun NewItemSheet(
 
     val tiles = remember(s) {
         listOf(
-            NewItemTileSpec(s.logins, Icons.Rounded.Lock, Color(0xFF042F2E), Color(0xFF5EEAD4)) { onCreateType(CipherType.LOGIN) },
-            NewItemTileSpec(s.secureNotes, Icons.Rounded.Description, Color(0xFF2E1E04), Color(0xFFFBBF24)) { onCreateType(CipherType.SECURE_NOTE) },
-            NewItemTileSpec(s.creditCards, Icons.Rounded.CreditCard, Color.White, Color(0xFF0284C7)) { onCreateType(CipherType.CARD) },
-            NewItemTileSpec(s.identities, Icons.Rounded.Person, Color(0xFF042F1A), Color(0xFF4ADE80)) { onCreateType(CipherType.IDENTITY) },
+            NewItemTileSpec(s.logins, Icons.Rounded.Lock, Color(0xFF042F2E), Color(0xFF5EEAD4)) { onCreateType(CipherType.LOGIN, 0) },
+            NewItemTileSpec(s.categorySoftware, Icons.Rounded.Terminal, Color(0xFF075985), Color(0xFFBAE6FD)) {
+                onCreateType(CipherType.SECURE_NOTE, SecureNoteCategory.SOFTWARE.typeCode)
+            },
+            NewItemTileSpec(s.categoryNotes, Icons.Rounded.Description, Color(0xFF2E1E04), Color(0xFFFBBF24)) {
+                onCreateType(CipherType.SECURE_NOTE, SecureNoteCategory.NOTE.typeCode)
+            },
+            NewItemTileSpec(s.categoryPassport, Icons.Rounded.Public, Color(0xFF4C1D95), Color(0xFFDDD6FE)) {
+                onCreateType(CipherType.SECURE_NOTE, SecureNoteCategory.PASSPORT.typeCode)
+            },
+            NewItemTileSpec(s.categoryIdCard, Icons.Rounded.Badge, Color(0xFF064E3B), Color(0xFFA7F3D0)) {
+                onCreateType(CipherType.SECURE_NOTE, SecureNoteCategory.ID_CARD.typeCode)
+            },
+            NewItemTileSpec(s.creditCards, Icons.Rounded.CreditCard, Color.White, Color(0xFF0284C7)) { onCreateType(CipherType.CARD, 0) },
+            NewItemTileSpec(s.identities, Icons.Rounded.Person, Color(0xFF042F1A), Color(0xFF4ADE80)) { onCreateType(CipherType.IDENTITY, 0) },
             NewItemTileSpec(s.passwordGenerator, Icons.Rounded.Key, Color.White, Color(0xFF16A34A)) { onOpenGenerator() },
             NewItemTileSpec(s.scanQr2fa.removeSuffix("…"), Icons.Rounded.QrCodeScanner, Color.White, Color(0xFF6366F1)) { onOpenQrScanner() },
         )
@@ -99,7 +113,6 @@ fun NewItemSheet(
             .statusBarsPadding()
             .navigationBarsPadding(),
     ) {
-        // Header: ←  New Item (matching Image 20)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -113,7 +126,7 @@ fun NewItemSheet(
             Text(
                 text = s.newItem,
                 color = c.textPrimary,
-                fontSize = 20.sp,
+                fontSize = 21.sp,
                 fontWeight = FontWeight.Bold,
             )
         }
@@ -147,7 +160,7 @@ fun NewItemSheet(
                                 modifier = Modifier.weight(1f),
                                 cornerRadius = 16.dp,
                                 backgroundColor = c.surface,
-                                padding = PaddingValues(15.dp),
+                                padding = PaddingValues(16.dp),
                                 onClick = tile.onClick,
                             ) {
                                 Column(
@@ -163,20 +176,20 @@ fun NewItemSheet(
                                             icon = tile.icon,
                                             tint = tile.iconTint,
                                             background = tile.bgColor,
-                                            size = 36.dp,
+                                            size = 38.dp,
                                         )
                                         Icon(
                                             Icons.Rounded.Add,
                                             contentDescription = null,
                                             tint = c.textSecondary,
-                                            modifier = Modifier.size(19.dp),
+                                            modifier = Modifier.size(21.dp),
                                         )
                                     }
                                     Text(
                                         text = tile.title,
                                         color = c.textPrimary,
-                                        fontSize = if (fold.isNarrowCover) 14.sp else 15.sp,
-                                        fontWeight = FontWeight.Medium,
+                                        fontSize = if (fold.isNarrowCover) 15.sp else 16.sp,
+                                        fontWeight = FontWeight.SemiBold,
                                         maxLines = 2,
                                     )
                                 }
