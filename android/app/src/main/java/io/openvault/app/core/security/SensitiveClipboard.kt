@@ -11,20 +11,29 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
  * Copies secrets with Android 13+ EXTRA_IS_SENSITIVE flag (hides passwords & 2FA codes
- * from keyboard clipboard overlays) and schedules timed auto-clear.
+ * from keyboard clipboard overlays), broadcasts live countdown warning notifications,
+ * and schedules timed auto-clear.
  */
 class SensitiveClipboard(
     context: Context,
     private val preferences: AppPreferences,
 ) {
+    private val appContext = context.applicationContext
     private val clipboard =
-        context.applicationContext.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        appContext.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var clearJob: Job? = null
+
+    private var activeLabel: String? = null
+    private var activeSecretText: String? = null
+    private var activeTotalSeconds: Int = 0
+    private var activeRemainingSeconds: Int = 0
+    private var activeIsSensitive: Boolean = false
 
     fun copy(label: String, text: String, isSensitive: Boolean = true) {
         val clip = ClipData.newPlainText(label, text)
@@ -40,20 +49,138 @@ class SensitiveClipboard(
         }
         clipboard.setPrimaryClip(clip)
 
-        val clearSeconds = preferences.settings.value.clipboardClearSeconds
+        val settings = preferences.settings.value
+        val clearSeconds = settings.clipboardClearSeconds
+        val isVi = settings.language == AppLanguage.VIETNAMESE
         clearJob?.cancel()
+
+        activeLabel = label
+        activeSecretText = text
+        activeTotalSeconds = clearSeconds
+        activeRemainingSeconds = clearSeconds
+        activeIsSensitive = isSensitive
+
         if (isSensitive && clearSeconds > 0) {
             clearJob = scope.launch {
-                delay(clearSeconds * 1000L)
-                val current = clipboard.primaryClip?.getItemAt(0)?.coerceToText(null)?.toString()
-                if (current == null || current == text) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                        clipboard.clearPrimaryClip()
-                    } else {
-                        clipboard.setPrimaryClip(ClipData.newPlainText("", ""))
+                for (remaining in clearSeconds downTo 1) {
+                    if (!isActive) break
+                    activeRemainingSeconds = remaining
+                    val currentSettings = preferences.settings.value
+                    if (currentSettings.clipboardNotificationsEnabled) {
+                        ClipboardNotificationHelper.showCountdownNotification(
+                            context = appContext,
+                            label = label,
+                            remainingSeconds = remaining,
+                            totalSeconds = clearSeconds,
+                            isVi = currentSettings.language == AppLanguage.VIETNAMESE,
+                        )
                     }
+                    delay(1_000L)
+                }
+                if (!isActive) return@launch
+
+                val cleared = clearClipboardIfMatches(text)
+                resetActiveState()
+                val currentSettings = preferences.settings.value
+                if (cleared && currentSettings.clipboardNotificationsEnabled) {
+                    ClipboardNotificationHelper.showClearedConfirmation(
+                        context = appContext,
+                        label = label,
+                        isVi = currentSettings.language == AppLanguage.VIETNAMESE,
+                    )
+                } else {
+                    ClipboardNotificationHelper.cancelNotification(appContext)
                 }
             }
+        } else {
+            if (settings.clipboardNotificationsEnabled) {
+                ClipboardNotificationHelper.showStaticCopiedNotification(
+                    context = appContext,
+                    label = label,
+                    isSensitive = isSensitive,
+                    isVi = isVi,
+                )
+            } else {
+                ClipboardNotificationHelper.cancelNotification(appContext)
+            }
         }
+    }
+
+    fun clearNow(force: Boolean = true) {
+        clearJob?.cancel()
+        clearJob = null
+        val label = activeLabel
+        val expectedText = activeSecretText
+        if (force) {
+            wipePrimaryClip()
+        } else if (expectedText != null) {
+            clearClipboardIfMatches(expectedText)
+        }
+        resetActiveState()
+
+        val currentSettings = preferences.settings.value
+        if (currentSettings.clipboardNotificationsEnabled) {
+            ClipboardNotificationHelper.showClearedConfirmation(
+                context = appContext,
+                label = label,
+                isVi = currentSettings.language == AppLanguage.VIETNAMESE,
+            )
+        } else {
+            ClipboardNotificationHelper.cancelNotification(appContext)
+        }
+    }
+
+    fun refreshActiveNotification() {
+        val label = activeLabel ?: return
+        val remaining = activeRemainingSeconds
+        val total = activeTotalSeconds
+        val settings = preferences.settings.value
+        if (!settings.clipboardNotificationsEnabled) return
+        val isVi = settings.language == AppLanguage.VIETNAMESE
+        if (activeIsSensitive && total > 0 && remaining > 0) {
+            ClipboardNotificationHelper.showCountdownNotification(
+                context = appContext,
+                label = label,
+                remainingSeconds = remaining,
+                totalSeconds = total,
+                isVi = isVi,
+            )
+        } else {
+            ClipboardNotificationHelper.showStaticCopiedNotification(
+                context = appContext,
+                label = label,
+                isSensitive = activeIsSensitive,
+                isVi = isVi,
+            )
+        }
+    }
+
+    private fun clearClipboardIfMatches(expectedText: String): Boolean {
+        val current = runCatching {
+            clipboard.primaryClip?.getItemAt(0)?.coerceToText(appContext)?.toString()
+        }.getOrNull()
+        if (current == null || current == expectedText) {
+            wipePrimaryClip()
+            return true
+        }
+        return false
+    }
+
+    private fun wipePrimaryClip() {
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                clipboard.clearPrimaryClip()
+            } else {
+                clipboard.setPrimaryClip(ClipData.newPlainText("", ""))
+            }
+        }
+    }
+
+    private fun resetActiveState() {
+        activeLabel = null
+        activeSecretText = null
+        activeTotalSeconds = 0
+        activeRemainingSeconds = 0
+        activeIsSensitive = false
     }
 }

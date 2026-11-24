@@ -74,6 +74,7 @@ data class SafeStatusSnapshot(
     val itemCount: Int = 0,
     val maxFileBytes: Int = SafeCrypto.SAFE_MAX_FILE_BYTES,
     val biometricEnabled: Boolean = false,
+    val flagSecureEnabled: Boolean = true,
     val hasRecoveryConfig: Boolean = false,
 )
 
@@ -133,6 +134,7 @@ class SafeRepository(
             itemCount = cfg?.itemCount ?: 0,
             maxFileBytes = cfg?.maxFileBytes ?: SafeCrypto.SAFE_MAX_FILE_BYTES,
             biometricEnabled = settings.safeBiometricEnabled && !recoveryReq && lockedUntil == null,
+            flagSecureEnabled = settings.safeFlagSecureEnabled,
             hasRecoveryConfig = !cfg?.recoveryEncryptedSafeKey.isNullOrBlank(),
         )
     }.stateIn(scope, SharingStarted.Eagerly, SafeStatusSnapshot())
@@ -165,6 +167,20 @@ class SafeRepository(
                 }.getOrNull()
             }
         }
+    }.stateIn(scope, SharingStarted.Eagerly, emptyList())
+
+    val folders: StateFlow<List<String>> = combine(
+        preferences.safeCustomFolders,
+        items,
+    ) { custom, decryptedItems ->
+        val fromItems = decryptedItems
+            .asSequence()
+            .filter { it.deletedAt == null }
+            .mapNotNull { it.metadata.folderName?.trim()?.takeIf { name -> name.isNotEmpty() } }
+            .toList()
+        (custom + fromItems)
+            .distinctBy { it.lowercase() }
+            .sortedWith(String.CASE_INSENSITIVE_ORDER)
     }.stateIn(scope, SharingStarted.Eagerly, emptyList())
 
     suspend fun syncSafe(): Boolean = withContext(Dispatchers.IO) {
@@ -479,6 +495,10 @@ class SafeRepository(
         preferences.clearSafeBiometricBlob()
     }
 
+    fun setFlagSecureEnabled(enabled: Boolean) {
+        preferences.setSafeFlagSecureEnabled(enabled)
+    }
+
     suspend fun changePin(currentPin: String, newPin: String) = withContext(Dispatchers.IO) {
         SafeCrypto.validateSafePin(currentPin)
         SafeCrypto.validateSafePin(newPin)
@@ -584,6 +604,7 @@ class SafeRepository(
         fileName: String,
         mimeType: String,
         category: SafeDocumentCategory,
+        folderName: String? = null,
         notes: String?,
         expiresAt: String?,
         rawBytes: ByteArray,
@@ -594,6 +615,11 @@ class SafeRepository(
             "Tệp vượt quá giới hạn tối đa 5 MB."
         }
         session.touchActivity()
+
+        val cleanFolder = folderName?.trim()?.takeIf { it.isNotEmpty() }
+        if (cleanFolder != null) {
+            preferences.addSafeFolder(cleanFolder)
+        }
 
         val fileKey = SafeCrypto.generateFileKey()
         val thumbJpeg = runCatching { generateCompressedThumbJpeg(rawBytes, mimeType) }.getOrNull()
@@ -606,6 +632,7 @@ class SafeRepository(
             fileName = fileName.trim().ifBlank { "document" },
             mimeType = mimeType,
             category = category.wireValue,
+            folderName = cleanFolder,
             notes = notes?.trim()?.takeIf { it.isNotEmpty() },
             fileKeyB64 = encoder.encodeToString(fileKey),
             thumbKeyB64 = thumbKey?.let { encoder.encodeToString(it) },
@@ -731,13 +758,19 @@ class SafeRepository(
         newCategory: SafeDocumentCategory,
         newNotes: String?,
         newExpiresAt: String?,
+        newFolderName: String? = item.metadata.folderName,
         favorite: Boolean = item.favorite,
     ) = withContext(Dispatchers.IO) {
         val safeKey = session.getActiveKey() ?: error("Vault+ đang bị khóa.")
         session.touchActivity()
+        val cleanFolder = newFolderName?.trim()?.takeIf { it.isNotEmpty() }
+        if (cleanFolder != null) {
+            preferences.addSafeFolder(cleanFolder)
+        }
         val nextMeta = item.metadata.copy(
             title = newTitle.trim().ifBlank { item.metadata.fileName },
             category = newCategory.wireValue,
+            folderName = cleanFolder,
             notes = newNotes?.trim()?.takeIf { it.isNotEmpty() },
             expiresAt = newExpiresAt?.trim()?.takeIf { it.isNotEmpty() },
         )
@@ -751,6 +784,59 @@ class SafeRepository(
             ),
         )
         safeDao.upsertItem(updated.toEntity())
+    }
+
+    suspend fun moveItemToFolder(item: DecryptedSafeItem, folderName: String?) =
+        updateItemMetadata(
+            item = item,
+            newTitle = item.metadata.title,
+            newCategory = item.category,
+            newNotes = item.metadata.notes,
+            newExpiresAt = item.metadata.expiresAt,
+            newFolderName = folderName,
+            favorite = item.favorite,
+        )
+
+    fun createFolder(name: String) {
+        val clean = name.trim()
+        require(clean.isNotEmpty()) { "Tên thư mục không được để trống." }
+        preferences.addSafeFolder(clean)
+    }
+
+    suspend fun renameFolder(oldName: String, newName: String) = withContext(Dispatchers.IO) {
+        val cleanNew = newName.trim()
+        require(cleanNew.isNotEmpty()) { "Tên thư mục không được để trống." }
+        session.touchActivity()
+        preferences.renameSafeFolder(oldName, cleanNew)
+        val affected = items.value.filter { it.metadata.folderName == oldName }
+        for (item in affected) {
+            moveItemToFolder(item, cleanNew)
+        }
+    }
+
+    suspend fun deleteFolder(folderName: String) = withContext(Dispatchers.IO) {
+        session.touchActivity()
+        preferences.removeSafeFolder(folderName)
+        val affected = items.value.filter { it.metadata.folderName == folderName }
+        for (item in affected) {
+            moveItemToFolder(item, null)
+        }
+    }
+
+    fun isCachedOffline(itemId: String): Boolean = blobFile(itemId).exists()
+
+    suspend fun downloadForOffline(item: DecryptedSafeItem) = withContext(Dispatchers.IO) {
+        session.getActiveKey() ?: error("Vault+ đang bị khóa.")
+        session.touchActivity()
+        val localFile = blobFile(item.id)
+        if (!localFile.exists()) {
+            val downloaded = api.downloadBlob(item.id)
+            localFile.writeBytes(downloaded)
+        }
+    }
+
+    fun clearOfflineCache(itemId: String) {
+        runCatching { blobFile(itemId).delete() }
     }
 
     suspend fun toggleFavorite(item: DecryptedSafeItem) = withContext(Dispatchers.IO) {

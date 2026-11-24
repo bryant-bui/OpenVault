@@ -1,6 +1,8 @@
 package io.openvault.app.ui.screens
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.OpenableColumns
@@ -62,6 +64,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -88,13 +91,18 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.openvault.app.BuildConfig
 import io.openvault.app.core.media.IconLoader
 import io.openvault.app.core.network.R2BackupItemDto
 import io.openvault.app.core.security.AppLanguage
 import io.openvault.app.core.security.AppThemeMode
 import io.openvault.app.core.security.BiometricKeyManager
+import io.openvault.app.core.security.ClipboardNotificationHelper
 import io.openvault.app.data.VaultRepository
 import io.openvault.app.ui.components.CategoryIconBadge
 import io.openvault.app.ui.components.OnePassAccountAvatar
@@ -141,12 +149,37 @@ fun SettingsScreen(
     val s = LocalStrings.current
     val fold = LocalFoldableLayout.current
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
 
     val settings by repository.preferences.settings.collectAsState()
     val account by repository.preferences.account.collectAsState()
     val isSyncing by repository.isSyncing.collectAsState()
     val bioSupported = remember { BiometricKeyManager.isBiometricAvailable(context) }
+
+    var hasNotifPermission by remember {
+        mutableStateOf(ClipboardNotificationHelper.hasNotificationPermission(context))
+    }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                hasNotifPermission = ClipboardNotificationHelper.hasNotificationPermission(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val notifPermLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        hasNotifPermission = ClipboardNotificationHelper.hasNotificationPermission(context)
+        if (!granted && !hasNotifPermission && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+            }
+            runCatching { context.startActivity(intent) }
+        }
+    }
 
     var page by remember { mutableStateOf(SettingsPage.ROOT) }
 
@@ -637,6 +670,43 @@ fun SettingsScreen(
                                 onClick = { showClipboardDialog = true },
                             )
                         }
+
+                        SettingsToggleItem(
+                            title = s.clipboardNotifications,
+                            subtitle = if (settings.clipboardNotificationsEnabled && !hasNotifPermission) {
+                                s.clipboardNotificationsPermHint
+                            } else {
+                                s.clipboardNotificationsSub
+                            },
+                            checked = settings.clipboardNotificationsEnabled && hasNotifPermission,
+                            hPad = hPad,
+                            onCheckedChange = { enable ->
+                                if (!enable) {
+                                    repository.preferences.setClipboardNotificationsEnabled(false)
+                                    ClipboardNotificationHelper.cancelNotification(context)
+                                } else {
+                                    repository.preferences.setClipboardNotificationsEnabled(true)
+                                    val runtimeGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                        ContextCompat.checkSelfPermission(
+                                            context,
+                                            Manifest.permission.POST_NOTIFICATIONS,
+                                        ) == PackageManager.PERMISSION_GRANTED
+                                    } else {
+                                        true
+                                    }
+                                    if (!runtimeGranted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                        notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                    } else if (!ClipboardNotificationHelper.hasNotificationPermission(context) &&
+                                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                                    ) {
+                                        val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                                            putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                                        }
+                                        runCatching { context.startActivity(intent) }
+                                    }
+                                }
+                            },
+                        )
                     }
 
                     SettingsPage.PRIVACY -> {

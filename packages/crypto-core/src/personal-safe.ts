@@ -64,6 +64,7 @@ export interface SafeItemMetadata {
   fileName: string;
   mimeType: string;
   category: SafeDocumentCategory;
+  folderName?: string | null;
   notes?: string | null;
   fileKeyB64: string;
   thumbKeyB64?: string | null;

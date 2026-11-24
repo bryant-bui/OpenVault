@@ -43,17 +43,15 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -98,6 +96,7 @@ fun VaultPlusViewerScreen(
     val s = LocalStrings.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val availableFolders by safeRepository.folders.collectAsState()
 
     var loading by remember(item.id) { mutableStateOf(true) }
     var errorMsg by remember(item.id) { mutableStateOf<String?>(null) }
@@ -491,18 +490,31 @@ fun VaultPlusViewerScreen(
     }
 
     if (showEditDialog) {
-        SafeMetadataEditDialog(
+        SafeMetadataBottomSheet(
+            isUploadMode = false,
+            fileName = item.metadata.fileName,
+            mimeType = item.metadata.mimeType,
+            sizeBytes = item.metadata.originalSize.toLong(),
             initialTitle = item.metadata.title,
             initialCategory = item.category,
+            initialFolderName = item.metadata.folderName,
             initialNotes = item.metadata.notes.orEmpty(),
             initialExpiresAt = item.metadata.expiresAt.orEmpty(),
-            isVi = s.isVi,
+            availableFolders = availableFolders,
+            onCreateFolderRequest = { name -> runCatching { safeRepository.createFolder(name) } },
             onDismiss = { showEditDialog = false },
-            onSave = { title, cat, notes, exp ->
+            onSave = { title, cat, folderName, notes, exp ->
                 showEditDialog = false
                 scope.launch {
                     runCatching {
-                        safeRepository.updateItemMetadata(item, title, cat, notes, exp)
+                        safeRepository.updateItemMetadata(
+                            item = item,
+                            newTitle = title,
+                            newCategory = cat,
+                            newNotes = notes,
+                            newExpiresAt = exp,
+                            newFolderName = folderName,
+                        )
                     }.onSuccess {
                         onShowMessage(if (s.isVi) "Đã cập nhật thông tin." else "Updated metadata.")
                     }.onFailure {
@@ -512,95 +524,6 @@ fun VaultPlusViewerScreen(
             },
         )
     }
-}
-
-@Composable
-fun SafeMetadataEditDialog(
-    initialTitle: String,
-    initialCategory: SafeDocumentCategory,
-    initialNotes: String,
-    initialExpiresAt: String,
-    isVi: Boolean,
-    onDismiss: () -> Unit,
-    onSave: (String, SafeDocumentCategory, String?, String?) -> Unit,
-) {
-    var title by remember { mutableStateOf(initialTitle) }
-    var category by remember { mutableStateOf(initialCategory) }
-    var notes by remember { mutableStateOf(initialNotes) }
-    var expiresAt by remember { mutableStateOf(initialExpiresAt) }
-    var catMenuOpen by remember { mutableStateOf(false) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (isVi) "Thông Tin Tài Liệu" else "Document Details") },
-        text = {
-            Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                OutlinedTextField(
-                    value = title,
-                    onValueChange = { title = it },
-                    label = { Text(if (isVi) "Tên hiển thị" else "Title") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Box {
-                    Surface(
-                        onClick = { catMenuOpen = true },
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(categoryLabel(category, isVi), fontWeight = FontWeight.Medium)
-                            Text(if (isVi) "Đổi loại" else "Change", fontSize = 12.sp, color = Color(0xFF0572EC))
-                        }
-                    }
-                    DropdownMenu(expanded = catMenuOpen, onDismissRequest = { catMenuOpen = false }) {
-                        SafeDocumentCategory.entries.forEach { cat ->
-                            DropdownMenuItem(
-                                text = { Text(categoryLabel(cat, isVi)) },
-                                onClick = {
-                                    category = cat
-                                    catMenuOpen = false
-                                },
-                            )
-                        }
-                    }
-                }
-                OutlinedTextField(
-                    value = expiresAt,
-                    onValueChange = { expiresAt = it },
-                    label = { Text(if (isVi) "Ngày hết hạn (YYYY-MM-DD, tùy chọn)" else "Expiry Date (YYYY-MM-DD, optional)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = notes,
-                    onValueChange = { notes = it },
-                    label = { Text(if (isVi) "Ghi chú bảo mật" else "Notes") },
-                    minLines = 2,
-                    maxLines = 4,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                enabled = title.trim().isNotEmpty(),
-                onClick = { onSave(title.trim(), category, notes, expiresAt) },
-            ) {
-                Text(if (isVi) "Lưu" else "Save")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text(if (isVi) "Hủy" else "Cancel") }
-        },
-    )
 }
 
 private fun decodeBoundedBitmap(bytes: ByteArray, maxDim: Int): Bitmap? {

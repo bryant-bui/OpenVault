@@ -1,11 +1,15 @@
 package io.openvault.app
 
+import android.Manifest
+import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -58,6 +62,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.openvault.app.core.crypto.CipherType
 import io.openvault.app.core.crypto.VaultItem
 import io.openvault.app.core.security.AppThemeMode
+import io.openvault.app.core.security.ClipboardNotificationHelper
 import io.openvault.app.core.security.VaultLockState
 import io.openvault.app.ui.components.MainTab
 import io.openvault.app.ui.components.OnePassBottomBar
@@ -193,6 +198,14 @@ private fun OpenVaultRootApp(
     var toastMessage by remember { mutableStateOf<String?>(null) }
     var homeFabExpanded by remember { mutableStateOf(true) }
     var itemsFabExpanded by remember { mutableStateOf(true) }
+    var askedNotificationPermThisSession by remember { mutableStateOf(false) }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) {
+            container.clipboard.refreshActiveNotification()
+        }
+    }
 
     // First-launch 5-slide onboarding state when logged out
     var showingOnboarding by remember { mutableStateOf(!container.preferences.hasSeenOnboarding()) }
@@ -207,9 +220,12 @@ private fun OpenVaultRootApp(
         showVaultDoorOverlay = false
     }
 
-    LaunchedEffect(settings.flagSecureEnabled, selectedTab, lockState) {
-        val enforceSecure = settings.flagSecureEnabled ||
-            (lockState == VaultLockState.UNLOCKED && selectedTab == MainTab.VAULT_PLUS)
+    LaunchedEffect(settings.flagSecureEnabled, settings.safeFlagSecureEnabled, selectedTab, lockState) {
+        val enforceSecure = if (lockState == VaultLockState.UNLOCKED && selectedTab == MainTab.VAULT_PLUS) {
+            settings.safeFlagSecureEnabled
+        } else {
+            settings.flagSecureEnabled
+        }
         if (enforceSecure) {
             activity.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         } else {
@@ -258,15 +274,30 @@ private fun OpenVaultRootApp(
 
     fun copyToClipboard(label: String, value: String, sensitive: Boolean) {
         container.clipboard.copy(label, value, isSensitive = sensitive)
-        val clearSec = container.preferences.settings.value.clipboardClearSeconds
-        val msg = if (s.isVi) {
-            val suffix = if (sensitive && clearSec > 0) " (tự xóa sau ${clearSec}s)" else ""
-            "Đã sao chép $label$suffix"
-        } else {
-            val suffix = if (sensitive && clearSec > 0) " (clears in ${clearSec}s)" else ""
-            "Copied $label$suffix"
+        val notificationsEnabled = container.preferences.settings.value.clipboardNotificationsEnabled
+        val hasNotifPerm = ClipboardNotificationHelper.hasNotificationPermission(activity)
+        var requestedPermNow = false
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            notificationsEnabled &&
+            !askedNotificationPermThisSession &&
+            !hasNotifPerm
+        ) {
+            askedNotificationPermThisSession = true
+            requestedPermNow = true
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
-        showToast(msg)
+        if (!(notificationsEnabled && hasNotifPerm) && !requestedPermNow) {
+            val clearSec = container.preferences.settings.value.clipboardClearSeconds
+            val msg = if (s.isVi) {
+                val suffix = if (sensitive && clearSec > 0) " (tự xóa sau ${clearSec}s)" else ""
+                "Đã sao chép $label$suffix"
+            } else {
+                val suffix = if (sensitive && clearSec > 0) " (clears in ${clearSec}s)" else ""
+                "Copied $label$suffix"
+            }
+            showToast(msg)
+        }
     }
 
     fun triggerSync() {

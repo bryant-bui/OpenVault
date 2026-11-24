@@ -44,11 +44,13 @@ data class HomeSectionPref(
 data class SecuritySettings(
     val autoLockMinutes: Int = 5,
     val clipboardClearSeconds: Int = 30,
+    val clipboardNotificationsEnabled: Boolean = true,
     val flagSecureEnabled: Boolean = true,
     val themeMode: AppThemeMode = AppThemeMode.DARK,
     val language: AppLanguage = AppLanguage.ENGLISH,
     val biometricEnabled: Boolean = false,
     val safeBiometricEnabled: Boolean = false,
+    val safeFlagSecureEnabled: Boolean = true,
     val pinEnabled: Boolean = false,
     val pinLength: Int = 6,
     val pinMaxAttempts: Int = PinCrypto.DEFAULT_PIN_MAX_ATTEMPTS,
@@ -115,6 +117,7 @@ class AppPreferences(context: Context) {
         private const val KEY_BIO_BLOB = "bio_blob_json"
         private const val KEY_AUTO_LOCK_MIN = "auto_lock_minutes"
         private const val KEY_CLIPBOARD_SEC = "clipboard_clear_seconds"
+        private const val KEY_CLIPBOARD_NOTIFICATIONS = "clipboard_notifications_enabled"
         private const val KEY_FLAG_SECURE = "flag_secure_enabled"
         private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_LANGUAGE = "app_language"
@@ -134,6 +137,10 @@ class AppPreferences(context: Context) {
         private const val KEY_SAFE_LOCKED_UNTIL_MS = "safe_locked_until_ms"
         private const val KEY_SAFE_RECOVERY_REQUIRED = "safe_recovery_required"
         private const val KEY_SAFE_AUTO_LOCK_MIN = "safe_auto_lock_minutes"
+        private const val KEY_SAFE_FLAG_SECURE = "safe_flag_secure_enabled"
+        private const val KEY_SAFE_CUSTOM_FOLDERS = "safe_custom_folders_json"
+        private const val KEY_SAFE_VIEW_MODE = "safe_view_mode"
+        private const val KEY_SAFE_SORT_MODE = "safe_sort_mode"
     }
 
     private val prefs: SharedPreferences =
@@ -149,6 +156,9 @@ class AppPreferences(context: Context) {
 
     private val _itemUsageCounts = MutableStateFlow(readUsageCounts())
     val itemUsageCounts: StateFlow<Map<String, Int>> = _itemUsageCounts.asStateFlow()
+
+    private val _safeCustomFolders = MutableStateFlow(readSafeCustomFolders())
+    val safeCustomFolders: StateFlow<List<String>> = _safeCustomFolders.asStateFlow()
 
     fun getOrCreateDeviceId(): String {
         val existing = prefs.getString(KEY_DEVICE_ID, null)
@@ -309,6 +319,58 @@ class AppPreferences(context: Context) {
         prefs.edit().putInt(KEY_SAFE_AUTO_LOCK_MIN, minutes.coerceIn(1, 15)).apply()
     }
 
+    fun setSafeFlagSecureEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_SAFE_FLAG_SECURE, enabled).apply()
+        _settings.value = readSettings()
+    }
+
+    fun getSafeViewMode(): String = prefs.getString(KEY_SAFE_VIEW_MODE, "LIST") ?: "LIST"
+
+    fun setSafeViewMode(mode: String) {
+        prefs.edit().putString(KEY_SAFE_VIEW_MODE, mode).apply()
+    }
+
+    fun getSafeSortMode(): String = prefs.getString(KEY_SAFE_SORT_MODE, "NAME_ASC") ?: "NAME_ASC"
+
+    fun setSafeSortMode(mode: String) {
+        prefs.edit().putString(KEY_SAFE_SORT_MODE, mode).apply()
+    }
+
+    private fun readSafeCustomFolders(): List<String> {
+        val raw = prefs.getString(KEY_SAFE_CUSTOM_FOLDERS, null) ?: return emptyList()
+        return runCatching { json.decodeFromString<List<String>>(raw) }
+            .getOrDefault(emptyList())
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+    }
+
+    fun addSafeFolder(name: String) {
+        val clean = name.trim()
+        if (clean.isEmpty()) return
+        val next = (_safeCustomFolders.value + clean).distinctBy { it.lowercase() }
+        prefs.edit().putString(KEY_SAFE_CUSTOM_FOLDERS, json.encodeToString(next)).apply()
+        _safeCustomFolders.value = next
+    }
+
+    fun renameSafeFolder(oldName: String, newName: String) {
+        val cleanNew = newName.trim()
+        if (cleanNew.isEmpty()) return
+        val next = _safeCustomFolders.value
+            .map { if (it == oldName) cleanNew else it }
+            .ifEmpty { listOf(cleanNew) }
+            .let { if (cleanNew in it) it else it + cleanNew }
+            .distinctBy { it.lowercase() }
+        prefs.edit().putString(KEY_SAFE_CUSTOM_FOLDERS, json.encodeToString(next)).apply()
+        _safeCustomFolders.value = next
+    }
+
+    fun removeSafeFolder(name: String) {
+        val next = _safeCustomFolders.value.filterNot { it == name }
+        prefs.edit().putString(KEY_SAFE_CUSTOM_FOLDERS, json.encodeToString(next)).apply()
+        _safeCustomFolders.value = next
+    }
+
     fun clearSafeAllLocalState() {
         BiometricKeyManager.deleteSafeBiometricKey()
         prefs.edit()
@@ -317,7 +379,10 @@ class AppPreferences(context: Context) {
             .remove(KEY_SAFE_LOCKED_UNTIL_MS)
             .remove(KEY_SAFE_RECOVERY_REQUIRED)
             .remove(KEY_SAFE_AUTO_LOCK_MIN)
+            .remove(KEY_SAFE_FLAG_SECURE)
+            .remove(KEY_SAFE_CUSTOM_FOLDERS)
             .apply()
+        _safeCustomFolders.value = emptyList()
         _settings.value = readSettings()
     }
 
@@ -328,6 +393,11 @@ class AppPreferences(context: Context) {
 
     fun setClipboardClearSeconds(seconds: Int) {
         prefs.edit().putInt(KEY_CLIPBOARD_SEC, seconds).apply()
+        _settings.value = readSettings()
+    }
+
+    fun setClipboardNotificationsEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_CLIPBOARD_NOTIFICATIONS, enabled).apply()
         _settings.value = readSettings()
     }
 
@@ -432,6 +502,8 @@ class AppPreferences(context: Context) {
             .remove(KEY_SAFE_LOCKED_UNTIL_MS)
             .remove(KEY_SAFE_RECOVERY_REQUIRED)
             .remove(KEY_SAFE_AUTO_LOCK_MIN)
+            .remove(KEY_SAFE_FLAG_SECURE)
+            .remove(KEY_SAFE_CUSTOM_FOLDERS)
             .remove(KEY_DEFAULT_IDENTITY_ID)
             .remove(KEY_DEFAULT_CARD_ID)
             .remove(KEY_ACCOUNT_AVATAR_B64)
@@ -443,6 +515,7 @@ class AppPreferences(context: Context) {
         _account.value = readAccountMeta()
         _settings.value = readSettings()
         _itemUsageCounts.value = emptyMap()
+        _safeCustomFolders.value = emptyList()
     }
 
     private fun readAccountMeta(): AccountMeta = AccountMeta(
@@ -490,11 +563,13 @@ class AppPreferences(context: Context) {
         return SecuritySettings(
             autoLockMinutes = prefs.getInt(KEY_AUTO_LOCK_MIN, 5),
             clipboardClearSeconds = prefs.getInt(KEY_CLIPBOARD_SEC, 30),
+            clipboardNotificationsEnabled = prefs.getBoolean(KEY_CLIPBOARD_NOTIFICATIONS, true),
             flagSecureEnabled = prefs.getBoolean(KEY_FLAG_SECURE, true),
             themeMode = theme,
             language = language,
             biometricEnabled = bioBlob != null,
             safeBiometricEnabled = safeBioBlob != null,
+            safeFlagSecureEnabled = prefs.getBoolean(KEY_SAFE_FLAG_SECURE, true),
             pinEnabled = pinRec != null,
             pinLength = pinRec?.pinLength ?: 6,
             pinMaxAttempts = prefs.getInt(KEY_PIN_MAX_ATTEMPTS, PinCrypto.DEFAULT_PIN_MAX_ATTEMPTS),

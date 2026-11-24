@@ -38,6 +38,7 @@ data class SafeItemMetadata(
     val fileName: String,
     val mimeType: String,
     val category: String,
+    val folderName: String? = null,
     val notes: String? = null,
     val fileKeyB64: String,
     val thumbKeyB64: String? = null,

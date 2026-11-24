@@ -5,6 +5,7 @@ import io.openvault.app.core.database.OpenVaultDatabase
 import io.openvault.app.core.network.BitwardenApiClient
 import io.openvault.app.core.network.SafeApiClient
 import io.openvault.app.core.security.AppPreferences
+import io.openvault.app.core.security.ClipboardNotificationHelper
 import io.openvault.app.core.security.SafeSessionManager
 import io.openvault.app.core.security.SensitiveClipboard
 import io.openvault.app.core.security.VaultSessionManager
@@ -48,5 +49,6 @@ class OpenVaultApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)
+        ClipboardNotificationHelper.ensureChannel(this)
     }
 }
