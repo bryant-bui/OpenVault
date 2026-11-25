@@ -19,6 +19,7 @@ Self-host your vault on Cloudflare Workers, unlock with biometrics or PIN, and a
   <img alt="Cloudflare Workers" src="https://img.shields.io/badge/Cloudflare-Workers%20%2B%20D1%20%2B%20R2-F38020?style=flat&logo=cloudflare&logoColor=white" />
   <a href="LICENSE"><img alt="License MIT" src="https://img.shields.io/badge/License-MIT-0C74F2?style=flat" /></a>
   <a href="https://github.com/bryant-bui/OpenVault/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/bryant-bui/OpenVault?style=flat&color=60A5FA&labelColor=181717&logo=github" /></a>
+<br/>
   <a href="https://ko-fi.com/bryantbui"><img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="Support me on Ko-fi" height="34" /></a>
 </p>
 
